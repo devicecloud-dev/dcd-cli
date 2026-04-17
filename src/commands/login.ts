@@ -6,13 +6,17 @@
  *  1. CLI binds a loopback HTTP server on 127.0.0.1:<random-port> and mints
  *     a single-use `state` token.
  *  2. CLI opens <frontend>/cli-login?state=...&port=... in the browser.
- *  3. User signs in (OTP or SSO) and picks an org on the existing frontend.
- *  4. Frontend redirects to http://127.0.0.1:<port>/callback?state=...&tokens=<b64url(json)>.
- *  5. Loopback validates state, writes config, serves a "close this tab" page, exits.
+ *  3. User signs in (OTP or SSO), picks an org, and explicitly authorizes the
+ *     handoff on the frontend.
+ *  4. Frontend POSTs JSON {state, access_token, refresh_token, ...} to
+ *     http://127.0.0.1:<port>/callback. Tokens travel in the request body so
+ *     they never land in browser history or Referer headers.
+ *  5. Loopback validates state + Origin, writes config, responds 200, exits.
  *
- * Loopback trust model: we bind 127.0.0.1 (loopback only, not 0.0.0.0) and
- * refuse any callback whose `state` doesn't match. Tokens travel over loopback
- * never over the network.
+ * Loopback trust model: we bind 127.0.0.1 (loopback only, not 0.0.0.0), refuse
+ * any callback whose `state` doesn't match, and gate CORS on the exact origin
+ * of the frontend URL we opened — so a different page loaded in the same
+ * browser can't POST into our loopback.
  */
 import { defineCommand } from 'citty';
 import { spawn } from 'node:child_process';
@@ -26,6 +30,7 @@ import { writeConfig } from '../utils/config-store';
 import { colors, sectionHeader, symbols } from '../utils/styling';
 
 interface CallbackPayload {
+  state: string;
   access_token: string;
   refresh_token: string;
   expires_at: number;
@@ -36,6 +41,7 @@ interface CallbackPayload {
 }
 
 const CALLBACK_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_BODY_BYTES = 64 * 1024;
 
 export const loginCommand = defineCommand({
   meta: {
@@ -69,8 +75,9 @@ export const loginCommand = defineCommand({
     const frontendUrl = frontendOverride ?? resolveFrontendUrl(apiUrl);
 
     const state = randomBytes(32).toString('hex');
+    const allowedOrigin = new URL(frontendUrl).origin;
 
-    const { server, port, waitForCallback } = await startLoopback(state);
+    const { server, port, waitForCallback } = await startLoopback(state, allowedOrigin);
     const loginUrl = `${frontendUrl.replace(/\/$/, '')}/cli-login?state=${state}&port=${port}`;
 
     logger.log(sectionHeader('Signing in to devicecloud.dev'));
@@ -145,7 +152,10 @@ interface LoopbackHandle {
   waitForCallback: () => Promise<CallbackPayload>;
 }
 
-async function startLoopback(expectedState: string): Promise<LoopbackHandle> {
+async function startLoopback(
+  expectedState: string,
+  allowedOrigin: string,
+): Promise<LoopbackHandle> {
   let resolvePayload: (payload: CallbackPayload) => void;
   let rejectPayload: (err: Error) => void;
   const settled = new Promise<CallbackPayload>((res, rej) => {
@@ -153,7 +163,9 @@ async function startLoopback(expectedState: string): Promise<LoopbackHandle> {
     rejectPayload = rej;
   });
 
-  const server = createServer((req, res) => handleRequest(req, res, expectedState, resolvePayload));
+  const server = createServer((req, res) =>
+    handleRequest(req, res, expectedState, allowedOrigin, resolvePayload),
+  );
   server.on('error', (err) => rejectPayload(err));
 
   await new Promise<void>((resolve, reject) => {
@@ -178,6 +190,7 @@ function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
   expectedState: string,
+  allowedOrigin: string,
   resolve: (p: CallbackPayload) => void,
 ): void {
   const url = new URL(req.url ?? '/', `http://127.0.0.1`);
@@ -185,52 +198,78 @@ function handleRequest(
     res.writeHead(404).end();
     return;
   }
-  const state = url.searchParams.get('state');
-  const tokens = url.searchParams.get('tokens');
-  if (!state || !tokens || state !== expectedState) {
-    res.writeHead(400, { 'content-type': 'text/plain' }).end('Invalid state');
+
+  const origin = req.headers.origin;
+  const corsHeaders: Record<string, string> =
+    origin === allowedOrigin
+      ? {
+          'access-control-allow-origin': allowedOrigin,
+          vary: 'origin',
+        }
+      : {};
+
+  if (req.method === 'OPTIONS') {
+    res
+      .writeHead(204, {
+        ...corsHeaders,
+        'access-control-allow-methods': 'POST, OPTIONS',
+        'access-control-allow-headers': 'content-type',
+        'access-control-max-age': '600',
+      })
+      .end();
     return;
   }
-  let payload: CallbackPayload;
-  try {
-    const json = Buffer.from(tokens, 'base64url').toString('utf8');
-    const parsed = JSON.parse(json) as CallbackPayload;
-    if (
-      !parsed.access_token ||
-      !parsed.refresh_token ||
-      !parsed.expires_at ||
-      !parsed.user_email ||
-      !parsed.user_id ||
-      !parsed.org_id
-    ) {
-      throw new Error('Missing fields');
-    }
-    payload = parsed;
-  } catch {
-    res.writeHead(400, { 'content-type': 'text/plain' }).end('Malformed payload');
+
+  if (req.method !== 'POST') {
+    res.writeHead(405, { ...corsHeaders, allow: 'POST, OPTIONS' }).end();
     return;
   }
-  res
-    .writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-    .end(successPage());
-  resolve(payload);
+
+  if (origin !== allowedOrigin) {
+    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden origin');
+    return;
+  }
+
+  readJsonBody(req, MAX_BODY_BYTES)
+    .then((body) => {
+      const parsed = JSON.parse(body) as CallbackPayload;
+      if (
+        typeof parsed.state !== 'string' ||
+        parsed.state !== expectedState ||
+        !parsed.access_token ||
+        !parsed.refresh_token ||
+        !parsed.expires_at ||
+        !parsed.user_email ||
+        !parsed.user_id ||
+        !parsed.org_id
+      ) {
+        res.writeHead(400, { ...corsHeaders, 'content-type': 'text/plain' }).end('Invalid payload');
+        return;
+      }
+      res.writeHead(200, corsHeaders).end();
+      resolve(parsed);
+    })
+    .catch(() => {
+      res.writeHead(400, { ...corsHeaders, 'content-type': 'text/plain' }).end('Malformed body');
+    });
 }
 
-function successPage(): string {
-  return `<!doctype html>
-<html><head><title>dcd login complete</title>
-<style>
-  body { font-family: system-ui, sans-serif; display: grid; place-items: center;
-         height: 100vh; margin: 0; background: #0b0d10; color: #e6e9ef; }
-  .card { padding: 2rem 2.5rem; border: 1px solid #1f2937; border-radius: 12px;
-          background: #0f1419; text-align: center; max-width: 28rem; }
-  h1 { margin: 0 0 .5rem; font-size: 1.25rem; }
-  p { margin: 0; color: #94a3b8; }
-</style></head>
-<body><div class="card">
-  <h1>Logged in to devicecloud.dev</h1>
-  <p>You can close this tab and return to your terminal.</p>
-</div></body></html>`;
+function readJsonBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    req.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error('Body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
 }
 
 export default loginCommand;
