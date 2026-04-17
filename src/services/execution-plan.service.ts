@@ -1,4 +1,3 @@
-import { glob } from 'glob';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -261,9 +260,15 @@ async function applyFlowGlobs(
 ): Promise<string[]> {
   if (workspaceConfig.flows) {
     const globs = workspaceConfig.flows.map((g) => g);
-    const matchedFiles = await glob(globs, {
-      cwd: normalizedInput,
-      nodir: true,
+    // fs.globSync lands in Node 22; the CLI's `engines.node` already requires it.
+    // No `nodir` option — we strip directories with a stat check below.
+    const allMatches = fs.globSync(globs, { cwd: normalizedInput });
+    const matchedFiles = allMatches.filter((file) => {
+      try {
+        return fs.statSync(path.resolve(normalizedInput, file)).isFile();
+      } catch {
+        return false;
+      }
     });
 
     return matchedFiles

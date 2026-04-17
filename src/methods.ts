@@ -1,12 +1,10 @@
 import { ux } from './utils/progress';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import archiver = require('archiver');
 import { createHash } from 'node:crypto';
-import { createReadStream, writeFileSync } from 'node:fs';
+import { createReadStream, readdirSync, writeFileSync } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
-import { Writable } from 'node:stream';
 import * as StreamZip from 'node-stream-zip';
+import * as yazl from 'yazl';
 
 import { inferEnvFromApiUrl } from './config/environments';
 import { ApiGateway } from './gateways/api-gateway';
@@ -22,58 +20,59 @@ const mimeTypeLookupByExtension: Record<string, string> = {
   zip: 'application/zip',
 };
 
-export const toBuffer = async (archive: archiver.Archiver) => {
-  const chunks: Uint8Array[] = [];
-  const writable = new Writable();
-  writable._write = (chunk, _, callback) => {
-    // save to array to concatenate later
-    chunks.push(chunk);
-    callback();
-  };
-
-  // pipe to writable
-  archive.pipe(writable);
-  await archive.finalize();
-
-  // once done, concatenate chunks
-  return Buffer.concat(chunks);
-};
-
-export const compressFolderToBlob = async (sourceDir: string) => {
-  const archive = archiver('zip', {
-    zlib: { level: 9 },
+async function zipToBuffer(zipfile: yazl.ZipFile): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    // Typed as Uint8Array[] so Buffer.concat infers Buffer<ArrayBuffer> — matches
+    // the `BlobPart` shape that callers pass to `new Blob([...])`.
+    const chunks: Uint8Array[] = [];
+    zipfile.outputStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    zipfile.outputStream.on('end', () => resolve(Buffer.concat(chunks)));
+    zipfile.outputStream.on('error', reject);
+    zipfile.end();
   });
-  archive.on('error', (err) => {
-    throw err;
+}
+
+/** Normalize a filesystem path to a POSIX-style zip entry name. */
+function toZipEntryName(relativePath: string): string {
+  return relativePath.split(path.sep).join('/').replace(/^\/+/, '');
+}
+
+export const compressFolderToBlob = async (sourceDir: string): Promise<Blob> => {
+  const zipfile = new yazl.ZipFile();
+  const rootName = path.basename(sourceDir);
+
+  const entries = readdirSync(sourceDir, {
+    recursive: true,
+    withFileTypes: true,
   });
 
-  archive.directory(sourceDir, sourceDir.split('/').pop()!);
-  const buffer = await toBuffer(archive);
-  return new Blob([buffer], { type: 'application/zip' });
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const absolutePath = path.join(entry.parentPath, entry.name);
+    const relativePath = path.relative(sourceDir, absolutePath);
+    zipfile.addFile(absolutePath, toZipEntryName(path.join(rootName, relativePath)));
+  }
+
+  const buffer = await zipToBuffer(zipfile);
+  // Buffer.concat() types as Buffer<ArrayBufferLike> under @types/node v25+,
+  // which TS refuses as a BlobPart. At runtime Node Buffers never use SharedArrayBuffer,
+  // so this cast is safe.
+  return new Blob([buffer as Uint8Array<ArrayBuffer>], { type: 'application/zip' });
 };
 
 export const compressFilesFromRelativePath = async (
   basePath: string,
   files: string[],
   commonRoot: string,
-) => {
-  const archive = archiver('zip', {
-    zlib: { level: 9 },
-  });
-  archive.on('error', (err) => {
-    throw err;
-  });
-
+): Promise<Buffer> => {
+  const zipfile = new yazl.ZipFile();
   for (const file of files) {
-    archive.file(path.resolve(basePath, file), {
-      name: file.replace(commonRoot, ''),
-    });
+    zipfile.addFile(
+      path.resolve(basePath, file),
+      toZipEntryName(file.replace(commonRoot, '')),
+    );
   }
-
-  const buffer = await toBuffer(archive);
-  // await writeFile('./my-zip.zip', buffer);
-
-  return buffer;
+  return zipToBuffer(zipfile);
 };
 
 export const verifyAppZip = async (zipPath: string) => {
@@ -209,8 +208,8 @@ async function prepareFileForUpload(
       console.log('[DEBUG] Compressing .app folder to zip...');
     }
 
-    // Validate that the .app directory exists before attempting to compress
-    // Without this check, archiver silently creates an empty 22-byte zip for non-existent paths
+    // Validate that the .app directory exists before attempting to compress —
+    // zipping a non-existent path silently produces an empty 22-byte zip.
     try {
       await access(filePath);
     } catch {

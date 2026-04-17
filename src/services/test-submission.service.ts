@@ -158,7 +158,7 @@ export class TestSubmissionService {
     const sha = createHash('sha256').update(buffer).digest('hex');
     this.logDebug(debug, logger, `[DEBUG] Flow ZIP SHA-256: ${sha}`);
 
-    const blob = new Blob([buffer], {
+    const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], {
       type: mimeTypeLookupByExtension.zip,
     });
 
