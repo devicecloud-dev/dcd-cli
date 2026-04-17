@@ -1,0 +1,8 @@
+flows:
+  - ./**/*.yaml
+  - ./*.yaml
+tags:
+  include:
+    - smoke
+  exclude:
+    - slow

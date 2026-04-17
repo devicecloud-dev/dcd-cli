@@ -1,0 +1,22 @@
+**/.DS_Store
+*-debug.log
+*-error.log
+/.idea
+/.nyc_output
+/dist
+/lib
+/package-lock.json
+/tmp
+samples
+node_modules
+
+# Test output files
+*_dcd.json
+custom-output.json
+*.test-output.json
+
+# Claude Code settings
+.claude/settings.local.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo
