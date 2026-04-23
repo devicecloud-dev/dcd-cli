@@ -25,13 +25,14 @@
  * rendezvous endpoint makes both cases trivial. A leaked URL is inert: it
  * carries the challenge, not the verifier.
  */
+import * as p from '@clack/prompts';
 import { defineCommand } from 'citty';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 
 import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments';
 import { CliError, logger } from '../utils/cli';
-import { writeConfig } from '../utils/config-store';
+import { readConfig, writeConfig } from '../utils/config-store';
 import { fetchOrgs, pickOrg } from '../utils/orgs';
 import { colors, sectionHeader, symbols } from '../utils/styling';
 
@@ -44,7 +45,9 @@ interface ClaimedSession {
 }
 
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
-const POLL_INTERVAL_MS = 2000;
+// 1s feels snappy after the user clicks "Authorize" in the browser. The api
+// rate-limits /cli-login/claim at 60/min which is exactly this cadence.
+const POLL_INTERVAL_MS = 1000;
 
 export const loginCommand = defineCommand({
   meta: {
@@ -74,6 +77,25 @@ export const loginCommand = defineCommand({
     const apiUrl = (args['api-url'] as string).replace(/\/$/, '');
     const frontendOverride = args['frontend-url'] as string | undefined;
     const noBrowser = args.browser === false;
+
+    // If there's an existing stored session, make the user confirm before we
+    // overwrite it. Silent clobber is fine for power users but surprising if
+    // someone runs `dcd login` by mistake while already authenticated.
+    const existing = readConfig();
+    if (existing?.session) {
+      const currentOrg = existing.current_org_name ?? existing.current_org_id;
+      const ok = await p.confirm({
+        message:
+          `Already logged in as ${existing.session.user_email}` +
+          (currentOrg ? ` (org ${currentOrg})` : '') +
+          `. Sign out and log in again?`,
+        initialValue: false,
+      });
+      if (p.isCancel(ok) || !ok) {
+        logger.log(`${symbols.info} Keeping existing session.`);
+        return;
+      }
+    }
 
     const env = inferEnvFromApiUrl(apiUrl);
     const SUPABASE_URL = ENVIRONMENTS[env].supabase.url;
@@ -105,13 +127,35 @@ export const loginCommand = defineCommand({
 
     try {
       const payload = await pollForClaim(apiUrl, state, codeVerifier);
+      if (!payload.access_token || typeof payload.access_token !== 'string') {
+        throw new CliError('Claim response did not include an access_token.');
+      }
       // Fetch orgs with the just-minted Bearer token. We don't write the
       // config until the user has picked an org — half-completed state isn't
       // useful and the handoff row is already single-use consumed.
       const bearerHeaders = {
         authorization: `Bearer ${payload.access_token}`,
       };
-      const orgs = await fetchOrgs(apiUrl, bearerHeaders);
+      let orgs;
+      try {
+        orgs = await fetchOrgs(apiUrl, bearerHeaders);
+      } catch (err) {
+        // The api rejected the JWT. Before blaming the api, hit Supabase's
+        // own /auth/v1/user directly with the same token — if Supabase also
+        // rejects it, the token itself is bad; if Supabase accepts, the
+        // api's JwtService is misconfigured.
+        const iss = decodeJwtIssuer(payload.access_token);
+        const supabaseUser = await probeSupabaseUser(
+          iss,
+          ENVIRONMENTS[env].supabase.anonKey,
+          payload.access_token,
+        );
+        const parts = [
+          iss ? `token iss: ${iss}` : null,
+          `supabase /auth/v1/user: ${supabaseUser}`,
+        ].filter(Boolean);
+        throw new CliError(`${(err as Error).message} [${parts.join(' | ')}]`);
+      }
       const chosen = await pickOrg(orgs);
 
       writeConfig({
@@ -134,6 +178,11 @@ export const loginCommand = defineCommand({
         `${symbols.success} ${colors.bold('Logged in')} as ${colors.highlight(payload.user_email)}`,
       );
       logger.log(`   ${colors.dim('Organization:')} ${colors.highlight(chosen.name)}`);
+      if (orgs.length > 1) {
+        logger.log(
+          `   ${colors.dim('Switch orgs later with')} ${colors.highlight('dcd switch-org')}`,
+        );
+      }
     } catch (error) {
       logger.error(error as Error, { exit: 1 });
     }
@@ -203,6 +252,41 @@ async function pollForClaim(
 
 function base64url(buf: Buffer): string {
   return buf.toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+async function probeSupabaseUser(
+  iss: string | null,
+  anonKey: string,
+  token: string,
+): Promise<string> {
+  if (!iss) return 'skipped (no iss)';
+  try {
+    const res = await fetch(`${iss}/user`, {
+      headers: {
+        authorization: `Bearer ${token}`,
+        apikey: anonKey,
+      },
+    });
+    const bodyText = await res.text().catch(() => '');
+    return `HTTP ${res.status}${bodyText ? ` — ${bodyText.slice(0, 200)}` : ''}`;
+  } catch (err) {
+    return `network error: ${(err as Error).message}`;
+  }
+}
+
+function decodeJwtIssuer(token: string): string | null {
+  try {
+    const [, payloadB64] = token.split('.');
+    if (!payloadB64) return null;
+    const json = Buffer.from(
+      payloadB64.replaceAll('-', '+').replaceAll('_', '/'),
+      'base64',
+    ).toString('utf8');
+    const parsed = JSON.parse(json) as { iss?: string };
+    return parsed.iss ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function sleep(ms: number): Promise<void> {

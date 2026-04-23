@@ -18,7 +18,10 @@ export async function fetchOrgs(
 ): Promise<OrgListItem[]> {
   const res = await fetch(`${apiUrl.replace(/\/$/, '')}/me/orgs`, { headers });
   if (!res.ok) {
-    throw new CliError(`Failed to list organizations: HTTP ${res.status}`);
+    const body = await res.text().catch(() => '');
+    throw new CliError(
+      `Failed to list organizations: HTTP ${res.status}${body ? ` — ${body}` : ''}`,
+    );
   }
   const body = (await res.json()) as { orgs: OrgListItem[] };
   return body.orgs ?? [];

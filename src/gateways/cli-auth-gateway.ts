@@ -57,13 +57,18 @@ export const CliAuthGateway = {
     supabaseAnonKey: string,
     session: StoredSession,
   ): Promise<void> {
+    // `scope: 'local'` clears this client's SDK state only — no server call,
+    // no revocation. supabase-js defaults to `scope: 'global'`, which revokes
+    // EVERY session for the user (browser, mobile, other CLIs), so
+    // `dcd logout` would kick the user out of the web app. We don't want
+    // that — logging out locally should be local.
     const sb = client(supabaseUrl, supabaseAnonKey);
     try {
       await sb.auth.setSession({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
       });
-      await sb.auth.signOut();
+      await sb.auth.signOut({ scope: 'local' });
     } catch {
       // Best effort — the local config will be wiped regardless.
     }
