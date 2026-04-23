@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `pnpm build` — clean, compile TypeScript to `dist/`, and `chmod +x dist/index.js` so the published binary is directly executable.
 - `pnpm lint` — ESLint over `src/`.
 - `pnpm test` — runs `scripts/test-runner.mjs`: builds the CLI, boots a mock API, then runs all `test/**/*.test.ts` via mocha + ts-node. The mock API lives in the **sibling `dcd/` repo** (`../dcd/mock-api`). Override its location with `MOCK_API_DIR=/path/to/mock-api`.
-- Run a single test: `npx mocha --require ts-node/register test/integration/cloud.integration.test.ts --timeout 60000` (requires the mock API already running on its expected port).
+- Run a single test: `pnpm mocha test/integration/cloud.integration.test.ts --timeout 60000` (picks up `.mocharc.json` which wires tsx; requires the mock API already running on its expected port).
 
 ## Entry point
 

@@ -1,6 +1,5 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import AppInfoParser = require('app-info-parser');
 import { parseBuffer } from 'bplist-parser';
+import { Apk } from 'node-apk';
 import { readFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as StreamZip from 'node-stream-zip';
@@ -28,9 +27,13 @@ export class AndroidMetadataExtractor implements IMetadataExtractor {
   }
 
   async extract(filePath: string): Promise<TAppMetadata> {
-    const parser = new AppInfoParser(filePath);
-    const result = await parser.parse();
-    return { appId: result.package, platform: 'android' };
+    const apk = new Apk(filePath);
+    try {
+      const manifest = await apk.getManifestInfo();
+      return { appId: manifest.package, platform: 'android' };
+    } finally {
+      apk.close();
+    }
   }
 }
 
