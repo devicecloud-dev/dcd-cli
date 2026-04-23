@@ -2,35 +2,36 @@
  * `dcd login` — delegates auth to the web frontend and persists the resulting
  * Supabase session locally.
  *
- * Flow:
- *  1. CLI binds a loopback HTTP server on 127.0.0.1:<random-port> and mints
- *     a single-use `state` token.
- *  2. CLI opens <frontend>/cli-login?state=...&port=... in the browser.
+ * Flow (PKCE S256, no loopback):
+ *  1. CLI mints:
+ *       - `state`:        32 random bytes, hex
+ *       - `code_verifier`:32 random bytes, base64url
+ *       - `code_challenge` = base64url(sha256(code_verifier))
+ *  2. CLI opens <frontend>/cli-login?state=...&code_challenge=... in the browser.
  *  3. User signs in (OTP or SSO), picks an org, and explicitly authorizes the
  *     handoff on the frontend.
- *  4. Frontend POSTs JSON {state, access_token, refresh_token, ...} to
- *     http://127.0.0.1:<port>/callback. Tokens travel in the request body so
- *     they never land in browser history or Referer headers.
- *  5. Loopback validates state + Origin, writes config, responds 200, exits.
+ *  4. Frontend POSTs {state, code_challenge, session...} to the dcd api at
+ *     POST /cli-login/handoff. The api stores a short-TTL row keyed by state.
+ *  5. Meanwhile, the CLI polls POST /cli-login/claim with {state, code_verifier}.
+ *     Once the api has the row, it verifies sha256(verifier) === challenge,
+ *     deletes the row, and returns the session.
  *
- * Loopback trust model: we bind 127.0.0.1 (loopback only, not 0.0.0.0), refuse
- * any callback whose `state` doesn't match, and gate CORS on the exact origin
- * of the frontend URL we opened — so a different page loaded in the same
- * browser can't POST into our loopback.
+ * Why PKCE + server rendezvous (instead of a localhost loopback): Safari
+ * blocks HTTPS → HTTP fetches to 127.0.0.1 as mixed content, and a loopback
+ * flow can't work at all over SSH / "open this URL on your phone". The
+ * rendezvous endpoint makes both cases trivial. A leaked URL is inert: it
+ * carries the challenge, not the verifier.
  */
 import { defineCommand } from 'citty';
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { createServer, IncomingMessage, ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments';
 import { CliError, logger } from '../utils/cli';
 import { writeConfig } from '../utils/config-store';
 import { colors, sectionHeader, symbols } from '../utils/styling';
 
-interface CallbackPayload {
-  state: string;
+interface ClaimedSession {
   access_token: string;
   refresh_token: string;
   expires_at: number;
@@ -40,8 +41,8 @@ interface CallbackPayload {
   org_name?: string;
 }
 
-const CALLBACK_TIMEOUT_MS = 10 * 60 * 1000;
-const MAX_BODY_BYTES = 64 * 1024;
+const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+const POLL_INTERVAL_MS = 2000;
 
 export const loginCommand = defineCommand({
   meta: {
@@ -59,26 +60,28 @@ export const loginCommand = defineCommand({
       description:
         'Override the frontend URL used to complete login (defaults per env)',
     },
-    'no-browser': {
+    // citty treats `--no-<flag>` as negating `<flag>`, so the flag has to be
+    // named `browser` (defaulting true) for `--no-browser` to set it false.
+    browser: {
       type: 'boolean',
-      default: false,
-      description: 'Print the login URL instead of opening a browser',
+      default: true,
+      description: 'Open the login URL in a browser (pass --no-browser to just print it)',
     },
   },
   async run({ args }) {
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = (args['api-url'] as string).replace(/\/$/, '');
     const frontendOverride = args['frontend-url'] as string | undefined;
-    const noBrowser = Boolean(args['no-browser']);
+    const noBrowser = args.browser === false;
 
     const env = inferEnvFromApiUrl(apiUrl);
     const SUPABASE_URL = ENVIRONMENTS[env].supabase.url;
-    const frontendUrl = frontendOverride ?? resolveFrontendUrl(apiUrl);
+    const frontendUrl = (frontendOverride ?? resolveFrontendUrl(apiUrl)).replace(/\/$/, '');
 
     const state = randomBytes(32).toString('hex');
-    const allowedOrigin = new URL(frontendUrl).origin;
+    const codeVerifier = base64url(randomBytes(32));
+    const codeChallenge = base64url(createHash('sha256').update(codeVerifier, 'ascii').digest());
 
-    const { server, port, waitForCallback } = await startLoopback(state, allowedOrigin);
-    const loginUrl = `${frontendUrl.replace(/\/$/, '')}/cli-login?state=${state}&port=${port}`;
+    const loginUrl = `${frontendUrl}/cli-login?state=${state}&code_challenge=${codeChallenge}`;
 
     logger.log(sectionHeader('Signing in to devicecloud.dev'));
 
@@ -99,7 +102,7 @@ export const loginCommand = defineCommand({
     logger.log(`   ${colors.dim('Waiting for login to complete...')}\n`);
 
     try {
-      const payload = await waitForCallback();
+      const payload = await pollForClaim(apiUrl, state, codeVerifier);
       writeConfig({
         version: 1,
         env,
@@ -124,8 +127,6 @@ export const loginCommand = defineCommand({
       }
     } catch (error) {
       logger.error(error as Error, { exit: 1 });
-    } finally {
-      server.close();
     }
   },
 });
@@ -146,130 +147,57 @@ function openBrowser(url: string): boolean {
   }
 }
 
-interface LoopbackHandle {
-  server: ReturnType<typeof createServer>;
-  port: number;
-  waitForCallback: () => Promise<CallbackPayload>;
+async function pollForClaim(
+  apiUrl: string,
+  state: string,
+  codeVerifier: string,
+): Promise<ClaimedSession> {
+  const claimUrl = `${apiUrl}/cli-login/claim`;
+  const deadline = Date.now() + LOGIN_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    let res: Response;
+    try {
+      res = await fetch(claimUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ state, code_verifier: codeVerifier }),
+      });
+    } catch {
+      // Network blip — don't kill the login, just back off and try again.
+      await sleep(POLL_INTERVAL_MS);
+      continue;
+    }
+
+    if (res.ok) {
+      return (await res.json()) as ClaimedSession;
+    }
+    if (res.status === 404) {
+      // Not yet handed off (or already claimed elsewhere, or expired).
+      await sleep(POLL_INTERVAL_MS);
+      continue;
+    }
+    if (res.status === 429) {
+      // Polled too fast — back off more aggressively before retrying.
+      await sleep(POLL_INTERVAL_MS * 3);
+      continue;
+    }
+
+    const body = await res.text().catch(() => '');
+    throw new CliError(
+      `Login failed: ${res.status} ${res.statusText}${body ? ` — ${body}` : ''}`,
+    );
+  }
+
+  throw new CliError('Login timed out. Please run `dcd login` again.');
 }
 
-async function startLoopback(
-  expectedState: string,
-  allowedOrigin: string,
-): Promise<LoopbackHandle> {
-  let resolvePayload: (payload: CallbackPayload) => void;
-  let rejectPayload: (err: Error) => void;
-  const settled = new Promise<CallbackPayload>((res, rej) => {
-    resolvePayload = res;
-    rejectPayload = rej;
-  });
-
-  const server = createServer((req, res) =>
-    handleRequest(req, res, expectedState, allowedOrigin, resolvePayload),
-  );
-  server.on('error', (err) => rejectPayload(err));
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-
-  const port = (server.address() as AddressInfo).port;
-  const timeout = setTimeout(() => {
-    rejectPayload(new CliError('Login timed out. Please run `dcd login` again.'));
-  }, CALLBACK_TIMEOUT_MS);
-  timeout.unref();
-
-  return {
-    server,
-    port,
-    waitForCallback: () => settled,
-  };
+function base64url(buf: Buffer): string {
+  return buf.toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
-function handleRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  expectedState: string,
-  allowedOrigin: string,
-  resolve: (p: CallbackPayload) => void,
-): void {
-  const url = new URL(req.url ?? '/', `http://127.0.0.1`);
-  if (url.pathname !== '/callback') {
-    res.writeHead(404).end();
-    return;
-  }
-
-  const origin = req.headers.origin;
-  const corsHeaders: Record<string, string> =
-    origin === allowedOrigin
-      ? {
-          'access-control-allow-origin': allowedOrigin,
-          vary: 'origin',
-        }
-      : {};
-
-  if (req.method === 'OPTIONS') {
-    res
-      .writeHead(204, {
-        ...corsHeaders,
-        'access-control-allow-methods': 'POST, OPTIONS',
-        'access-control-allow-headers': 'content-type',
-        'access-control-max-age': '600',
-      })
-      .end();
-    return;
-  }
-
-  if (req.method !== 'POST') {
-    res.writeHead(405, { ...corsHeaders, allow: 'POST, OPTIONS' }).end();
-    return;
-  }
-
-  if (origin !== allowedOrigin) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden origin');
-    return;
-  }
-
-  readJsonBody(req, MAX_BODY_BYTES)
-    .then((body) => {
-      const parsed = JSON.parse(body) as CallbackPayload;
-      if (
-        typeof parsed.state !== 'string' ||
-        parsed.state !== expectedState ||
-        !parsed.access_token ||
-        !parsed.refresh_token ||
-        !parsed.expires_at ||
-        !parsed.user_email ||
-        !parsed.user_id ||
-        !parsed.org_id
-      ) {
-        res.writeHead(400, { ...corsHeaders, 'content-type': 'text/plain' }).end('Invalid payload');
-        return;
-      }
-      res.writeHead(200, corsHeaders).end();
-      resolve(parsed);
-    })
-    .catch(() => {
-      res.writeHead(400, { ...corsHeaders, 'content-type': 'text/plain' }).end('Malformed body');
-    });
-}
-
-function readJsonBody(req: IncomingMessage, maxBytes: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let total = 0;
-    req.on('data', (chunk: Buffer) => {
-      total += chunk.length;
-      if (total > maxBytes) {
-        reject(new Error('Body too large'));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
-  });
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default loginCommand;
