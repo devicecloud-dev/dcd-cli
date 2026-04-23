@@ -1,13 +1,7 @@
 {
-  "require": [
-    "ts-node/register"
-  ],
-  "extensions": [
-    "ts"
-  ],
-  "watch-extensions": [
-    "ts"
-  ],
+  "node-option": ["import=tsx"],
+  "extensions": ["ts"],
+  "watch-extensions": ["ts"],
   "recursive": true,
   "reporter": "spec",
   "timeout": 60000,

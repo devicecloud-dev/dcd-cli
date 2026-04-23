@@ -57,25 +57,20 @@ async function runTests() {
     // Wait for mock API to start
     await new Promise((resolve) => setTimeout(resolve, 3000));
 
-    // Run tests
+    // Run tests. Mocha + .mocharc.json handle TypeScript loading via `tsx`
+    // (see `node-option: ["import=tsx"]` there). Mocha 11 imports files as
+    // ESM, so the `require: ts-node/register` hook doesn't get applied; tsx
+    // registers an ESM loader that resolves TS relative imports correctly.
     console.log('Running tests...');
     const testProcess = spawn('npx', [
       'mocha',
       '--no-warnings',
-      '--require', 'ts-node/register',
       'test/**/*.test.ts',
       '--timeout', '60000'
     ], {
       cwd: cliDir,
       stdio: 'inherit',
       shell: true,
-      env: {
-        ...process.env,
-        TS_NODE_COMPILER_OPTIONS: JSON.stringify({
-          module: 'commonjs',
-          target: 'es2022'
-        })
-      }
     });
 
     testProcess.on('close', (code) => {

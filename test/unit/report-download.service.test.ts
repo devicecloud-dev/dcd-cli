@@ -4,6 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { ReportDownloadService } from '../../src/services/report-download.service';
+import type { AuthContext } from '../../src/types/domain/auth.types';
+
+const TEST_AUTH: AuthContext = {
+  mode: 'apiKey',
+  headers: { 'x-app-api-key': 'test-key' },
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,7 +102,7 @@ describe('ReportDownloadService', () => {
 
   describe('downloadArtifacts', () => {
     const BASE = {
-      apiKey: 'test-key',
+      auth: TEST_AUTH,
       apiUrl: 'https://api.example.com',
       uploadId: 'upload-abc-123',
     };
@@ -202,7 +208,7 @@ describe('ReportDownloadService', () => {
 
   describe('downloadReports endpoint routing', () => {
     const BASE = {
-      apiKey: 'test-key',
+      auth: TEST_AUTH,
       apiUrl: 'https://api.example.com',
       uploadId: 'upload-xyz-456',
     };

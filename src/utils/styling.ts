@@ -190,6 +190,7 @@ export function table<T>(
 
   const keys = Object.keys(columns);
   const headers = keys.map((k) => columns[k].header ?? k);
+  // eslint-disable-next-line no-control-regex -- matches ANSI escape sequences
   const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '');
   const cells: string[][] = rows.map((row) =>
     keys.map((k) => String(columns[k].get(row) ?? '')),
