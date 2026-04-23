@@ -8,13 +8,16 @@
  *       - `code_verifier`:32 random bytes, base64url
  *       - `code_challenge` = base64url(sha256(code_verifier))
  *  2. CLI opens <frontend>/cli-login?state=...&code_challenge=... in the browser.
- *  3. User signs in (OTP or SSO), picks an org, and explicitly authorizes the
- *     handoff on the frontend.
+ *  3. User signs in (OTP or SSO) and explicitly authorizes the handoff on
+ *     the frontend.
  *  4. Frontend POSTs {state, code_challenge, session...} to the dcd api at
  *     POST /cli-login/handoff. The api stores a short-TTL row keyed by state.
  *  5. Meanwhile, the CLI polls POST /cli-login/claim with {state, code_verifier}.
  *     Once the api has the row, it verifies sha256(verifier) === challenge,
  *     deletes the row, and returns the session.
+ *  6. CLI fetches /me/orgs with the fresh Bearer token and prompts the user to
+ *     pick an org. Org selection lives here, not in the web UI — that way the
+ *     CLI login and `dcd switch-org` share one picker.
  *
  * Why PKCE + server rendezvous (instead of a localhost loopback): Safari
  * blocks HTTPS → HTTP fetches to 127.0.0.1 as mixed content, and a loopback
@@ -29,6 +32,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments';
 import { CliError, logger } from '../utils/cli';
 import { writeConfig } from '../utils/config-store';
+import { fetchOrgs, pickOrg } from '../utils/orgs';
 import { colors, sectionHeader, symbols } from '../utils/styling';
 
 interface ClaimedSession {
@@ -37,8 +41,6 @@ interface ClaimedSession {
   expires_at: number;
   user_email: string;
   user_id: string;
-  org_id: string;
-  org_name?: string;
 }
 
 const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -103,6 +105,15 @@ export const loginCommand = defineCommand({
 
     try {
       const payload = await pollForClaim(apiUrl, state, codeVerifier);
+      // Fetch orgs with the just-minted Bearer token. We don't write the
+      // config until the user has picked an org — half-completed state isn't
+      // useful and the handoff row is already single-use consumed.
+      const bearerHeaders = {
+        authorization: `Bearer ${payload.access_token}`,
+      };
+      const orgs = await fetchOrgs(apiUrl, bearerHeaders);
+      const chosen = await pickOrg(orgs);
+
       writeConfig({
         version: 1,
         env,
@@ -115,16 +126,14 @@ export const loginCommand = defineCommand({
           user_email: payload.user_email,
           user_id: payload.user_id,
         },
-        current_org_id: payload.org_id,
-        current_org_name: payload.org_name,
+        current_org_id: chosen.id,
+        current_org_name: chosen.name,
       });
 
       logger.log(
         `${symbols.success} ${colors.bold('Logged in')} as ${colors.highlight(payload.user_email)}`,
       );
-      if (payload.org_name) {
-        logger.log(`   ${colors.dim('Organization:')} ${colors.highlight(payload.org_name)}`);
-      }
+      logger.log(`   ${colors.dim('Organization:')} ${colors.highlight(chosen.name)}`);
     } catch (error) {
       logger.error(error as Error, { exit: 1 });
     }

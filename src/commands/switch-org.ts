@@ -1,23 +1,17 @@
 /**
  * `dcd switch-org` — changes the active org on the stored session.
  *
- * With an argument (`dcd switch-org <id>`): update config immediately after
+ * With an argument (`dcd switch-org <name>`): update config immediately after
  * confirming the user is a member via GET /me/orgs.
  * Without an argument: fetch orgs and prompt the user to pick one.
  */
-import * as p from '@clack/prompts';
 import { defineCommand } from 'citty';
 
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger } from '../utils/cli';
 import { readConfig, writeConfig } from '../utils/config-store';
+import { fetchOrgs, pickOrg, OrgListItem } from '../utils/orgs';
 import { colors, symbols } from '../utils/styling';
-
-interface OrgListItem {
-  id: string;
-  name: string;
-  slug?: string;
-}
 
 export const switchOrgCommand = defineCommand({
   meta: {
@@ -33,7 +27,7 @@ export const switchOrgCommand = defineCommand({
     org: {
       type: 'positional',
       required: false,
-      description: 'Org id or slug to switch to',
+      description: 'Org name to switch to (omit for an interactive picker)',
     },
   },
   async run({ args }) {
@@ -51,28 +45,13 @@ export const switchOrgCommand = defineCommand({
     }
 
     const orgs = await fetchOrgs(apiUrl, auth.headers);
-    if (orgs.length === 0) {
-      throw new CliError('No organizations found for this user.');
-    }
 
-    let chosen: OrgListItem | undefined;
+    let chosen: OrgListItem;
     if (target) {
-      chosen = orgs.find((o) => o.id === target || o.slug === target);
-      if (!chosen) {
-        throw new CliError(
-          `You are not a member of org "${target}". Available: ${orgs.map((o) => o.slug ?? o.id).join(', ')}`,
-        );
-      }
+      chosen = matchOrg(orgs, target);
     } else {
-      const picked = await p.select({
-        message: 'Pick an organization',
-        options: orgs.map((o) => ({ value: o.id, label: o.name })),
-      });
-      if (p.isCancel(picked)) throw new CliError('Cancelled.');
-      chosen = orgs.find((o) => o.id === picked);
+      chosen = await pickOrg(orgs);
     }
-
-    if (!chosen) throw new CliError('No organization selected.');
 
     writeConfig({
       ...config,
@@ -80,22 +59,31 @@ export const switchOrgCommand = defineCommand({
       current_org_name: chosen.name,
     });
 
-    logger.log(
-      `${symbols.success} Switched to ${colors.highlight(chosen.name)} ${colors.dim(`(${chosen.id})`)}`,
-    );
+    logger.log(`${symbols.success} Switched to ${colors.highlight(chosen.name)}`);
   },
 });
 
-async function fetchOrgs(
-  apiUrl: string,
-  headers: Record<string, string>,
-): Promise<OrgListItem[]> {
-  const res = await fetch(`${apiUrl}/me/orgs`, { headers });
-  if (!res.ok) {
-    throw new CliError(`Failed to list organizations: HTTP ${res.status}`);
+/**
+ * Match a user-supplied string to an org. Prefers case-insensitive name match.
+ * Falls back to slug / id so existing scripts keep working, but error output
+ * only surfaces names.
+ */
+function matchOrg(orgs: OrgListItem[], target: string): OrgListItem {
+  const needle = target.toLowerCase();
+  const nameMatches = orgs.filter((o) => o.name.toLowerCase() === needle);
+  if (nameMatches.length > 1) {
+    throw new CliError(
+      `Multiple orgs named "${target}". Run \`dcd switch-org\` without arguments to pick interactively.`,
+    );
   }
-  const body = (await res.json()) as { orgs: OrgListItem[] };
-  return body.orgs ?? [];
+  const chosen =
+    nameMatches[0] ?? orgs.find((o) => o.slug === target || o.id === target);
+  if (!chosen) {
+    throw new CliError(
+      `No org named "${target}". Available: ${orgs.map((o) => o.name).join(', ')}`,
+    );
+  }
+  return chosen;
 }
 
 export default switchOrgCommand;

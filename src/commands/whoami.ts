@@ -23,10 +23,9 @@ export const whoamiCommand = defineCommand({
     logger.log(sectionHeader('devicecloud.dev'));
     logger.log(`   ${colors.dim('User:')} ${colors.highlight(config.session.user_email)}`);
     if (config.current_org_name) {
-      logger.log(
-        `   ${colors.dim('Org:')}  ${colors.highlight(config.current_org_name)} ${colors.dim(`(${config.current_org_id})`)}`,
-      );
+      logger.log(`   ${colors.dim('Org:')}  ${colors.highlight(config.current_org_name)}`);
     } else if (config.current_org_id) {
+      // Fallback for sessions stored before we persisted org name alongside id.
       logger.log(`   ${colors.dim('Org:')}  ${colors.highlight(config.current_org_id)}`);
     }
     logger.log(`   ${colors.dim('Env:')}  ${config.env}`);
