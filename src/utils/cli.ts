@@ -6,7 +6,7 @@
  * - A minimal Logger mirroring the oclif Command log/warn/error shape so call
  *   sites ported from oclif keep working.
  */
-import { colors } from './styling';
+import { symbols } from './styling';
 
 // Resolve version at runtime — avoids pulling package.json into the tsbuildinfo rootDir.
 export function getCliVersion(): string {
@@ -40,7 +40,7 @@ export const logger: Logger = {
   },
   warn(message: string): void {
     // eslint-disable-next-line no-console
-    console.warn(colors.warning('⚠') + '  ' + message);
+    console.warn(symbols.warning + ' ' + message);
   },
   error(
     message: Error | string,
@@ -56,7 +56,7 @@ export const logger: Logger = {
       // The literal "Error:" prefix is important for tests and for grep-friendly
       // CI logs — it survives color stripping and matches /error/i assertions.
       // eslint-disable-next-line no-console
-      console.error(colors.error('✗') + '  Error: ' + text);
+      console.error(symbols.error + ' Error: ' + text);
     }
     process.exit(opts.exit ?? 1);
   },

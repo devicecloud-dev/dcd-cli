@@ -163,11 +163,14 @@ export function formatTestSummary(summary: {
  */
 export function box(content: string): string {
   const lines = content.split('\n');
-  const maxLength = Math.max(...lines.map((l) => l.length));
+  // eslint-disable-next-line no-control-regex -- matches ANSI escape sequences
+  const stripAnsi = (s: string): string => s.replace(/\[[0-9;]*m/g, '');
+  const visibleLen = (s: string): number => stripAnsi(s).length;
+  const maxLength = Math.max(...lines.map((l) => visibleLen(l)));
   const top = chalk.gray('┌' + '─'.repeat(maxLength + 2) + '┐');
   const bottom = chalk.gray('└' + '─'.repeat(maxLength + 2) + '┘');
   const middle = lines
-    .map((line) => chalk.gray('│ ') + line.padEnd(maxLength) + chalk.gray(' │'))
+    .map((line) => chalk.gray('│ ') + line + ' '.repeat(Math.max(0, maxLength - visibleLen(line))) + chalk.gray(' │'))
     .join('\n');
 
   return `${top}\n${middle}\n${bottom}`;

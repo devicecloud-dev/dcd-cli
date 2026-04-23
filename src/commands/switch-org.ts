@@ -59,7 +59,7 @@ export const switchOrgCommand = defineCommand({
       current_org_name: chosen.name,
     });
 
-    logger.log(`${symbols.success} Switched to ${colors.highlight(chosen.name)}`);
+    logger.log(`${symbols.success} ${colors.bold('Switched')} to ${colors.highlight(chosen.name)}`);
   },
 });
 

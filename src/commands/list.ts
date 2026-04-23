@@ -4,7 +4,7 @@ import { apiFlags } from '../config/flags/api.flags';
 import { ApiGateway } from '../gateways/api-gateway';
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger, parseIntFlag } from '../utils/cli';
-import { colors, formatId, formatUrl, sectionHeader } from '../utils/styling';
+import { colors, formatId, formatUrl, sectionHeader, symbols } from '../utils/styling';
 
 type UploadListItem = {
   consoleUrl: string;
@@ -43,7 +43,7 @@ function displayResults(response: ListResponse): void {
   const { uploads, total, limit, offset } = response;
 
   if (uploads.length === 0) {
-    logger.log('\nNo uploads found matching your criteria.\n');
+    logger.log(`\n${symbols.info} No uploads found matching your criteria.\n`);
     return;
   }
 
@@ -83,7 +83,7 @@ function displayResults(response: ListResponse): void {
   }
 
   logger.log(
-    `   ${colors.dim('Tip: Use')} dcd status --upload-id <id> ${colors.dim('for detailed test results')}\n`,
+    `   ${symbols.info} ${colors.dim('Use')} dcd status --upload-id <id> ${colors.dim('for detailed test results')}\n`,
   );
 }
 

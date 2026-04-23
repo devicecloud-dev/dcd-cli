@@ -36,6 +36,7 @@ import {
 } from '../utils/compatibility';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
 import {
+  box,
   colors,
   dividers,
   formatId,
@@ -43,6 +44,7 @@ import {
   getConsoleUrl,
   listItem,
   sectionHeader,
+  symbols,
 } from '../utils/styling';
 
 // Suppress punycode deprecation warning (caused by whatwg, supabase dependency)
@@ -106,17 +108,14 @@ export const cloudCommand = defineCommand({
     const versionCheck = async () => {
       const latestVersion = await versionService.checkLatestCliVersion();
       if (latestVersion && versionService.isOutdated(cliVersion, latestVersion)) {
-        out(
-          `\n${dividers.light}\n` +
-            `${colors.warning('⚠')}  ${colors.bold('Update Available')}\n` +
-            colors.dim(`   A new version of the DeviceCloud CLI is available: `) +
-            colors.highlight(latestVersion) +
-            `\n` +
-            colors.dim(`   Run: `) +
-            colors.info(`npm install -g @devicecloud.dev/dcd@latest`) +
-            `\n` +
-            `${dividers.light}\n`,
-        );
+        const body =
+          `${symbols.warning} ${colors.bold('Update Available')}\n` +
+          colors.dim('A new version of the DeviceCloud CLI is available: ') +
+          colors.highlight(latestVersion) +
+          '\n' +
+          colors.dim('Run: ') +
+          colors.info('npm install -g @devicecloud.dev/dcd@latest');
+        out(`\n${box(body)}\n`);
       }
     };
 
@@ -229,7 +228,7 @@ export const cloudCommand = defineCommand({
       debugFlag = debug;
       jsonFile = jsonFileFlag;
 
-      out(`CLI Version: ${cliVersion}`);
+      out(colors.dim(`dcd v${cliVersion}`));
 
       if (debug) {
         out('[DEBUG] Starting command execution with debug logging enabled');
@@ -354,8 +353,7 @@ export const cloudCommand = defineCommand({
 
       if (retry !== undefined && retry > 2) {
         out(
-          colors.warning('⚠') +
-            '  ' +
+          `${symbols.warning} ` +
             colors.dim(
               'Retries are now free of charge but limited to 2. If your test is still failing after 2 retries, please ask for help on Discord.',
             ),
@@ -365,8 +363,7 @@ export const cloudCommand = defineCommand({
 
       if (runnerType === 'm4') {
         out(
-          colors.info('ℹ') +
-            '  ' +
+          `${symbols.info} ` +
             colors.dim(
               'Note: runnerType m4 is experimental and currently supports iOS only, Android will revert to default.',
             ),
@@ -375,8 +372,7 @@ export const cloudCommand = defineCommand({
 
       if (runnerType === 'm1') {
         out(
-          colors.info('ℹ') +
-            '  ' +
+          `${symbols.info} ` +
             colors.dim(
               'Note: runnerType m1 is experimental and currently supports Android (Pixel 7, API Level 34) only.',
             ),
@@ -385,8 +381,7 @@ export const cloudCommand = defineCommand({
 
       if (runnerType === 'gpu1') {
         out(
-          colors.info('ℹ') +
-            '  ' +
+          `${symbols.info} ` +
             colors.dim(
               'Note: runnerType gpu1 is Android-only (all devices, API Level 34 or 35), available to all users.',
             ),
@@ -629,7 +624,7 @@ export const cloudCommand = defineCommand({
         }
       }
 
-      out(`\n${sectionHeader('Submitting new job')}`);
+      out(sectionHeader('Submitting new job'));
       out(`   ${colors.dim('→ Flow(s):')} ${colors.highlight(flowFile)}`);
       out(
         `   ${colors.dim('→ App:')} ${colors.highlight(appBinaryId || finalAppFile || '')}`,
@@ -654,7 +649,7 @@ export const cloudCommand = defineCommand({
 
       if (dryRun) {
         out(
-          `\n${colors.warning('⚠')}  ${colors.bold('Dry run mode')} ${colors.dim('- no tests were actually triggered')}\n`,
+          `\n${symbols.warning} ${colors.bold('Dry run mode')} ${colors.dim('- no tests were actually triggered')}\n`,
         );
         out(colors.bold('The following tests would have been run:'));
         out(dividers.light);
@@ -765,7 +760,7 @@ export const cloudCommand = defineCommand({
       if (!results?.length) {
         throw new CliError('No tests created: ' + message);
       }
-      out(colors.success('✓') + '  ' + colors.dim(message));
+      out(`${symbols.success} ${colors.bold('Submitted')} ${colors.dim(message)}`);
 
       const testNames = results
         .map((r) => r.test_file_name)
@@ -827,7 +822,7 @@ export const cloudCommand = defineCommand({
         }
 
         out(
-          `\n${colors.info('ℹ')}  ${colors.dim('Not waiting for results as async flag is set to true')}\n`,
+          `\n${symbols.info} ${colors.dim('Not waiting for results as async flag is set to true')}\n`,
         );
         return;
       }

@@ -8,7 +8,7 @@ import { uploadBinary, verifyAppZip } from '../methods';
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger } from '../utils/cli';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
-import { colors, formatId, sectionHeader } from '../utils/styling';
+import { colors, formatId, sectionHeader, symbols } from '../utils/styling';
 
 export const uploadCommand = defineCommand({
   meta: {
@@ -98,7 +98,7 @@ export const uploadCommand = defineCommand({
         return;
       }
 
-      logger.log(`\n${colors.success('✓')}  ${colors.bold('Upload complete')}`);
+      logger.log(`\n${symbols.success} ${colors.bold('Upload complete')}`);
       logger.log(`   ${colors.dim('Binary ID:')} ${formatId(appBinaryId)}\n`);
       logger.log(colors.dim('You can use this Binary ID in subsequent test runs with:'));
       logger.log(colors.info(`dcd cloud --app-binary-id ${appBinaryId} path/to/flow.yaml\n`));

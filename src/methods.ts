@@ -1084,7 +1084,7 @@ export const writeJSONFile = (
     const isPermissionError = errorMessage.includes('EACCES') || errorMessage.includes('EPERM');
     const isNoSuchFileError = errorMessage.includes('ENOENT');
 
-    logger.warn(colors.warning('⚠') + '  ' + colors.error(`Failed to write JSON output to file: ${filePath}`));
+    logger.warn(colors.error(`Failed to write JSON output to file: ${filePath}`));
 
     if (isPermissionError) {
       logger.warn(colors.dim('   Permission denied - check file/directory write permissions'));
