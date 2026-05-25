@@ -9,6 +9,7 @@
  */
 import { ENVIRONMENTS } from '../config/environments';
 import { CliAuthGateway } from '../gateways/cli-auth-gateway';
+import { telemetry } from '../services/telemetry.service';
 import type { AuthContext } from '../types/domain/auth.types';
 
 import { CliError } from './cli';
@@ -27,12 +28,22 @@ export async function resolveAuth(
 ): Promise<AuthContext> {
   const flag = opts.apiKeyFlag?.trim();
   if (flag) {
-    return { mode: 'apiKey', headers: { 'x-app-api-key': flag } };
+    const auth: AuthContext = {
+      mode: 'apiKey',
+      headers: { 'x-app-api-key': flag },
+    };
+    telemetry.configure({ auth });
+    return auth;
   }
 
   const env = process.env.DEVICE_CLOUD_API_KEY?.trim();
   if (env) {
-    return { mode: 'apiKey', headers: { 'x-app-api-key': env } };
+    const auth: AuthContext = {
+      mode: 'apiKey',
+      headers: { 'x-app-api-key': env },
+    };
+    telemetry.configure({ auth });
+    return auth;
   }
 
   if (opts.skipSession) {
@@ -64,7 +75,7 @@ export async function resolveAuth(
     );
   }
 
-  return {
+  const auth: AuthContext = {
     mode: 'bearer',
     orgId: config.current_org_id,
     userEmail: session.user_email,
@@ -73,6 +84,8 @@ export async function resolveAuth(
       'x-dcd-org': config.current_org_id,
     },
   };
+  telemetry.configure({ auth, apiUrl: config.api_url });
+  return auth;
 }
 
 function missingCredentialsError(): CliError {

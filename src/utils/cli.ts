@@ -6,6 +6,8 @@
  * - A minimal Logger mirroring the oclif Command log/warn/error shape so call
  *   sites ported from oclif keep working.
  */
+import { telemetry } from '../services/telemetry.service';
+
 import { symbols } from './styling';
 
 // Resolve version at runtime — avoids pulling package.json into the tsbuildinfo rootDir.
@@ -58,7 +60,13 @@ export const logger: Logger = {
       // eslint-disable-next-line no-console
       console.error(symbols.error + ' Error: ' + text);
     }
-    process.exit(opts.exit ?? 1);
+    // process.exit bypasses beforeExit, so async fetch in telemetry.flush()
+    // would be killed mid-flight. flushSync uses curl to ship synchronously
+    // before we exit; it's a no-op if telemetry never reached configure().
+    const exitCode = opts.exit ?? 1;
+    telemetry.recordCommandFailure({ error: message, exitCode });
+    telemetry.flushSync();
+    process.exit(exitCode);
   },
   exit(code: number = 0): never {
     process.exit(code);
