@@ -59,6 +59,7 @@
   "scripts": {
     "dcd": "tsx src/index.ts",
     "build": "shx rm -rf dist && tsc -b && shx chmod +x dist/index.js",
+    "build:binaries": "node scripts/build-binaries.mjs",
     "lint": "eslint src --ext .ts",
     "prepare": "pnpm build",
     "test": "node scripts/test-runner.mjs"

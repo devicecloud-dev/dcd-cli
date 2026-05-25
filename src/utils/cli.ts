@@ -21,6 +21,22 @@ export function getCliVersion(): string {
   }
 }
 
+export type InstallMethod = 'binary' | 'npm';
+
+// The Bun runtime sets process.versions.bun; bun-compiled standalone binaries
+// inherit this. Node-run installs (npm/pnpm/npx/tsx) don't expose it.
+export function getInstallMethod(): InstallMethod {
+  return typeof (process.versions as { bun?: string }).bun === 'string'
+    ? 'binary'
+    : 'npm';
+}
+
+export function getUpgradeCommand(): string {
+  return getInstallMethod() === 'binary'
+    ? 'dcd upgrade'
+    : 'npm install -g @devicecloud.dev/dcd@latest';
+}
+
 export class CliError extends Error {
   constructor(message: string, public exitCode: number = 1) {
     super(message);

@@ -26,6 +26,7 @@ import {
   CliError,
   coerceArray,
   getCliVersion,
+  getUpgradeCommand,
   logger,
   parseIntFlag,
   validateEnum,
@@ -114,7 +115,7 @@ export const cloudCommand = defineCommand({
           colors.highlight(latestVersion) +
           '\n' +
           colors.dim('Run: ') +
-          colors.info('npm install -g @devicecloud.dev/dcd@latest');
+          colors.info(getUpgradeCommand());
         out(`\n${box(body)}\n`);
       }
     };

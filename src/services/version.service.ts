@@ -1,26 +1,30 @@
-import { execSync } from 'node:child_process';
-
 import { CompatibilityData } from '../utils/compatibility';
+
+const DEFAULT_MANIFEST_URL = 'https://get.devicecloud.dev/latest.json';
+const MANIFEST_TIMEOUT_MS = 3000;
 
 /**
  * Service for handling version validation and checking
  */
 export class VersionService {
   /**
-   * Check npm registry for the latest published version of the CLI
-   * @returns Latest version string or null if check fails
+   * Fetch the latest published CLI version from the release manifest.
+   * Works for both npm- and binary-installed users (no `npm` shell-out).
+   * Silently returns null on any failure — this check is informational only.
    */
   async checkLatestCliVersion(): Promise<null | string> {
+    const url = process.env.DCD_MANIFEST_URL ?? DEFAULT_MANIFEST_URL;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MANIFEST_TIMEOUT_MS);
     try {
-      const latestVersion = execSync('npm view @devicecloud.dev/dcd version', {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-
-      return latestVersion;
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { version?: unknown };
+      return typeof data.version === 'string' ? data.version : null;
     } catch {
-      // Silently fail - version check is informational only
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

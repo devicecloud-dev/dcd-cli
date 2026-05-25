@@ -9,6 +9,7 @@ import { loginCommand } from './commands/login';
 import { logoutCommand } from './commands/logout';
 import { statusCommand } from './commands/status';
 import { switchOrgCommand } from './commands/switch-org';
+import { upgradeCommand } from './commands/upgrade';
 import { uploadCommand } from './commands/upload';
 import { whoamiCommand } from './commands/whoami';
 import { telemetry } from './services/telemetry.service';
@@ -32,6 +33,7 @@ const main = defineCommand({
     logout: logoutCommand,
     whoami: whoamiCommand,
     'switch-org': switchOrgCommand,
+    upgrade: upgradeCommand,
   },
 });
 
