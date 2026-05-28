@@ -35,4 +35,4 @@ See full documentation: [Docs](https://docs.devicecloud.dev)
 
 ---
 
-*Engineering notes:* internal architecture, telemetry, and release-process docs for DeviceCloud staff live at [backoffice.devicecloud.dev/docs/services/cli/](https://backoffice.devicecloud.dev/docs/services/cli/) (Supabase OTP sign-in required).
+*Engineering notes:* internal architecture, telemetry, and release-process docs for DeviceCloud staff live at [bo.devicecloud.dev/docs/services/cli/](https://bo.devicecloud.dev/docs/services/cli/) (Supabase OTP sign-in required).
