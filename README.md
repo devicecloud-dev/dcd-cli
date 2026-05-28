@@ -32,3 +32,7 @@ $ dcd cloud --apiKey <apiKey> <appFile> .myFlows/
 ```
 
 See full documentation: [Docs](https://docs.devicecloud.dev)
+
+---
+
+*Engineering notes:* internal architecture, telemetry, and release-process docs for DeviceCloud staff live at [bo.devicecloud.dev/docs/services/cli/](https://bo.devicecloud.dev/docs/services/cli/) (Supabase OTP sign-in required).
