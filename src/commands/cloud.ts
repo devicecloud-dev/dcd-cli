@@ -344,7 +344,7 @@ export const cloudCommand = defineCommand({
         },
       );
 
-      const REMOVED_MAESTRO_VERSIONS = ['1.39.2', '1.39.7', '2.0.3'];
+      const REMOVED_MAESTRO_VERSIONS = ['1.39.1', '1.39.2', '1.39.7', '2.0.3', '2.4.0'];
       if (REMOVED_MAESTRO_VERSIONS.includes(resolvedMaestroVersion)) {
         throw new CliError(
           `Maestro version ${resolvedMaestroVersion} is no longer supported. ` +
