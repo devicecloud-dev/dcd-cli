@@ -10,6 +10,11 @@
 samples
 node_modules
 
+.env
+.env.*
+!.env.example
+.env.bak
+
 # Test output files
 *_dcd.json
 custom-output.json
