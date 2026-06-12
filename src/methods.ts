@@ -1,6 +1,6 @@
 import { ux } from './utils/progress';
 import { createHash } from 'node:crypto';
-import { createReadStream, readdirSync, writeFileSync } from 'node:fs';
+import { createReadStream, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { access, readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as StreamZip from 'node-stream-zip';
@@ -1064,6 +1064,10 @@ export const writeJSONFile = (
   logger: { log: (message: string) => void; warn: (message: string) => void },
 ) => {
   try {
+    const directory = path.dirname(filePath);
+    if (directory !== '.') {
+      mkdirSync(directory, { recursive: true });
+    }
     writeFileSync(filePath, JSON.stringify(data, null, 2));
     logger.log(colors.dim('JSON output written to: ') + colors.highlight(path.resolve(filePath)));
   } catch (error) {
