@@ -1,8 +1,16 @@
 import { ux } from './utils/progress';
 import { createHash } from 'node:crypto';
-import { createReadStream, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { access, readFile } from 'node:fs/promises';
+import {
+  createReadStream,
+  createWriteStream,
+  mkdirSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
+import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import * as StreamZip from 'node-stream-zip';
 import * as yazl from 'yazl';
 
@@ -37,7 +45,15 @@ function toZipEntryName(relativePath: string): string {
   return relativePath.split(path.sep).join('/').replace(/^\/+/, '');
 }
 
-export const compressFolderToBlob = async (sourceDir: string): Promise<Blob> => {
+/**
+ * Zip a .app directory to a temp file on disk, streaming entries through
+ * yazl so the archive is never held in memory (iOS bundles run to GBs).
+ * Returns the temp directory holding the zip — callers remove it after the
+ * upload completes.
+ */
+async function compressFolderToTempZip(
+  sourceDir: string,
+): Promise<{ tempDir: string; zipPath: string }> {
   const zipfile = new yazl.ZipFile();
   const rootName = path.basename(sourceDir);
 
@@ -53,12 +69,12 @@ export const compressFolderToBlob = async (sourceDir: string): Promise<Blob> => 
     zipfile.addFile(absolutePath, toZipEntryName(path.join(rootName, relativePath)));
   }
 
-  const buffer = await zipToBuffer(zipfile);
-  // Buffer.concat() types as Buffer<ArrayBufferLike> under @types/node v25+,
-  // which TS refuses as a BlobPart. At runtime Node Buffers never use SharedArrayBuffer,
-  // so this cast is safe.
-  return new Blob([buffer as Uint8Array<ArrayBuffer>], { type: 'application/zip' });
-};
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'dcd-app-zip-'));
+  const zipPath = path.join(tempDir, `${rootName}.zip`);
+  zipfile.end();
+  await pipeline(zipfile.outputStream, createWriteStream(zipPath));
+  return { tempDir, zipPath };
+}
 
 export const compressFilesFromRelativePath = async (
   basePath: string,
@@ -134,13 +150,14 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
   }
 
   const startTime = Date.now();
+  let source: UploadSource | undefined;
 
   try {
     // Prepare file for upload
-    const file = await prepareFileForUpload(filePath, debug, startTime);
+    source = await prepareFileForUpload(filePath, debug, startTime);
 
     // Calculate SHA hash
-    const sha = await calculateFileHash(file, debug, log);
+    const sha = await calculateFileHash(source, debug, log);
 
     // Check for existing upload with same SHA
     if (!ignoreShaCheck && sha) {
@@ -159,7 +176,7 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
     }
 
     // Perform the upload
-    const uploadId = await performUpload({ auth, apiUrl, debug, file, filePath, sha, startTime });
+    const uploadId = await performUpload({ auth, apiUrl, debug, filePath, sha, source, startTime });
 
     if (log) {
       ux.action.stop(colors.success('\n✓ Binary uploaded with ID: ') + formatId(uploadId));
@@ -184,26 +201,48 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
     }
 
     throw error;
+  } finally {
+    if (source?.cleanupDir) {
+      await rm(source.cleanupDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 };
 
 /**
- * Prepares a file for upload by reading or compressing it
+ * Disk-backed description of the binary to upload. Every upload path streams
+ * from `diskPath` instead of materializing the file in memory — a 1.5 GB iOS
+ * zip previously peaked at ~3 copies in RSS.
+ */
+interface UploadSource {
+  /** MIME type sent with the upload. */
+  contentType: string;
+  /** Temp directory to delete once the upload finishes (only for .app dirs). */
+  cleanupDir?: string;
+  /** On-disk file all upload paths stream from. */
+  diskPath: string;
+  /** User-facing name (original path; .app dirs get '.zip' appended). */
+  name: string;
+  size: number;
+}
+
+/**
+ * Prepares a file for upload: .app directories are zipped to a temp file on
+ * disk; everything else is described in place. Nothing is read into memory.
  * @param filePath Path to the file to upload
  * @param debug Whether debug logging is enabled
  * @param startTime Timestamp when upload started
- * @returns Promise resolving to prepared File object
+ * @returns Promise resolving to the upload source descriptor
  */
 async function prepareFileForUpload(
   filePath: string,
   debug: boolean,
   startTime: number,
-): Promise<File> {
+): Promise<UploadSource> {
   if (debug) {
     console.log('[DEBUG] Preparing file for upload...');
   }
 
-  let file: File;
+  let source: UploadSource;
 
   if (filePath?.endsWith('.app')) {
     if (debug) {
@@ -236,34 +275,41 @@ async function prepareFileForUpload(
       throw new Error(errorMessage);
     }
 
-    const zippedAppBlob = await compressFolderToBlob(filePath);
-    file = new File([zippedAppBlob], filePath + '.zip');
+    const { tempDir, zipPath } = await compressFolderToTempZip(filePath);
+    const { size } = await stat(zipPath);
+    source = {
+      contentType: 'application/zip',
+      cleanupDir: tempDir,
+      diskPath: zipPath,
+      name: filePath + '.zip',
+      size,
+    };
 
     if (debug) {
-      console.log(`[DEBUG] Compressed file size: ${(zippedAppBlob.size / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`[DEBUG] Compressed file size: ${(size / 1024 / 1024).toFixed(2)} MB`);
     }
   } else {
-    if (debug) {
-      console.log('[DEBUG] Reading binary file...');
-    }
-
-    const fileBuffer = await readFile(filePath!);
+    const { size } = await stat(filePath!);
 
     if (debug) {
-      console.log(`[DEBUG] File size: ${(fileBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`[DEBUG] File size: ${(size / 1024 / 1024).toFixed(2)} MB`);
     }
 
-    const binaryBlob = new Blob([new Uint8Array(fileBuffer)], {
-      type: mimeTypeLookupByExtension[filePath!.split('.').pop()!],
-    });
-    file = new File([binaryBlob], filePath as string);
+    source = {
+      contentType:
+        mimeTypeLookupByExtension[filePath!.split('.').pop()!] ||
+        'application/octet-stream',
+      diskPath: filePath!,
+      name: filePath!,
+      size,
+    };
   }
 
   if (debug) {
     console.log(`[DEBUG] File preparation completed in ${Date.now() - startTime}ms`);
   }
 
-  return file;
+  return source;
 }
 
 /**
@@ -274,7 +320,7 @@ async function prepareFileForUpload(
  * @returns Promise resolving to SHA-256 hash or undefined if failed
  */
 async function calculateFileHash(
-  file: File,
+  source: UploadSource,
   debug: boolean,
   log: boolean,
 ): Promise<string | undefined> {
@@ -284,7 +330,7 @@ async function calculateFileHash(
     }
 
     const hashStartTime = Date.now();
-    const sha = await getFileHashFromFile(file);
+    const sha = await getFileHashFromPath(source.diskPath);
 
     if (debug) {
       console.log(`[DEBUG] SHA-256 hash: ${sha}`);
@@ -370,9 +416,9 @@ interface PerformUploadConfig {
   auth: AuthContext;
   apiUrl: string;
   debug: boolean;
-  file: File;
   filePath: string;
   sha: string | undefined;
+  source: UploadSource;
   startTime: number;
 }
 
@@ -387,23 +433,23 @@ interface PerformUploadConfig {
 async function uploadToSupabase(
   env: 'dev' | 'prod',
   tempPath: string,
-  file: File,
+  source: UploadSource,
   debug: boolean,
 ): Promise<{ error: Error | null; success: boolean }> {
   if (debug) {
     console.log(`[DEBUG] Uploading to Supabase storage (${env}) using resumable uploads...`);
     console.log(`[DEBUG] Staging path: ${tempPath}`);
-    console.log(`[DEBUG] File size: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
+    console.log(`[DEBUG] File size: ${(source.size / 1024 / 1024).toFixed(2)} MB`);
   }
 
   try {
     const uploadStartTime = Date.now();
-    await SupabaseGateway.uploadResumable(env, tempPath, file, debug);
+    await SupabaseGateway.uploadResumable(env, tempPath, source, debug);
 
     if (debug) {
       const uploadDuration = Date.now() - uploadStartTime;
       const uploadDurationSeconds = uploadDuration / 1000;
-      const uploadSpeed = (file.size / 1024 / 1024) / uploadDurationSeconds;
+      const uploadSpeed = (source.size / 1024 / 1024) / uploadDurationSeconds;
       console.log(`[DEBUG] Supabase resumable upload completed in ${uploadDurationSeconds.toFixed(2)}s (${uploadDuration}ms)`);
       console.log(`[DEBUG] Average upload speed: ${uploadSpeed.toFixed(2)} MB/s`);
     }
@@ -420,7 +466,7 @@ async function uploadToSupabase(
       }
 
       console.error(`[DEBUG] Staging path: ${tempPath}`);
-      console.error(`[DEBUG] File size: ${file.size} bytes`);
+      console.error(`[DEBUG] File size: ${source.size} bytes`);
       console.log('[DEBUG] Will attempt Backblaze fallback if available...');
     }
 
@@ -433,9 +479,8 @@ interface BackblazeUploadConfig {
   apiUrl: string;
   b2: { large?: unknown; simple?: unknown; strategy: string } | undefined;
   debug: boolean;
-  file: File;
-  filePath: string;
   finalPath: string;
+  source: UploadSource;
 }
 
 /**
@@ -444,7 +489,7 @@ interface BackblazeUploadConfig {
  * @returns Upload result with success status and any error
  */
 async function handleBackblazeUpload(config: BackblazeUploadConfig): Promise<{ error: Error | null; success: boolean }> {
-  const { b2, apiUrl, auth, finalPath, file, filePath, debug } = config;
+  const { b2, apiUrl, auth, finalPath, source, debug } = config;
   if (!b2) {
     if (debug) {
       console.log('[DEBUG] Backblaze not configured, will fall back to Supabase');
@@ -467,7 +512,7 @@ async function handleBackblazeUpload(config: BackblazeUploadConfig): Promise<{ e
         simple.uploadUrl,
         simple.authorizationToken,
         `organizations/${finalPath}`,
-        file,
+        source,
         debug,
       );
     } else if (b2.strategy === 'large' && b2.large) {
@@ -478,9 +523,8 @@ async function handleBackblazeUpload(config: BackblazeUploadConfig): Promise<{ e
         debug,
         fileId: large.fileId,
         fileName: `organizations/${finalPath}`,
-        fileObject: file,
-        filePath,
-        fileSize: file.size,
+        filePath: source.diskPath,
+        fileSize: source.size,
         uploadPartUrls: large.uploadPartUrls,
       });
     }
@@ -647,10 +691,10 @@ function validateUploadResults(
  * @returns Promise resolving to upload ID
  */
 async function performUpload(config: PerformUploadConfig): Promise<string> {
-  const { filePath, apiUrl, auth, file, sha, debug, startTime } = config;
+  const { filePath, apiUrl, auth, source, sha, debug, startTime } = config;
 
   // Request upload URL and paths
-  const { id, tempPath, finalPath, b2 } = await requestUploadPaths(apiUrl, auth, filePath, file.size, debug);
+  const { id, tempPath, finalPath, b2 } = await requestUploadPaths(apiUrl, auth, filePath, source.size, debug);
 
   // Extract app metadata
   const metadata = await extractBinaryMetadata(filePath, debug);
@@ -663,9 +707,8 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     apiUrl,
     b2: b2 as { large?: unknown; simple?: unknown; strategy: string } | undefined,
     debug,
-    file,
-    filePath,
     finalPath,
+    source,
   });
   let lastError = backblazeResult.error;
 
@@ -675,7 +718,7 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     console.log('[DEBUG] Uploading to Supabase...');
   }
 
-  supabaseResult = await uploadToSupabase(env, tempPath, file, debug);
+  supabaseResult = await uploadToSupabase(env, tempPath, source, debug);
   if (!supabaseResult.success && supabaseResult.error) {
     lastError = supabaseResult.error;
   }
@@ -701,7 +744,7 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     auth,
     backblazeSuccess: backblazeResult.success,
     baseUrl: apiUrl,
-    bytes: file.size,
+    bytes: source.size,
     id,
     metadata,
     path: tempPath,
@@ -723,7 +766,7 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
  * @param uploadUrl - Backblaze upload URL
  * @param authorizationToken - Authorization token for the upload
  * @param fileName - Name/path of the file
- * @param file - File to upload
+ * @param source - Upload source descriptor (streamed from disk)
  * @param debug - Whether debug logging is enabled
  * @returns Promise that resolves when upload completes or fails gracefully
  */
@@ -731,15 +774,19 @@ async function uploadToBackblaze(
   uploadUrl: string,
   authorizationToken: string,
   fileName: string,
-  file: File,
+  source: UploadSource,
   debug: boolean,
 ): Promise<boolean> {
   try {
-    const arrayBuffer = await file.arrayBuffer();
+    // The API only picks the simple strategy for small binaries (large files
+    // get the multi-part path), so one transient buffer here is bounded.
+    // S3 pre-signed PUTs reject chunked transfer encoding, which rules out a
+    // plain stream body.
+    const body = await readFile(source.diskPath);
 
     // Calculate SHA1 hash for Backblaze (B2 requires SHA1, not SHA256)
     const sha1 = createHash('sha1');
-    sha1.update(Buffer.from(arrayBuffer));
+    sha1.update(body);
     const sha1Hex = sha1.digest('hex');
 
     // Detect if this is an S3 pre-signed URL (authorization token is empty)
@@ -754,8 +801,8 @@ async function uploadToBackblaze(
 
     // Build headers based on upload method
     const headers: Record<string, string> = {
-      'Content-Length': file.size.toString(),
-      'Content-Type': file.type || 'application/octet-stream',
+      'Content-Length': body.length.toString(),
+      'Content-Type': source.contentType || 'application/octet-stream',
       'X-Bz-Content-Sha1': sha1Hex,
     };
 
@@ -766,7 +813,8 @@ async function uploadToBackblaze(
     }
 
     const response = await fetch(uploadUrl, {
-      body: arrayBuffer,
+      // Zero-copy view over the buffer (new Uint8Array(buffer) would clone it).
+      body: new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
       headers,
       method: isS3PreSignedUrl ? 'PUT' : 'POST',
     });
@@ -840,48 +888,15 @@ async function readFileChunk(filePath: string, start: number, end: number): Prom
   });
 }
 
-/**
- * Helper function to read a chunk from a File/Blob object
- * @param file - File or Blob object
- * @param start - Start byte position
- * @param end - End byte position (exclusive)
- * @returns Promise resolving to Buffer containing the chunk
- */
-async function readFileObjectChunk(file: File, start: number, end: number): Promise<Buffer> {
-  const slice = file.slice(start, end);
-  const arrayBuffer = await slice.arrayBuffer();
-  return Buffer.from(arrayBuffer);
-}
-
 interface LargeFileUploadConfig {
   auth: AuthContext;
   apiUrl: string;
   debug: boolean;
   fileId: string;
   fileName: string;
-  fileObject?: File;
   filePath: string;
   fileSize: number;
   uploadPartUrls: Array<{ authorizationToken: string; uploadUrl: string }>;
-}
-
-/**
- * Reads a file chunk from either a File object or disk
- * @param fileObject - Optional File object to read from
- * @param filePath - Path to file on disk
- * @param start - Start byte position
- * @param end - End byte position
- * @returns Promise resolving to Buffer containing the chunk
- */
-async function readChunk(
-  fileObject: File | undefined,
-  filePath: string,
-  start: number,
-  end: number,
-): Promise<Buffer> {
-  return fileObject
-    ? readFileObjectChunk(fileObject, start, end)
-    : readFileChunk(filePath, start, end);
 }
 
 /**
@@ -986,7 +1001,7 @@ function logBackblazeUploadError(error: unknown, debug: boolean): void {
  * @returns Promise that resolves when upload completes or fails gracefully
  */
 async function uploadLargeFileToBackblaze(config: LargeFileUploadConfig): Promise<boolean> {
-  const { apiUrl, auth, fileId, uploadPartUrls, filePath, fileSize, debug, fileObject } = config;
+  const { apiUrl, auth, fileId, uploadPartUrls, filePath, fileSize, debug } = config;
   try {
     const partSha1Array: string[] = [];
     const partSize = Math.ceil(fileSize / uploadPartUrls.length);
@@ -994,7 +1009,7 @@ async function uploadLargeFileToBackblaze(config: LargeFileUploadConfig): Promis
     if (debug) {
       console.log(`[DEBUG] Uploading large file in ${uploadPartUrls.length} parts (streaming mode)`);
       console.log(`[DEBUG] Part size: ${(partSize / 1024 / 1024).toFixed(2)} MB`);
-      console.log(`[DEBUG] Reading from: ${fileObject ? 'in-memory File object' : filePath}`);
+      console.log(`[DEBUG] Reading from: ${filePath}`);
     }
 
     // Upload each part using streaming to avoid loading entire file into memory
@@ -1008,7 +1023,7 @@ async function uploadLargeFileToBackblaze(config: LargeFileUploadConfig): Promis
         console.log(`[DEBUG] Reading part ${partNumber}/${uploadPartUrls.length} bytes ${start}-${end}`);
       }
 
-      const partBuffer = await readChunk(fileObject, filePath, start, end);
+      const partBuffer = await readFileChunk(filePath, start, end);
       const sha1Hex = calculateSha1(partBuffer);
       partSha1Array.push(sha1Hex);
 
@@ -1040,12 +1055,10 @@ async function uploadLargeFileToBackblaze(config: LargeFileUploadConfig): Promis
   }
 }
 
-async function getFileHashFromFile(file: File): Promise<string> {
+async function getFileHashFromPath(filePath: string): Promise<string> {
   const hash = createHash('sha256');
-  // Node's web ReadableStream is async-iterable at runtime; the cast covers
-  // TS lib variants whose ReadableStream type lacks Symbol.asyncIterator.
-  for await (const chunk of file.stream() as unknown as AsyncIterable<Uint8Array>) {
-    hash.update(chunk);
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk as Buffer);
   }
 
   return hash.digest('hex');

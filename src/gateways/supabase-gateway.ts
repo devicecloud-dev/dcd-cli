@@ -1,7 +1,17 @@
+import { createReadStream } from 'node:fs';
+
 import { createClient } from '@supabase/supabase-js';
 import * as tus from 'tus-js-client';
 
 import { ENVIRONMENTS, type DcdEnvName } from '../config/environments';
+
+/** Disk-backed upload descriptor — see UploadSource in src/methods.ts. */
+export interface ResumableUploadSource {
+  contentType: string;
+  diskPath: string;
+  name: string;
+  size: number;
+}
 
 export class SupabaseGateway {
   /**
@@ -10,7 +20,7 @@ export class SupabaseGateway {
    * File is later moved to final location by API after finalization
    * @param env - Environment (dev or prod)
    * @param path - Staging storage path (uploads/{id}/file.ext)
-   * @param file - File to upload
+   * @param source - Upload source descriptor; the file is streamed from disk
    * @param debug - Enable debug logging
    * @param onProgress - Optional callback for upload progress (bytesUploaded, bytesTotal)
    * @returns Promise that resolves when upload completes
@@ -18,7 +28,7 @@ export class SupabaseGateway {
   static async uploadResumable(
     env: DcdEnvName,
     path: string,
-    file: File,
+    source: ResumableUploadSource,
     debug = false,
     onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
   ): Promise<void> {
@@ -30,20 +40,17 @@ export class SupabaseGateway {
       console.log(`[DEBUG] Resumable upload starting...`);
       console.log(`[DEBUG] Storage URL: ${storageUrl}`);
       console.log(`[DEBUG] Upload path: ${path}`);
-      console.log(`[DEBUG] File name: ${file.name}`);
-      console.log(`[DEBUG] File size: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
-    }
-
-    // Convert File to Buffer for Node.js tus-js-client
-    // In Node.js environment, tus-js-client expects Buffer or Readable stream, not File
-    const fileBuffer = Buffer.from(await file.arrayBuffer());
-
-    if (debug) {
-      console.log(`[DEBUG] Converted File to Buffer (${fileBuffer.length} bytes)`);
+      console.log(`[DEBUG] File name: ${source.name}`);
+      console.log(`[DEBUG] File size: ${(source.size / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`[DEBUG] Streaming from disk: ${source.diskPath}`);
     }
 
     return new Promise((resolve, reject) => {
-      const upload = new tus.Upload(fileBuffer, {
+      // Stream from disk — tus only buffers one chunk at a time. uploadSize
+      // is required because a stream's length can't be derived.
+      const upload = new tus.Upload(createReadStream(source.diskPath), {
+        uploadSize: source.size,
+
         // TUS endpoint for Supabase Storage
         endpoint: `${storageUrl}/storage/v1/upload/resumable`,
 
@@ -61,7 +68,7 @@ export class SupabaseGateway {
         metadata: {
           bucketName: 'organizations',
           objectName: path,
-          contentType: file.type || 'application/octet-stream',
+          contentType: source.contentType || 'application/octet-stream',
           cacheControl: '3600',
         },
 
