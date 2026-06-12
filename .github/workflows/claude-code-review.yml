@@ -21,7 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      # write so the review agent can post its inline comments — with read it
+      # reviews successfully but every posting attempt is denied and the PR
+      # gets nothing (the action still exits 0).
+      pull-requests: write
       issues: read
       id-token: write
 
