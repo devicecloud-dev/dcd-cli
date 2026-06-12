@@ -92,6 +92,12 @@ export class VersionService {
       }
     }
 
+    if (!resolvedVersion) {
+      throw new Error(
+        'Unable to resolve a Maestro version: compatibility data did not provide a default.',
+      );
+    }
+
     // Validate Maestro version
     if (!supportedVersions.includes(resolvedVersion)) {
       throw new Error(

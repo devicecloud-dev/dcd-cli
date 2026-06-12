@@ -74,4 +74,12 @@ module.exports = tseslint.config(
       '@typescript-eslint/no-require-imports': 'off',
     },
   },
+  {
+    // Chai's property-style assertions (`expect(x).to.be.true`) are
+    // expression statements by design.
+    files: ['test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unused-expressions': 'off',
+    },
+  },
 );
