@@ -18,7 +18,6 @@ module.exports = tseslint.config(
       'dist/**',
       'node_modules/**',
       'src/types/generated/**',
-      'src/types/schema.types.ts',
     ],
   },
   js.configs.recommended,
