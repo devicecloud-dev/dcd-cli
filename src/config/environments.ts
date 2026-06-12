@@ -44,6 +44,15 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
   },
 };
 
+/** Exact-match lookup of a known environment by API URL (trailing slashes ignored). */
+export function findEnvByApiUrl(apiUrl: string): DcdEnvironment | undefined {
+  const normalize = (u: string) => u.replace(/\/+$/, '');
+  const needle = normalize(apiUrl);
+  return Object.values(ENVIRONMENTS).find(
+    (env) => normalize(env.apiUrl) === needle,
+  );
+}
+
 /** Map a caller-supplied API URL to one of the known environments. */
 export function inferEnvFromApiUrl(apiUrl: string): DcdEnvName {
   if (apiUrl.includes('api.dev.') || apiUrl.includes('localhost')) return 'dev';

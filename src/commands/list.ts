@@ -78,7 +78,7 @@ function displayResults(response: ListResponse): void {
   if (total > offset + uploads.length) {
     const remaining = total - (offset + uploads.length);
     logger.log(
-      `   ${colors.dim('Use')} --offset ${offset + limit} ${colors.dim('to see the next')} ${Math.min(remaining, limit)} ${colors.dim('uploads')}\n`,
+      `   ${colors.dim('Use')} --offset ${offset + uploads.length} ${colors.dim('to see the next')} ${Math.min(remaining, limit)} ${colors.dim('uploads')}\n`,
     );
   }
 

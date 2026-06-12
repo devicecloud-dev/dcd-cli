@@ -21,8 +21,7 @@ export const switchOrgCommand = defineCommand({
   args: {
     'api-url': {
       type: 'string',
-      default: 'https://api.devicecloud.dev',
-      description: 'API base URL',
+      description: 'API base URL (defaults to the URL stored by `dcd login`)',
     },
     org: {
       type: 'positional',
@@ -36,13 +35,17 @@ export const switchOrgCommand = defineCommand({
       throw new CliError('Not logged in. Run `dcd login` first.');
     }
 
-    const apiUrl = args['api-url'] as string;
+    // Honor the env the user logged into — defaulting to prod here would send
+    // a dev Bearer token to the prod API.
+    const apiUrl =
+      (args['api-url'] as string | undefined) ??
+      config.api_url ??
+      'https://api.devicecloud.dev';
     const target = args.org as string | undefined;
 
-    const auth = await resolveAuth({ apiKeyFlag: undefined });
-    if (auth.mode !== 'bearer') {
-      throw new CliError('`dcd switch-org` requires a browser login, not an API key.');
-    }
+    // sessionOnly: an exported DEVICE_CLOUD_API_KEY must not shadow the
+    // browser session this command requires.
+    const auth = await resolveAuth({ apiKeyFlag: undefined, sessionOnly: true });
 
     const orgs = await fetchOrgs(apiUrl, auth.headers);
 

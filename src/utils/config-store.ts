@@ -12,6 +12,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -58,9 +59,21 @@ export function readConfig(): StoredConfig | null {
   try {
     const raw = readFileSync(p, 'utf8');
     const parsed = JSON.parse(raw) as StoredConfig;
-    if (parsed.version !== CONFIG_SCHEMA_VERSION) return null;
+    if (parsed.version !== CONFIG_SCHEMA_VERSION) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `Warning: config at ${p} was written by an incompatible CLI version (config version ${parsed.version}); ignoring it. Run \`dcd login\` to recreate it.`,
+      );
+      return null;
+    }
     return parsed;
   } catch {
+    // Surface the corruption instead of silently behaving as logged-out, so
+    // downstream "Not authenticated" errors aren't mystifying.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `Warning: could not parse config at ${p}; treating as logged out. Run \`dcd login\` to recreate it.`,
+    );
     return null;
   }
 }
@@ -74,6 +87,21 @@ export function writeConfig(config: StoredConfig): void {
   }
 
   const finalPath = getConfigPath();
+
+  // Best-effort cleanup of orphaned tmp files left behind by crashed writes.
+  // Only remove old ones — a concurrent process may be between its own
+  // writeFileSync and renameSync right now.
+  try {
+    const base = path.basename(finalPath);
+    for (const entry of readdirSync(dir)) {
+      if (!entry.startsWith(`${base}.`) || !entry.endsWith('.tmp')) continue;
+      const tmp = path.join(dir, entry);
+      try {
+        if (Date.now() - statSync(tmp).mtimeMs > 60_000) unlinkSync(tmp);
+      } catch { /* best effort */ }
+    }
+  } catch { /* best effort */ }
+
   const tmpPath = `${finalPath}.${randomBytes(6).toString('hex')}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
   try { chmodSync(tmpPath, 0o600); } catch { /* best effort on platforms w/o chmod */ }

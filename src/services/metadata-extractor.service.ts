@@ -19,6 +19,25 @@ export interface IMetadataExtractor {
 }
 
 /**
+ * Parses an Info.plist buffer (XML, UTF-8 BOM'd XML, or binary bplist).
+ * Shared by the .app and .zip extractors.
+ */
+function parseInfoPlist(buffer: Buffer): { CFBundleIdentifier: string } {
+  let data;
+  const bufferType = buffer[0];
+  // 60 = '<' (XML plist), 239 = UTF-8 BOM, 98 = 'b' (binary "bplist")
+  if (bufferType === 60 || bufferType === 239) {
+    data = parse(buffer.toString());
+  } else if (bufferType === 98) {
+    data = parseBuffer(buffer)[0];
+  } else {
+    throw new Error('Unknown plist buffer type.');
+  }
+
+  return data;
+}
+
+/**
  * Extracts metadata from Android APK files
  */
 export class AndroidMetadataExtractor implements IMetadataExtractor {
@@ -48,29 +67,9 @@ export class IosAppMetadataExtractor implements IMetadataExtractor {
   async extract(filePath: string): Promise<TAppMetadata> {
     const infoPlistPath = path.normalize(path.join(filePath, 'Info.plist'));
     const buffer = await readFile(infoPlistPath);
-    const data = await this.parseInfoPlist(buffer);
+    const data = parseInfoPlist(buffer);
     const appId = data.CFBundleIdentifier;
     return { appId, platform: 'ios' };
-  }
-
-  private async parseInfoPlist(
-    buffer: Buffer,
-  ): Promise<{ CFBundleIdentifier: string }> {
-    let data;
-    const bufferType = buffer[0];
-    if (
-      bufferType === 60 ||
-      (bufferType as unknown as string) === '<' ||
-      bufferType === 239
-    ) {
-      data = parse(buffer.toString());
-    } else if (bufferType === 98) {
-      data = parseBuffer(buffer)[0];
-    } else {
-      throw new Error('Unknown plist buffer type.');
-    }
-
-    return data;
   }
 }
 
@@ -86,57 +85,43 @@ export class IosZipMetadataExtractor implements IMetadataExtractor {
     return new Promise<TAppMetadata>((resolve, reject) => {
       const zip = new StreamZip({ file: filePath });
 
+      // A throw inside an emitter callback escapes the caller's try/catch and
+      // crashes the process, so route all failures through reject explicitly.
       zip.on('ready', () => {
-        // Get all entries and sort them by path depth
-        const entries = Object.values(zip.entries());
-        const sortedEntries = entries.sort((a, b) => {
-          const aDepth = a.name.split('/').length;
-          const bDepth = b.name.split('/').length;
-          return aDepth - bDepth;
-        });
+        try {
+          // Get all entries and sort them by path depth
+          const entries = Object.values(zip.entries());
+          const sortedEntries = entries.sort((a, b) => {
+            const aDepth = a.name.split('/').length;
+            const bDepth = b.name.split('/').length;
+            return aDepth - bDepth;
+          });
 
-        // Find the first Info.plist in the shallowest directory
-        const infoPlist = sortedEntries.find((e) =>
-          e.name.endsWith('.app/Info.plist'),
-        );
+          // Find the first Info.plist in the shallowest directory
+          const infoPlist = sortedEntries.find((e) =>
+            e.name.endsWith('.app/Info.plist'),
+          );
 
-        if (!infoPlist) {
-          reject(new Error('Failed to find info plist'));
-          return;
+          if (!infoPlist) {
+            reject(new Error('Failed to find info plist'));
+            return;
+          }
+
+          const buffer = zip.entryDataSync(infoPlist.name);
+          const data = parseInfoPlist(buffer);
+          resolve({ appId: data.CFBundleIdentifier, platform: 'ios' });
+        } catch (error) {
+          reject(error);
+        } finally {
+          zip.close();
         }
-
-        const buffer = zip.entryDataSync(infoPlist.name);
-        this.parseInfoPlist(buffer)
-          .then((data) => {
-            const appId = data.CFBundleIdentifier;
-            zip.close();
-            resolve({ appId, platform: 'ios' });
-          })
-          .catch(reject);
       });
 
-      zip.on('error', reject);
+      zip.on('error', (error) => {
+        zip.close();
+        reject(error);
+      });
     });
-  }
-
-  private async parseInfoPlist(
-    buffer: Buffer,
-  ): Promise<{ CFBundleIdentifier: string }> {
-    let data;
-    const bufferType = buffer[0];
-    if (
-      bufferType === 60 ||
-      (bufferType as unknown as string) === '<' ||
-      bufferType === 239
-    ) {
-      data = parse(buffer.toString());
-    } else if (bufferType === 98) {
-      data = parseBuffer(buffer)[0];
-    } else {
-      throw new Error('Unknown plist buffer type.');
-    }
-
-    return data;
   }
 }
 

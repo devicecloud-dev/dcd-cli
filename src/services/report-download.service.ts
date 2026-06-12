@@ -71,9 +71,12 @@ export class ReportDownloadService {
         logger(`[DEBUG] Error downloading artifacts: ${error}`);
       }
 
-      if (warnLogger) {
-        warnLogger('Failed to download artifacts');
-      }
+      this.warnDownloadFailure(
+        warnLogger,
+        'artifacts',
+        'No artifacts found for this upload. Make sure your tests generated results.',
+        error,
+      );
     }
   }
 
@@ -168,20 +171,43 @@ export class ReportDownloadService {
         logger(`[DEBUG] Error downloading ${type.toUpperCase()} report: ${error}`);
       }
 
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (warnLogger) {
-        warnLogger(`Failed to download ${type.toUpperCase()} report: ${errorMessage}`);
+      this.warnDownloadFailure(
+        warnLogger,
+        `${type.toUpperCase()} report`,
+        `No ${type.toUpperCase()} reports found for this upload. Make sure your tests generated results.`,
+        error,
+      );
+    }
+  }
 
-        if (errorMessage.includes('404')) {
-          warnLogger(
-            `No ${type.toUpperCase()} reports found for this upload. Make sure your tests generated results.`,
-          );
-        } else if (errorMessage.includes('EACCES') || errorMessage.includes('EPERM')) {
-          warnLogger('Permission denied. Check write permissions for the current directory.');
-        } else if (errorMessage.includes('ENOENT')) {
-          warnLogger('Directory does not exist. Make sure you have write access to the current directory.');
-        }
-      }
+  /**
+   * Warn about a failed download with the underlying cause plus hints for
+   * common error classes (missing results, permissions, bad paths)
+   * @param warnLogger Warning logger, if configured
+   * @param subject What was being downloaded, e.g. 'artifacts' or 'JUNIT report'
+   * @param notFoundHint Message to show when the error looks like a 404
+   * @param error The error that occurred
+   * @returns void
+   */
+  private warnDownloadFailure(
+    warnLogger: ((message: string) => void) | undefined,
+    subject: string,
+    notFoundHint: string,
+    error: unknown,
+  ): void {
+    if (!warnLogger) {
+      return;
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    warnLogger(`Failed to download ${subject}: ${errorMessage}`);
+
+    if (errorMessage.includes('404')) {
+      warnLogger(notFoundHint);
+    } else if (errorMessage.includes('EACCES') || errorMessage.includes('EPERM')) {
+      warnLogger('Permission denied. Check write permissions for the current directory.');
+    } else if (errorMessage.includes('ENOENT')) {
+      warnLogger('Directory does not exist. Make sure you have write access to the current directory.');
     }
   }
 }

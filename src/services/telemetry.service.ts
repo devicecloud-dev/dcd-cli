@@ -14,6 +14,9 @@
  */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import type { AuthContext } from '../types/domain/auth.types';
 import { getCliVersion, getInstallMethod } from '../utils/cli';
@@ -64,7 +67,7 @@ class Telemetry {
   recordCommandStart() {
     this.startedAt = Date.now();
     this.enqueue('info', 'cli.lifecycle', 'command started', {
-      argv: process.argv.slice(2),
+      argv: scrubArgv(process.argv.slice(2)),
     });
   }
 
@@ -136,22 +139,29 @@ class Telemetry {
     if (this.disabled || !this.config || this.buffer.length === 0) return;
     const events = this.buffer.splice(0, this.buffer.length);
     const body = JSON.stringify({ events, meta: this.buildMeta() });
-    const headerArgs: string[] = ['-H', 'content-type: application/json'];
-    for (const [k, v] of Object.entries(this.config.auth.headers)) {
-      headerArgs.push('-H', `${k}: ${v}`);
-    }
+    // Headers carry the API key / Bearer token, so they must not appear in
+    // curl's argv (world-readable via ps//proc while curl runs). They go in a
+    // 0600 config file inside a fresh 0700 temp dir instead; stdin carries the
+    // body, so it can't double as the config channel.
+    let configDir: string | undefined;
     try {
+      configDir = mkdtempSync(join(tmpdir(), 'dcd-telemetry-'));
+      const configPath = join(configDir, 'curl.cfg');
+      const headerLines = ['header = "content-type: application/json"'];
+      for (const [k, v] of Object.entries(this.config.auth.headers)) {
+        headerLines.push(`header = "${k}: ${v}"`);
+      }
+      writeFileSync(configPath, headerLines.join('\n'), { mode: 0o600 });
       execFileSync(
         'curl',
         [
           '-sS',
           '-m',
           '3',
-          '-o',
-          '/dev/null',
           '-X',
           'POST',
-          ...headerArgs,
+          '-K',
+          configPath,
           '--data-binary',
           '@-',
           `${this.config.apiUrl}/cli/logs`,
@@ -160,6 +170,8 @@ class Telemetry {
       );
     } catch {
       // Telemetry failures must never surface — silently drop.
+    } finally {
+      if (configDir) rmSync(configDir, { recursive: true, force: true });
     }
   }
 
@@ -180,6 +192,42 @@ class Telemetry {
       orgId: this.config.auth.orgId,
     };
   }
+}
+
+// Flags whose values are credential material (API keys, signed URLs) or
+// user-provided env pairs that routinely carry test-account secrets. Their
+// values must never reach the telemetry backend.
+const SENSITIVE_FLAG_NAMES = new Set([
+  '--api-key',
+  '--apiKey',
+  '--moropo-v1-api-key',
+  '--app-url',
+  '--appUrl',
+  '-e',
+  '--env',
+]);
+
+function scrubArgv(args: string[]): string[] {
+  const scrubbed: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const eqIndex = arg.indexOf('=');
+    const flagName = eqIndex === -1 ? arg : arg.slice(0, eqIndex);
+    if (arg.startsWith('-') && SENSITIVE_FLAG_NAMES.has(flagName)) {
+      if (eqIndex === -1) {
+        scrubbed.push(arg);
+        if (i + 1 < args.length) {
+          scrubbed.push('<redacted>');
+          i++;
+        }
+      } else {
+        scrubbed.push(`${flagName}=<redacted>`);
+      }
+    } else {
+      scrubbed.push(arg);
+    }
+  }
+  return scrubbed;
 }
 
 // argv layout: node|tsx, script, command, ...flags. The first non-flag after

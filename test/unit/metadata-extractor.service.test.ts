@@ -32,14 +32,16 @@ describe('AndroidMetadataExtractor', () => {
     const fakeApk = path.join(tempDir, 'not-really.apk');
     fs.writeFileSync(fakeApk, 'definitely not an apk');
 
+    let threw = false;
     try {
       await extractor.extract(fakeApk);
-      expect.fail('expected extract() to throw on invalid APK');
     } catch (error) {
+      threw = true;
       expect(error).to.be.instanceOf(Error);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
+    expect(threw, 'expected extract() to throw on invalid APK').to.equal(true);
   });
 });
 

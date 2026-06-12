@@ -2,6 +2,8 @@ import { ux } from '../utils/progress';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 import StreamZip = require('node-stream-zip');
 
@@ -33,6 +35,8 @@ export class MoropoService {
     this.logDebug(debug, logger, '[DEBUG] Moropo v1 API key detected, downloading tests from Moropo API');
     this.logDebug(debug, logger, `[DEBUG] Using branch name: ${branchName}`);
 
+    let moropoDir: string | undefined;
+
     try {
       if (!quiet && !json) {
         ux.action.start('Downloading Moropo tests', 'Initializing', {
@@ -54,7 +58,7 @@ export class MoropoService {
         );
       }
 
-      const moropoDir = path.join(
+      moropoDir = path.join(
         os.tmpdir(),
         `moropo-tests-${Date.now()}`,
       );
@@ -91,6 +95,11 @@ export class MoropoService {
         ux.action.stop('failed');
       }
 
+      // Remove the temp directory (and any partially-written zip inside it)
+      if (moropoDir) {
+        fs.rmSync(moropoDir, { recursive: true, force: true });
+      }
+
       this.logDebug(debug, logger, `[DEBUG] Error downloading/extracting Moropo tests: ${error}`);
       throw new Error(`Failed to download/extract Moropo tests: ${error}`);
     }
@@ -111,33 +120,27 @@ export class MoropoService {
     const totalSize = contentLength ? Number.parseInt(contentLength, 10) : 0;
     let downloadedSize = 0;
 
-    const fileStream = fs.createWriteStream(zipPath);
-    const reader = response.body?.getReader();
-
-    if (!reader) {
+    if (!response.body) {
       throw new Error('Failed to get response reader');
     }
 
-    let readerResult = await reader.read();
-    while (!readerResult.done) {
-      const { value } = readerResult;
-      downloadedSize += value.length;
+    const source = Readable.fromWeb(
+      response.body as Parameters<typeof Readable.fromWeb>[0],
+    );
 
-      if (!quiet && !json && totalSize) {
+    if (!quiet && !json && totalSize) {
+      // Progress tap — pipeline below still owns the flow/backpressure
+      source.on('data', (chunk: Buffer) => {
+        downloadedSize += chunk.length;
         const progress = Math.round((downloadedSize / totalSize) * 100);
         ux.action.status = `Downloading: ${progress}%`;
-      }
-
-      fileStream.write(value);
-      readerResult = await reader.read();
+      });
     }
 
-    fileStream.end();
-    await new Promise<void>((resolve) => {
-      fileStream.on('finish', () => {
-        resolve();
-      });
-    });
+    // pipeline (unlike a bare 'finish' wait) propagates errors from both
+    // streams, so disk-full or a stalled download rejects instead of
+    // crashing or hanging.
+    await pipeline(source, fs.createWriteStream(zipPath));
   }
 
   private async extractZipFile(zipPath: string, extractPath: string): Promise<void> {

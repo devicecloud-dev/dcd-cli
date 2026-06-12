@@ -7,7 +7,7 @@ import * as StreamZip from 'node-stream-zip';
 import * as yazl from 'yazl';
 
 import { inferEnvFromApiUrl } from './config/environments';
-import { ApiGateway } from './gateways/api-gateway';
+import { ApiError, ApiGateway } from './gateways/api-gateway';
 import { SupabaseGateway } from './gateways/supabase-gateway';
 import { MetadataExtractorService } from './services/metadata-extractor.service';
 import { TAppMetadata } from './types';
@@ -67,9 +67,11 @@ export const compressFilesFromRelativePath = async (
 ): Promise<Buffer> => {
   const zipfile = new yazl.ZipFile();
   for (const file of files) {
+    // Anchored prefix strip — replace() would remove the first occurrence
+    // of commonRoot anywhere in the path, not just at the start.
     zipfile.addFile(
       path.resolve(basePath, file),
-      toZipEntryName(file.replace(commonRoot, '')),
+      toZipEntryName(file.startsWith(commonRoot) ? file.slice(commonRoot.length) : file),
     );
   }
   return zipToBuffer(zipfile);
@@ -81,20 +83,30 @@ export const verifyAppZip = async (zipPath: string) => {
     file: zipPath,
     storeEntries: true,
   });
-  const entries = await zip.entries();
-  const topLevelEntries = Object.values(entries).filter(
-    (entry) => !entry.name.split('/')[1],
-  );
-  if (
-    topLevelEntries.length !== 1 ||
-    !topLevelEntries[0].name.endsWith('.app/')
-  ) {
-    throw new Error(
-      'Zip file must contain exactly one entry which is a .app, check the contents of the zip file',
+  try {
+    const entries = await zip.entries();
+    // Derive top-level names from all entries rather than requiring an
+    // explicit directory entry — zips created without directory entries
+    // (e.g. Python's zipfile) are valid but have no ".app/" entry itself.
+    // macOS metadata (__MACOSX resource forks, .DS_Store) doesn't count
+    // toward the "exactly one .app" rule.
+    const topLevelNames = new Set(
+      Object.values(entries)
+        .filter(
+          (entry) =>
+            !entry.name.startsWith('__MACOSX/') &&
+            entry.name.split('/').pop() !== '.DS_Store',
+        )
+        .map((entry) => entry.name.split('/')[0]),
     );
+    if (topLevelNames.size !== 1 || ![...topLevelNames][0].endsWith('.app')) {
+      throw new Error(
+        'Zip file must contain exactly one entry which is a .app, check the contents of the zip file',
+      );
+    }
+  } finally {
+    zip.close();
   }
-
-  zip.close();
 };
 
 interface UploadBinaryConfig {
@@ -169,16 +181,6 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
       }
 
       console.error(`[DEBUG] Failed after ${Date.now() - startTime}ms`);
-    }
-
-    // Add helpful context for common errors
-    if (error instanceof Error) {
-      if (error.name === 'NetworkError') {
-        throw error; // NetworkError already has detailed troubleshooting info
-      }
-
-      // Re-throw with original message
-      throw error;
     }
 
     throw error;
@@ -340,6 +342,12 @@ async function checkExistingUpload(
 
     return { binaryId: appBinaryId, exists };
   } catch (error) {
+    // Invalid credentials will fail every subsequent request — surface now
+    // rather than after the user has waited through a potentially huge upload.
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      throw error;
+    }
+
     if (debug) {
       console.error('[DEBUG] === SHA CHECK FAILED ===');
       console.error('[DEBUG] Continuing with upload despite SHA check failure');
@@ -697,7 +705,8 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     id,
     metadata,
     path: tempPath,
-    sha: sha as string,
+    // sha is undefined when hash calculation failed — omit it explicitly
+    ...(sha ? { sha } : {}),
     supabaseSuccess: supabaseResult.success,
   });
 
@@ -1015,13 +1024,6 @@ async function uploadLargeFileToBackblaze(config: LargeFileUploadConfig): Promis
       });
     }
 
-    // Validate all parts were uploaded
-    if (partSha1Array.length !== uploadPartUrls.length) {
-      const errorMsg = `Part count mismatch: uploaded ${partSha1Array.length} parts but expected ${uploadPartUrls.length}`;
-      if (debug) console.error(`[DEBUG] ${errorMsg}`);
-      throw new Error(errorMsg);
-    }
-
     if (debug) {
       console.log('[DEBUG] Finishing large file upload...');
       console.log(`[DEBUG] Finalizing ${partSha1Array.length} parts with fileId: ${fileId}`);
@@ -1039,29 +1041,14 @@ async function uploadLargeFileToBackblaze(config: LargeFileUploadConfig): Promis
 }
 
 async function getFileHashFromFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash('sha256');
-    const stream = file.stream();
-    const reader = stream.getReader();
+  const hash = createHash('sha256');
+  // Node's web ReadableStream is async-iterable at runtime; the cast covers
+  // TS lib variants whose ReadableStream type lacks Symbol.asyncIterator.
+  for await (const chunk of file.stream() as unknown as AsyncIterable<Uint8Array>) {
+    hash.update(chunk);
+  }
 
-    const processChunks = async () => {
-      try {
-        let readerResult = await reader.read();
-        while (!readerResult.done) {
-          const { value } = readerResult;
-          hash.update(value);
-
-          readerResult = await reader.read();
-        }
-
-        resolve(hash.digest('hex'));
-      } catch (error) {
-        reject(error);
-      }
-    };
-
-    processChunks();
-  });
+  return hash.digest('hex');
 }
 
 /**

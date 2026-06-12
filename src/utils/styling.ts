@@ -1,9 +1,15 @@
 import chalk = require('chalk');
 
+import { findEnvByApiUrl } from '../config/environments';
+
 /**
  * Centralized styling utilities for CLI output
  * Provides consistent, developer-friendly visual formatting
  */
+
+/** Strip ANSI color escape sequences for visible-width calculations. */
+// eslint-disable-next-line no-control-regex -- matches ANSI escape sequences
+const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '');
 
 /**
  * Status symbols with associated colors
@@ -163,8 +169,6 @@ export function formatTestSummary(summary: {
  */
 export function box(content: string): string {
   const lines = content.split('\n');
-  // eslint-disable-next-line no-control-regex -- matches ANSI escape sequences
-  const stripAnsi = (s: string): string => s.replace(/\[[0-9;]*m/g, '');
   const visibleLen = (s: string): number => stripAnsi(s).length;
   const maxLength = Math.max(...lines.map((l) => visibleLen(l)));
   const top = chalk.gray('┌' + '─'.repeat(maxLength + 2) + '┐');
@@ -193,8 +197,6 @@ export function table<T>(
 
   const keys = Object.keys(columns);
   const headers = keys.map((k) => columns[k].header ?? k);
-  // eslint-disable-next-line no-control-regex -- matches ANSI escape sequences
-  const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '');
   const cells: string[][] = rows.map((row) =>
     keys.map((k) => String(columns[k].get(row) ?? '')),
   );
@@ -218,16 +220,15 @@ export function table<T>(
 
 /**
  * Generate console URL based on API URL
- * If a non-default API URL is used, prepends "dev." to the console subdomain
+ * Derives the console host from the known environment matching the API URL;
+ * unknown API URLs fall back to the dev console (historical behavior).
  * @param apiUrl - The API URL being used
  * @param uploadId - The upload ID
  * @param resultId - The result ID
  * @returns The appropriate console URL
  */
 export function getConsoleUrl(apiUrl: string, uploadId: number | string, resultId: number | string): string {
-  const DEFAULT_API_URL = 'https://api.devicecloud.dev';
-  const isDefaultApi = apiUrl === DEFAULT_API_URL;
-
-  const consoleSubdomain = isDefaultApi ? 'console' : 'dev.console';
-  return `https://${consoleSubdomain}.devicecloud.dev/results?upload=${uploadId}&result=${resultId}`;
+  const env = findEnvByApiUrl(apiUrl);
+  const base = env?.frontendUrl ?? 'https://dev.console.devicecloud.dev';
+  return `${base}/results?upload=${uploadId}&result=${resultId}`;
 }

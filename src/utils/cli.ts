@@ -132,9 +132,11 @@ export function parseIntFlag(
   flagName: string,
 ): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
-  const n = Number.parseInt(String(value), 10);
-  if (!Number.isFinite(n)) {
+  // All integer flags (limit/offset/retry) are non-negative; also rejects
+  // trailing garbage that parseInt would silently accept ("20abc" -> 20).
+  const trimmed = String(value).trim();
+  if (!/^\d+$/.test(trimmed)) {
     throw new CliError(`Invalid integer value for --${flagName}: "${value}"`);
   }
-  return n;
+  return Number.parseInt(trimmed, 10);
 }

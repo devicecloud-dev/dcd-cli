@@ -35,8 +35,15 @@ export class VersionService {
    * @returns true if current is older than latest
    */
   isOutdated(current: string, latest: string): boolean {
-    const currentParts = current.split('.').map(Number);
-    const latestParts = latest.split('.').map(Number);
+    // Strip any prerelease suffix ("1.2.3-beta.1" -> "1.2.3") and default
+    // missing segments to 0 so short/prerelease versions still compare.
+    const parts = (version: string): number[] => {
+      const nums = version.split('-')[0].split('.').map(Number);
+      return [nums[0] || 0, nums[1] || 0, nums[2] || 0];
+    };
+
+    const currentParts = parts(current);
+    const latestParts = parts(latest);
 
     for (let i = 0; i < 3; i++) {
       if (currentParts[i] < latestParts[i]) return true;

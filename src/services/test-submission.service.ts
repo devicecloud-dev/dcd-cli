@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 
 import { compressFilesFromRelativePath } from '../methods';
+import { toPortableRelativePath } from '../utils/paths';
 import { IExecutionPlan } from './execution-plan.service';
 
 export interface TestSubmissionConfig {
@@ -260,7 +261,7 @@ export class TestSubmissionService {
   }
 
   private normalizeFilePath(filePath: string, commonRoot: string): string {
-    return filePath.replaceAll(commonRoot, '.').split(path.sep).join('/');
+    return toPortableRelativePath(filePath, commonRoot);
   }
 
   private normalizePathMap(

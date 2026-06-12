@@ -1,8 +1,41 @@
+import { createWriteStream, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import * as path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 import { TAppMetadata } from '../types';
 import type { AuthContext } from '../types/domain/auth.types';
 import { paths } from '../types/generated/schema.types';
+
+/**
+ * Error thrown for non-OK API responses, carrying the HTTP status so callers
+ * can branch on auth failures etc. without string matching.
+ */
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/**
+ * Parses a successful response body as JSON, wrapping parse failures in a
+ * descriptive error (a 200 with an HTML body otherwise surfaces as a bare
+ * SyntaxError with no context about which call failed).
+ */
+async function parseJsonResponse<T>(res: Response, operation: string): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch (error) {
+    throw new Error(
+      `${operation}: API returned an invalid JSON response (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+}
 
 export const ApiGateway = {
   /**
@@ -57,46 +90,86 @@ export const ApiGateway = {
     // Add context and improve readability
     switch (res.status) {
       case 400: {
-        throw new Error(`Invalid request: ${userMessage}`);
+        throw new ApiError(`Invalid request: ${userMessage}`, 400);
       }
 
       case 401: {
-        throw new Error(`Authentication failed. Please check your API key.`);
+        // Auth-mode-neutral: the CLI accepts both API keys and Bearer sessions.
+        // status.ts matches on the "Authentication failed" / "API key" substrings.
+        let message =
+          `Authentication failed — your credentials are invalid or expired. ` +
+          `Re-run \`dcd login\` or check your API key. (${operation})`;
+        if (userMessage) {
+          message += `\nServer response: ${userMessage}`;
+        }
+
+        throw new ApiError(message, 401);
       }
 
       case 403: {
         // For 403, use the server's error message directly as it's now detailed
         // If the message suggests an API key issue, provide additional guidance
         if (userMessage.toLowerCase().includes('api key')) {
-          throw new Error(
+          throw new ApiError(
             `${userMessage}\n\nTroubleshooting steps:\n` +
               `  1. Verify DEVICE_CLOUD_API_KEY environment variable is set\n` +
               `  2. Check you're using the correct API key for this environment\n` +
               `  3. Ensure the API key hasn't been deleted or revoked\n` +
               `  4. Confirm you're connecting to the correct API URL`,
+            403,
           );
         }
 
-        throw new Error(`Access denied. ${userMessage}`);
+        throw new ApiError(`Access denied. ${userMessage}`, 403);
       }
 
       case 404: {
-        throw new Error(`Resource not found. ${userMessage}`);
+        throw new ApiError(`Resource not found. ${userMessage}`, 404);
       }
 
       case 429: {
-        throw new Error(`Rate limit exceeded. Please try again later.`);
+        throw new ApiError(`Rate limit exceeded. Please try again later. (${operation})`, 429);
       }
 
       case 500: {
-        throw new Error(`Server error occurred. Please try again or contact support.`);
+        throw new ApiError(`Server error occurred. Please try again or contact support. (${operation})`, 500);
       }
 
       default: {
-        throw new Error(`${operation} failed: ${userMessage} (HTTP ${res.status})`);
+        throw new ApiError(`${operation} failed: ${userMessage} (HTTP ${res.status})`, res.status);
       }
     }
   },
+
+  /**
+   * Streams a fetch response body to disk, expanding a leading tilde and
+   * creating the destination directory if needed. Internal helper shared by
+   * the download methods.
+   */
+  async streamResponseToFile(res: Response, destinationPath: string, operation: string) {
+    if (res.body === null) {
+      throw new Error(`${operation}: server response contained no body to download`);
+    }
+
+    // Handle tilde expansion for home directory
+    const expandedPath = destinationPath.replace(/^~(?=$|\/|\\)/, homedir());
+
+    // Create directory structure if it doesn't exist
+    const directory = path.dirname(expandedPath);
+    if (directory !== '.') {
+      mkdirSync(directory, { recursive: true });
+    }
+
+    // Use 'w' flag to overwrite existing files instead of failing.
+    // pipeline (unlike .pipe) propagates source-stream errors, so a
+    // mid-download network failure rejects instead of hanging forever.
+    const fileStream = createWriteStream(expandedPath, { flags: 'w' });
+    await pipeline(
+      Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
+      fileStream,
+    );
+  },
+
   async checkForExistingUpload(
     baseUrl: string,
     auth: AuthContext,
@@ -116,9 +189,9 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to check for existing upload');
       }
 
-      return res.json() as Promise<
+      return await parseJsonResponse<
         paths['/uploads/checkForExistingUpload']['post']['responses']['201']['content']['application/json']
-      >;
+      >(res, 'Failed to check for existing upload');
     } catch (error) {
       // Handle network-level errors (DNS, connection refused, timeout, etc.)
       if (error instanceof TypeError && error.message === 'fetch failed') {
@@ -129,7 +202,7 @@ export const ApiGateway = {
     }
   },
 
-   
+
   async downloadArtifactsZip(
     baseUrl: string,
     auth: AuthContext,
@@ -150,40 +223,7 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to download artifacts');
       }
 
-    // Handle tilde expansion for home directory
-    if (artifactsPath.startsWith('~/') || artifactsPath === '~') {
-      artifactsPath = artifactsPath.replace(
-        /^~(?=$|\/|\\)/,
-        // eslint-disable-next-line unicorn/prefer-module
-        require('node:os').homedir(),
-      );
-    }
-
-    // Create directory structure if it doesn't exist
-    // eslint-disable-next-line unicorn/prefer-module
-    const { dirname } = require('node:path');
-    // eslint-disable-next-line unicorn/prefer-module
-    const { createWriteStream, mkdirSync } = require('node:fs');
-    // eslint-disable-next-line unicorn/prefer-module
-    const { finished } = require('node:stream/promises');
-    // eslint-disable-next-line unicorn/prefer-module
-    const { Readable } = require('node:stream');
-
-    const directory = dirname(artifactsPath);
-    if (directory !== '.') {
-      try {
-        mkdirSync(directory, { recursive: true });
-      } catch (error) {
-        // Ignore if directory already exists
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-          throw error;
-        }
-      }
-    }
-
-    const fileStream = createWriteStream(artifactsPath, { flags: 'w' });
-
-    await finished(Readable.fromWeb(res.body).pipe(fileStream));
+      await this.streamResponseToFile(res, artifactsPath, 'Failed to download artifacts');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/results/${uploadId}/download`);
@@ -201,7 +241,7 @@ export const ApiGateway = {
     id: string;
     metadata: TAppMetadata;
     path: string;
-    sha: string;
+    sha?: string;
     supabaseSuccess: boolean;
   }) {
     const { baseUrl, auth, id, metadata, path, sha, supabaseSuccess, backblazeSuccess, bytes } = config;
@@ -213,7 +253,7 @@ export const ApiGateway = {
           id,
           metadata,
           path, // This is tempPath for TUS uploads
-          sha,
+          ...(sha ? { sha } : {}),
           supabaseSuccess,
         }),
         headers: {
@@ -226,9 +266,9 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to finalize upload');
       }
 
-      return res.json() as Promise<
+      return await parseJsonResponse<
         paths['/uploads/finaliseUpload']['post']['responses']['201']['content']['application/json']
-      >;
+      >(res, 'Failed to finalize upload');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/finaliseUpload`);
@@ -257,9 +297,9 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to get upload URL');
       }
 
-      return res.json() as Promise<
+      return await parseJsonResponse<
         paths['/uploads/getBinaryUploadUrl']['post']['responses']['201']['content']['application/json']
-      >;
+      >(res, 'Failed to get upload URL');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/getBinaryUploadUrl`);
@@ -288,7 +328,7 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to finish large file');
       }
 
-      return res.json();
+      return await parseJsonResponse<unknown>(res, 'Failed to finish large file');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/finishLargeFile`);
@@ -312,9 +352,9 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to get results');
       }
 
-      return res.json() as Promise<
+      return await parseJsonResponse<
         paths['/results/{uploadId}']['get']['responses']['200']['content']['application/json']
-      >;
+      >(res, 'Failed to get results');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/results/${uploadId}`);
@@ -349,7 +389,7 @@ export const ApiGateway = {
         await this.handleApiError(response, 'Failed to get upload status');
       }
 
-      return response.json() as Promise<{
+      return await parseJsonResponse<{
         createdAt?: string;
         name?: string;
         status: 'CANCELLED' | 'FAILED' | 'PASSED' | 'PENDING';
@@ -360,7 +400,7 @@ export const ApiGateway = {
           name: string;
           status: 'CANCELLED' | 'FAILED' | 'PASSED' | 'PENDING';
         }>;
-      }>;
+      }>(response, 'Failed to get upload status');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/status?${queryParams}`);
@@ -415,7 +455,7 @@ export const ApiGateway = {
         await this.handleApiError(response, 'Failed to list uploads');
       }
 
-      return response.json() as Promise<{
+      return await parseJsonResponse<{
         limit: number;
         offset: number;
         total: number;
@@ -425,7 +465,7 @@ export const ApiGateway = {
           id: string;
           name: null | string;
         }>;
-      }>;
+      }>(response, 'Failed to list uploads');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, url);
@@ -452,9 +492,9 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to upload test flows');
       }
 
-      return res.json() as Promise<
+      return await parseJsonResponse<
         paths['/uploads/flow']['post']['responses']['201']['content']['application/json']
-      >;
+      >(res, 'Failed to upload test flows');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/flow`);
@@ -525,43 +565,7 @@ export const ApiGateway = {
         throw new Error(`${errorPrefix}: ${res.status} ${errorText}`);
       }
 
-    // Handle tilde expansion for home directory (applies to all report types)
-    let expandedPath = finalReportPath;
-    if (finalReportPath.startsWith('~/') || finalReportPath === '~') {
-      expandedPath = finalReportPath.replace(
-        /^~/,
-        // eslint-disable-next-line unicorn/prefer-module
-        require('node:os').homedir(),
-      );
-    }
-
-    // Create directory structure if it doesn't exist
-    // eslint-disable-next-line unicorn/prefer-module
-    const { dirname } = require('node:path');
-    // eslint-disable-next-line unicorn/prefer-module
-    const { createWriteStream, mkdirSync } = require('node:fs');
-    // eslint-disable-next-line unicorn/prefer-module
-    const { finished } = require('node:stream/promises');
-    // eslint-disable-next-line unicorn/prefer-module
-    const { Readable } = require('node:stream');
-
-    const directory = dirname(expandedPath);
-
-    if (directory !== '.') {
-      try {
-        mkdirSync(directory, { recursive: true });
-      } catch (error) {
-        // Ignore EEXIST errors (directory already exists)
-        if (error.code !== 'EEXIST') {
-          throw error;
-        }
-      }
-    }
-
-    // Write the file using streaming for better memory efficiency
-    // Use 'w' flag to overwrite existing files instead of failing
-    const fileStream = createWriteStream(expandedPath, { flags: 'w' });
-    await finished(Readable.fromWeb(res.body).pipe(fileStream));
+      await this.streamResponseToFile(res, finalReportPath, errorPrefix);
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, url);
