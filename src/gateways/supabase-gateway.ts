@@ -22,7 +22,7 @@ export class SupabaseGateway {
     debug = false,
     onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
   ): Promise<void> {
-    const { url: SUPABASE_URL, anonKey: SUPABASE_PUBLIC_KEY, projectRef } =
+    const { anonKey: SUPABASE_PUBLIC_KEY, projectRef } =
       ENVIRONMENTS[env].supabase;
     const storageUrl = `https://${projectRef}.storage.supabase.co`;
 

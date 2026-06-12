@@ -48,12 +48,12 @@ export const outputFlags = {
   json: {
     type: 'boolean',
     description:
-      'Output results in JSON format - note: will always provide exit code 0',
+      'Output results in JSON format. Exit codes: 0 on success, 2 if the test run fails, 1 on CLI/infrastructure errors',
   },
   'json-file': {
     type: 'boolean',
     description:
-      'Write JSON output to a file. File will be called <upload_id>_dcd.json unless you supply the --json-file-name flag - note: will always exit with code 0',
+      'Write JSON output to a file. File will be called <upload_id>_dcd.json unless you supply the --json-file-name flag - note: exits with code 0 even if the test run fails (CLI/infrastructure errors still exit 1)',
   },
   'json-file-name': {
     type: 'string',

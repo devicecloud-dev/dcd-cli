@@ -69,7 +69,7 @@ export const uploadCommand = defineCommand({
         }
       }
 
-      if (!['apk', '.app', '.zip', '.tar.gz'].some((ext) => resolvedFile!.endsWith(ext))) {
+      if (!['.apk', '.app', '.zip', '.tar.gz'].some((ext) => resolvedFile!.endsWith(ext))) {
         throw new CliError(
           'App file must be a .apk for Android, .app/.zip for iOS, or .tar.gz (Expo iOS build)',
         );

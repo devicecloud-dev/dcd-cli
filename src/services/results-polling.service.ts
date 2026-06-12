@@ -68,13 +68,28 @@ export class ResultsPollingService {
 
   /**
    * Poll for test results until all tests complete
-   * @param results Initial test results from submission
    * @param options Polling configuration
    * @param testMetadata Optional metadata map for each test (flowName, tags)
    * @returns Promise that resolves with final test results or rejects if tests fail
    */
   public async pollUntilComplete(
-    results: TestResult[],
+    options: PollingOptions,
+    testMetadata?: Record<string, TestMetadata>,
+  ): Promise<PollingResult> {
+    try {
+      return await this.pollLoop(options, testMetadata);
+    } catch (error) {
+      // RunFailedError is a completed run — the spinner was already stopped by
+      // displayFinalResults. Anything else aborts mid-poll with the spinner
+      // still live, which would corrupt the terminal under the error output.
+      if (!options.json && !(error instanceof RunFailedError)) {
+        ux.action.stop(colors.error('failed'));
+      }
+      throw error;
+    }
+  }
+
+  private async pollLoop(
     options: PollingOptions,
     testMetadata?: Record<string, TestMetadata>,
   ): Promise<PollingResult> {
@@ -156,9 +171,11 @@ export class ResultsPollingService {
 
     return {
       consoleUrl,
-      status: resultsWithoutEarlierTries.some((result) => result.status === 'FAILED')
-        ? 'FAILED'
-        : 'PASSED',
+      // Anything other than an explicit pass (CANCELLED, ERROR, a status we
+      // don't know about yet) must fail the run — this gates CI exit codes.
+      status: resultsWithoutEarlierTries.every((result) => result.status === 'PASSED')
+        ? 'PASSED'
+        : 'FAILED',
       tests: resultsWithoutEarlierTries.map((r) => ({
         durationSeconds: r.duration_seconds,
         failReason:
@@ -317,7 +334,8 @@ export class ResultsPollingService {
     const { results: updatedResults } =
       await ApiGateway.getResultsForUpload(apiUrl, auth, uploadId);
 
-    if (!updatedResults) {
+    // An empty array would otherwise read as "all complete, all passed".
+    if (!updatedResults || updatedResults.length === 0) {
       throw new Error('no results');
     }
 
@@ -334,13 +352,30 @@ export class ResultsPollingService {
   }
 
   private filterLatestResults(results: TestResult[]): TestResult[] {
-    return results.filter((result) => {
-      const originalTryId = result.retry_of || result.id;
-      const tries = results.filter(
-        (r) => r.retry_of === originalTryId || r.id === originalTryId,
-      );
-      return result.id === Math.max(...tries.map((t) => t.id));
-    });
+    // Resolve each row to the root of its retry chain (a retry's `retry_of`
+    // may point at the previous retry rather than the original attempt), then
+    // keep only the newest row per root.
+    const byId = new Map(results.map((result) => [result.id, result]));
+    const rootIdOf = (result: TestResult): TestResult['id'] => {
+      let current = result;
+      const seen = new Set<TestResult['id']>([current.id]);
+      while (current.retry_of) {
+        const parent = byId.get(current.retry_of);
+        if (!parent || seen.has(parent.id)) return current.retry_of;
+        seen.add(parent.id);
+        current = parent;
+      }
+      return current.id;
+    };
+    const latestByRoot = new Map<TestResult['id'], TestResult>();
+    for (const result of results) {
+      const rootId = rootIdOf(result);
+      const existing = latestByRoot.get(rootId);
+      if (!existing || result.id > existing.id) {
+        latestByRoot.set(rootId, result);
+      }
+    }
+    return results.filter((result) => latestByRoot.get(rootIdOf(result)) === result);
   }
 
   /**
@@ -401,7 +436,7 @@ export class ResultsPollingService {
       logger(`[DEBUG] Sequential poll failures: ${sequentialPollFailures}`);
     }
 
-    if (sequentialPollFailures > this.MAX_SEQUENTIAL_FAILURES) {
+    if (sequentialPollFailures >= this.MAX_SEQUENTIAL_FAILURES) {
       if (debug && logger) {
         logger('[DEBUG] Checking internet connectivity...');
       }

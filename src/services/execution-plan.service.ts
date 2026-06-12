@@ -250,6 +250,7 @@ async function planSingleFile(
  * @param normalizedInput - Normalized path to the workspace directory
  * @param unfilteredFlowFiles - List of all discovered flow files
  * @param configFile - Optional custom config file path
+ * @param excludeFlows - --exclude-flows patterns to re-apply to glob matches
  * @returns Filtered list of flow file paths matching the globs
  */
 async function applyFlowGlobs(
@@ -257,6 +258,7 @@ async function applyFlowGlobs(
   normalizedInput: string,
   unfilteredFlowFiles: string[],
   configFile?: string,
+  excludeFlows?: string[],
 ): Promise<string[]> {
   if (workspaceConfig.flows) {
     const globs = workspaceConfig.flows.map((g) => g);
@@ -271,7 +273,7 @@ async function applyFlowGlobs(
       }
     });
 
-    return matchedFiles
+    const globbedFlowFiles = matchedFiles
       .filter((file: string) => {
         if (file === 'config.yaml' || file === 'config.yml') return false;
         if (configFile && file === path.basename(configFile)) return false;
@@ -284,6 +286,10 @@ async function applyFlowGlobs(
         return true;
       })
       .map((file) => path.resolve(normalizedInput, file));
+
+    // Re-globbing from disk bypasses the earlier --exclude-flows filter, so
+    // re-apply it here or excluded flows sneak back in via `flows:` globs.
+    return filterFlowFiles(globbedFlowFiles, excludeFlows);
   }
 
   return unfilteredFlowFiles.filter(
@@ -315,15 +321,19 @@ function resolveSequentialFlows(
     console.log('[DEBUG] Available flow names:', Object.keys(pathsByName));
   }
 
-  const flowsToRunInSequence = workspaceConfig.executionOrder.flowsOrder
-    .flatMap((flowOrder) => {
-      const normalizedFlowOrder = flowOrder.replace(/\.ya?ml$/i, '');
-      if (debug && flowOrder !== normalizedFlowOrder) {
-        console.log(`[DEBUG] Stripping trailing extension: "${flowOrder}" -> "${normalizedFlowOrder}"`);
-      }
+  // Dedupe so a flow listed twice in flowsOrder isn't run twice.
+  const flowsToRunInSequence = [
+    ...new Set(
+      workspaceConfig.executionOrder.flowsOrder.flatMap((flowOrder) => {
+        const normalizedFlowOrder = flowOrder.replace(/\.ya?ml$/i, '');
+        if (debug && flowOrder !== normalizedFlowOrder) {
+          console.log(`[DEBUG] Stripping trailing extension: "${flowOrder}" -> "${normalizedFlowOrder}"`);
+        }
 
-      return getFlowsToRunInSequence(pathsByName, [normalizedFlowOrder], debug);
-    });
+        return getFlowsToRunInSequence(pathsByName, [normalizedFlowOrder], debug);
+      }),
+    ),
+  ];
 
   if (debug) {
     console.log(`[DEBUG] Sequential flows resolved: ${flowsToRunInSequence.length} flow(s)`);
@@ -411,6 +421,7 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
     normalizedInput,
     unfilteredFlowFiles,
     configFile,
+    excludeFlows,
   );
 
   if (unfilteredFlowFiles.length === 0) {

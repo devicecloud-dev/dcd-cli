@@ -27,49 +27,28 @@ export class DeviceValidationService {
     compatibilityData: CompatibilityData,
     options: DeviceValidationOptions = {},
   ): void {
-    const { debug = false, logger } = options;
-
-    if (!androidApiLevel && !androidDevice) {
-      return;
-    }
-
-    const androidDeviceID = androidDevice || 'pixel-7';
-    const lookup = googlePlay
-      ? compatibilityData.androidPlay
-      : compatibilityData.android;
-    const supportedAndroidVersions: string[] =
-      lookup?.[androidDeviceID as EAndroidDevices] || [];
-    const version = androidApiLevel || '34';
-
-    if (supportedAndroidVersions.length === 0) {
-      throw new Error(
+    this.validateDevice({
+      debugLines: (deviceID, version, supportedVersions) => [
+        `[DEBUG] Android device: ${deviceID}`,
+        `[DEBUG] Android API level: ${version}`,
+        `[DEBUG] Google Play enabled: ${googlePlay}`,
+        `[DEBUG] Supported Android versions: ${supportedVersions.join(', ')}`,
+      ],
+      defaultDevice: 'pixel-7',
+      defaultVersion: '34',
+      device: androidDevice as EAndroidDevices | undefined,
+      lookup: googlePlay
+        ? compatibilityData.androidPlay
+        : compatibilityData.android,
+      noSupportMessage: () =>
         `We don't support that device configuration - please check the docs for supported devices: https://docs.devicecloud.dev/getting-started/devices-configuration`,
-      );
-    }
-
-    if (
-      Array.isArray(supportedAndroidVersions) &&
-      !supportedAndroidVersions.includes(version)
-    ) {
-      throw new Error(
-        `${androidDeviceID} ${
+      options,
+      unsupportedVersionMessage: (deviceID, supportedVersions) =>
+        `${deviceID} ${
           googlePlay ? '(Play Store) ' : ''
-        }only supports these Android API levels: ${supportedAndroidVersions.join(
-          ', ',
-        )}`,
-      );
-    }
-
-    if (debug && logger) {
-      logger(`[DEBUG] Android device: ${androidDeviceID}`);
-      logger(`[DEBUG] Android API level: ${version}`);
-      logger(`[DEBUG] Google Play enabled: ${googlePlay}`);
-      logger(
-        `[DEBUG] Supported Android versions: ${supportedAndroidVersions.join(
-          ', ',
-        )}`,
-      );
-    }
+        }only supports these Android API levels: ${supportedVersions.join(', ')}`,
+      version: androidApiLevel,
+    });
   }
 
   /**
@@ -87,40 +66,86 @@ export class DeviceValidationService {
     compatibilityData: CompatibilityData,
     options: DeviceValidationOptions = {},
   ): void {
+    this.validateDevice({
+      debugLines: (deviceID, version, supportedVersions) => [
+        `[DEBUG] iOS device: ${deviceID}`,
+        `[DEBUG] iOS version: ${version}`,
+        `[DEBUG] Supported iOS versions: ${supportedVersions.join(', ')}`,
+      ],
+      defaultDevice: 'iphone-14',
+      defaultVersion: '17',
+      device: iOSDevice as EiOSDevices | undefined,
+      lookup: compatibilityData?.ios,
+      noSupportMessage: (deviceID) =>
+        `Device ${deviceID} is not supported. Please check the docs for supported devices: https://docs.devicecloud.dev/getting-started/devices-configuration`,
+      options,
+      unsupportedVersionMessage: (deviceID, supportedVersions) =>
+        `${deviceID} only supports these iOS versions: ${supportedVersions.join(', ')}`,
+      version: iOSVersion,
+    });
+  }
+
+  /**
+   * Shared validation flow for both platforms: apply the default device,
+   * look up its supported versions, then check the requested version
+   * @param config Platform-specific lookup table, defaults, and messages
+   * @returns void
+   * @throws Error if device/version combination is not supported
+   */
+  private validateDevice(config: {
+    debugLines: (
+      deviceID: string,
+      version: string,
+      supportedVersions: string[],
+    ) => string[];
+    defaultDevice: string;
+    defaultVersion: string;
+    device: string | undefined;
+    lookup: Record<string, string[]> | undefined;
+    noSupportMessage: (deviceID: string) => string;
+    options: DeviceValidationOptions;
+    unsupportedVersionMessage: (
+      deviceID: string,
+      supportedVersions: string[],
+    ) => string;
+    version: string | undefined;
+  }): void {
+    const {
+      debugLines,
+      defaultDevice,
+      defaultVersion,
+      device,
+      lookup,
+      noSupportMessage,
+      options,
+      unsupportedVersionMessage,
+      version,
+    } = config;
     const { debug = false, logger } = options;
 
-    if (!iOSVersion && !iOSDevice) {
+    if (!version && !device) {
       return;
     }
 
-    const iOSDeviceID = iOSDevice || 'iphone-14';
-    const supportediOSVersions: string[] =
-      compatibilityData?.ios?.[iOSDeviceID as EiOSDevices] || [];
-    const version = iOSVersion || '17';
+    const deviceID = device || defaultDevice;
+    const supportedVersions: string[] = lookup?.[deviceID] || [];
+    const requestedVersion = version || defaultVersion;
 
-    if (supportediOSVersions.length === 0) {
-      throw new Error(
-        `Device ${iOSDeviceID} is not supported. Please check the docs for supported devices: https://docs.devicecloud.dev/getting-started/devices-configuration`,
-      );
+    if (supportedVersions.length === 0) {
+      throw new Error(noSupportMessage(deviceID));
     }
 
     if (
-      Array.isArray(supportediOSVersions) &&
-      !supportediOSVersions.includes(version)
+      Array.isArray(supportedVersions) &&
+      !supportedVersions.includes(requestedVersion)
     ) {
-      throw new Error(
-        `${iOSDeviceID} only supports these iOS versions: ${supportediOSVersions.join(
-          ', ',
-        )}`,
-      );
+      throw new Error(unsupportedVersionMessage(deviceID, supportedVersions));
     }
 
     if (debug && logger) {
-      logger(`[DEBUG] iOS device: ${iOSDeviceID}`);
-      logger(`[DEBUG] iOS version: ${version}`);
-      logger(
-        `[DEBUG] Supported iOS versions: ${supportediOSVersions.join(', ')}`,
-      );
+      for (const line of debugLines(deviceID, requestedVersion, supportedVersions)) {
+        logger(line);
+      }
     }
   }
 }

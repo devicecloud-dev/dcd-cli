@@ -13,6 +13,7 @@ import {
   ResultsPollingService,
   RunFailedError,
 } from '../services/results-polling.service';
+import { telemetry } from '../services/telemetry.service';
 import { TestSubmissionService } from '../services/test-submission.service';
 import { VersionService } from '../services/version.service';
 import {
@@ -36,6 +37,7 @@ import {
   fetchCompatibilityData,
 } from '../utils/compatibility';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
+import { toPortableRelativePath } from '../utils/paths';
 import {
   box,
   colors,
@@ -48,15 +50,19 @@ import {
   symbols,
 } from '../utils/styling';
 
-// Suppress punycode deprecation warning (caused by whatwg, supabase dependency)
+// Suppress punycode deprecation warning (caused by whatwg, supabase dependency).
+// Every other warning must still reach the user — removeAllListeners drops
+// Node's default printer, so re-emit manually.
 process.removeAllListeners('warning');
 process.on('warning', (warning) => {
   if (
     warning.name === 'DeprecationWarning' &&
     warning.message.includes('punycode')
   ) {
-    // Ignore punycode deprecation warnings
+    return;
   }
+  // eslint-disable-next-line no-console
+  console.warn(warning.stack ?? `${warning.name}: ${warning.message}`);
 });
 
 const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
@@ -123,6 +129,7 @@ export const cloudCommand = defineCommand({
     let output: unknown = null;
     let debugFlag = false;
     let jsonFile = false;
+    let caughtError: unknown = null;
     const tempFiles: string[] = [];
     // json is captured early so the progress-suppressor works if we fail before destructuring.
     const jsonFlag = Boolean(args.json);
@@ -308,6 +315,7 @@ export const cloudCommand = defineCommand({
           logger: (m: string) => out(m),
           quiet,
         });
+        tempFiles.push(flows);
       }
 
       const auth = await resolveAuth({ apiKeyFlag });
@@ -427,6 +435,10 @@ export const cloudCommand = defineCommand({
           throw new CliError('You cannot provide both an appBinaryId and a binary file');
         }
         flowFile = flows ?? firstFile;
+      } else if ((appFile || appUrl) && !flowFile) {
+        // The app came from a flag, so the first positional (if any) is the
+        // flow file — previously it was silently dropped.
+        flowFile = firstFile;
       }
 
       if (!flowFile) {
@@ -525,15 +537,21 @@ export const cloudCommand = defineCommand({
         ...referencedFiles,
       ].sort((a, b) => a.split(path.sep).length - b.split(path.sep).length);
 
-      let commonRoot = path.parse(process.cwd()).root;
-      const folders = pathsShortestToLongest[0].split(path.sep);
-      for (const [index] of folders.entries()) {
-        const folderPath = folders.slice(0, index).join(path.sep);
-        const isRoot = pathsShortestToLongest.every((file) =>
-          file.startsWith(folderPath),
-        );
-        if (isRoot) commonRoot = folderPath;
+      // Longest whole-segment directory prefix shared by every path. Segment
+      // comparison (not startsWith) so sibling dirs like `flows`/`flows-extra`
+      // can't merge, and the file segment itself is never consumed. '' when
+      // the paths share no root at all.
+      const splitPaths = pathsShortestToLongest.map((p) => p.split(path.sep));
+      const shortestSegments = splitPaths[0];
+      let matchedSegments = 0;
+      for (let i = 0; i < shortestSegments.length - 1; i++) {
+        if (splitPaths.every((segments) => segments[i] === shortestSegments[i])) {
+          matchedSegments = i + 1;
+        } else {
+          break;
+        }
       }
+      const commonRoot = shortestSegments.slice(0, matchedSegments).join(path.sep);
 
       if (debug) {
         out(`[DEBUG] Common root directory: ${commonRoot}`);
@@ -541,10 +559,7 @@ export const cloudCommand = defineCommand({
 
       const testMetadataMap: Record<string, { flowName: string; tags: string[] }> = {};
       for (const [absolutePath, meta] of Object.entries(flowMetadata)) {
-        const normalizedPath = absolutePath
-          .replaceAll(commonRoot, '.')
-          .split(path.sep)
-          .join('/');
+        const normalizedPath = toPortableRelativePath(absolutePath, commonRoot);
         const metadataRecord = meta as Record<string, unknown> | null;
         const flowName =
           (metadataRecord?.name as string) || path.parse(absolutePath).name;
@@ -576,7 +591,7 @@ export const cloudCommand = defineCommand({
         }
 
         if (
-          !['apk', '.app', '.zip', '.tar.gz'].some((ext) =>
+          !['.apk', '.app', '.zip', '.tar.gz'].some((ext) =>
             (finalAppFile as string).endsWith(ext),
           )
         ) {
@@ -594,7 +609,14 @@ export const cloudCommand = defineCommand({
       }
 
       const flagLogs: string[] = [];
-      const sensitiveFlags = new Set(['api-key', 'apiKey', 'moropo-v1-api-key']);
+      // app-url carries a signed (bearer-style) download URL — treat as secret.
+      const sensitiveFlags = new Set([
+        'api-key',
+        'apiKey',
+        'moropo-v1-api-key',
+        'app-url',
+        'appUrl',
+      ]);
       // Only log canonical flag keys (skip citty-populated alias duplicates like apiURL/apiUrl).
       const canonicalFlagKeys = new Set(Object.keys(allFlags));
       for (const [k, v] of Object.entries(args)) {
@@ -830,7 +852,6 @@ export const cloudCommand = defineCommand({
 
       const pollingResult = await resultsPollingService
         .pollUntilComplete(
-          results,
           {
             auth,
             apiUrl,
@@ -859,32 +880,44 @@ export const cloudCommand = defineCommand({
               output = jsonOutput;
             }
 
-            if (downloadArtifacts) {
-              await reportDownloadService.downloadArtifacts({
-                auth,
-                apiUrl,
-                artifactsPath,
-                debug,
-                downloadType: downloadArtifacts,
-                logger: (m: string) => out(m),
-                uploadId: results[0].test_upload_id as string,
-                warnLogger: (m: string) => warnOut(m),
-              });
-            }
+            // A download failure must not mask the run-failed signal (it
+            // would flip exit code 2 → 1 and drop the JSON output).
+            try {
+              if (downloadArtifacts) {
+                await reportDownloadService.downloadArtifacts({
+                  auth,
+                  apiUrl,
+                  artifactsPath,
+                  debug,
+                  downloadType: downloadArtifacts,
+                  logger: (m: string) => out(m),
+                  uploadId: results[0].test_upload_id as string,
+                  warnLogger: (m: string) => warnOut(m),
+                });
+              }
 
-            if (report) {
-              await reportDownloadService.downloadReports({
-                allurePath,
-                auth,
-                apiUrl,
-                debug,
-                htmlPath,
-                junitPath,
-                logger: (m: string) => out(m),
-                reportType: report,
-                uploadId: results[0].test_upload_id as string,
-                warnLogger: (m: string) => warnOut(m),
-              });
+              if (report) {
+                await reportDownloadService.downloadReports({
+                  allurePath,
+                  auth,
+                  apiUrl,
+                  debug,
+                  htmlPath,
+                  junitPath,
+                  logger: (m: string) => out(m),
+                  reportType: report,
+                  uploadId: results[0].test_upload_id as string,
+                  warnLogger: (m: string) => warnOut(m),
+                });
+              }
+            } catch (downloadError) {
+              warnOut(
+                `Failed to download artifacts/reports for the failed run: ${
+                  downloadError instanceof Error
+                    ? downloadError.message
+                    : String(downloadError)
+                }`,
+              );
             }
 
             throw new Error('RUN_FAILED');
@@ -939,17 +972,12 @@ export const cloudCommand = defineCommand({
         out(`[DEBUG] Error stack: ${error.stack}`);
       }
 
-      if (error instanceof Error && error.message === 'RUN_FAILED') {
-        if (jsonFile) {
-          process.exit(0);
-        }
-        process.exit(2);
-      } else {
-        logger.error(error as Error, { exit: 1, json: jsonFlag });
-      }
+      // Defer exiting until after the finally block — process.exit here would
+      // skip it, dropping the --json output and leaking temp files.
+      caughtError = error;
     } finally {
+      const fsp = await import('node:fs/promises');
       for (const p of tempFiles) {
-        const fsp = await import('node:fs/promises');
         await fsp.rm(p, { recursive: true, force: true }).catch(() => {});
       }
 
@@ -957,6 +985,19 @@ export const cloudCommand = defineCommand({
         // eslint-disable-next-line no-console
         console.log(JSON.stringify(output, null, 2));
       }
+    }
+
+    if (caughtError) {
+      if (caughtError instanceof Error && caughtError.message === 'RUN_FAILED') {
+        // --json-file keeps exit 0 on a failed run (documented contract);
+        // otherwise 2 distinguishes test failure from infra errors (1).
+        const exitCode = jsonFile ? 0 : 2;
+        telemetry.recordCommandFailure({ error: 'RUN_FAILED', exitCode });
+        telemetry.flushSync();
+        process.exit(exitCode);
+      }
+
+      logger.error(caughtError as Error, { exit: 1, json: jsonFlag });
     }
   },
 });

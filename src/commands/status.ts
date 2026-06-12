@@ -36,6 +36,19 @@ type StatusResponse = {
   uploadId?: string;
 };
 
+/** Errors the API gateway surfaces for 4xx-class failures — retrying is pointless. */
+function isClientApiError(error: Error | null): boolean {
+  if (!error) return false;
+  return (
+    error.message.includes('Invalid request:') ||
+    error.message.includes('Resource not found') ||
+    error.message.includes('Authentication failed') ||
+    error.message.includes('Access denied') ||
+    error.message.includes('Invalid API key') ||
+    error.message.includes('Rate limit exceeded')
+  );
+}
+
 function formatDateTime(isoString: string): string {
   try {
     const date = new Date(isoString);
@@ -125,25 +138,17 @@ async function statusMain({
         const isNetworkError =
           lastError.name === 'NetworkError' ||
           (error instanceof TypeError && lastError.message === 'fetch failed');
-        const isClientError =
-          lastError.message.includes('Invalid request:') ||
-          lastError.message.includes('Resource not found') ||
-          lastError.message.includes('Authentication failed') ||
-          lastError.message.includes('Access denied') ||
-          lastError.message.includes('Invalid API key') ||
-          lastError.message.includes('Rate limit exceeded');
 
-        if (isClientError) {
+        if (isClientApiError(lastError)) {
           break;
         }
 
-        if (attempt < 5 && isNetworkError) {
-          logger.log(`Network error on attempt ${attempt}/5. Retrying...`);
-          await new Promise((resolve) => {
-            setTimeout(resolve, 1000 * attempt);
-          });
-        } else if (attempt < 5) {
-          logger.log(`Request failed on attempt ${attempt}/5. Retrying...`);
+        if (attempt < 5) {
+          logger.log(
+            isNetworkError
+              ? `Network error on attempt ${attempt}/5. Retrying...`
+              : `Request failed on attempt ${attempt}/5. Retrying...`,
+          );
           await new Promise((resolve) => {
             setTimeout(resolve, 1000 * attempt);
           });
@@ -152,16 +157,7 @@ async function statusMain({
     }
 
     if (!status) {
-      const isClientError =
-        lastError &&
-        (lastError.message.includes('Invalid request:') ||
-          lastError.message.includes('Resource not found') ||
-          lastError.message.includes('Authentication failed') ||
-          lastError.message.includes('Access denied') ||
-          lastError.message.includes('Invalid API key') ||
-          lastError.message.includes('Rate limit exceeded'));
-
-      if (isClientError) {
+      if (isClientApiError(lastError)) {
         const errorMessage = lastError?.message || 'Unknown error';
         if (json) {
           // eslint-disable-next-line no-console

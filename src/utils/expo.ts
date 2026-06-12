@@ -40,13 +40,23 @@ export async function downloadExpoUrl(url: string, debug: boolean): Promise<stri
       const response = await fetch(url);
 
       if (!response.ok) {
+        // 4xx responses (expired signed URL, 404, ...) won't get better on
+        // retry — flag them so the catch below rethrows immediately.
+        const permanent = response.status >= 400 && response.status < 500;
+        let error: Error;
         if (response.status === 403 || response.status === 401) {
-          throw new Error(
+          error = new Error(
             `Failed to download Expo build from URL (HTTP ${response.status}). Expo signed URLs expire after ~1 hour — please generate a fresh URL with 'eas build' and try again.`,
           );
+        } else {
+          error = new Error(`Failed to download Expo build from URL (HTTP ${response.status}).`);
         }
 
-        throw new Error(`Failed to download Expo build from URL (HTTP ${response.status}).`);
+        if (permanent) {
+          (error as Error & { permanent?: boolean }).permanent = true;
+        }
+
+        throw error;
       }
 
       if (!response.body) {
@@ -70,8 +80,9 @@ export async function downloadExpoUrl(url: string, debug: boolean): Promise<stri
       // Clean up any partial file before retrying
       await fsp.rm(destPath, { force: true }).catch(() => {});
 
+      const isPermanent = Boolean((error as Error & { permanent?: boolean })?.permanent);
       const isLastAttempt = attempt === DOWNLOAD_RETRY_ATTEMPTS;
-      if (isLastAttempt) {
+      if (isPermanent || isLastAttempt) {
         throw error;
       }
 

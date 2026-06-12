@@ -18,22 +18,23 @@ export function getFlowsToRunInSequence(
     return [];
   }
 
-  const orderSet = new Set(flowOrder);
   const availableNames = Object.keys(paths);
 
   if (debug) {
-    console.log(`[DEBUG] getFlowsToRunInSequence: Looking for flows in order: [${[...orderSet].join(', ')}]`);
+    console.log(`[DEBUG] getFlowsToRunInSequence: Looking for flows in order: [${flowOrder.join(', ')}]`);
     console.log(`[DEBUG] getFlowsToRunInSequence: Available flow names: [${availableNames.join(', ')}]`);
   }
 
-  const namesInOrder = availableNames.filter((key) => orderSet.has(key));
+  const namesInOrder = flowOrder.filter((name) =>
+    Object.hasOwn(paths, name),
+  );
 
   if (debug) {
     console.log(`[DEBUG] getFlowsToRunInSequence: Matched ${namesInOrder.length} flow(s): [${namesInOrder.join(', ')}]`);
   }
 
   if (namesInOrder.length === 0) {
-    const notFound = [...orderSet].filter((item) => !availableNames.includes(item));
+    const notFound = flowOrder.filter((name) => !availableNames.includes(name));
 
     console.warn(
       `Warning: Could not find flows specified in executionOrder.flowsOrder: ${notFound.join(', ')}\n` +
@@ -43,38 +44,7 @@ export function getFlowsToRunInSequence(
     return [];
   }
 
-  const result = [...orderSet].filter((item) => namesInOrder.includes(item));
-
-  if (result.length === 0) {
-    const notFound = [...orderSet].filter((item) => !namesInOrder.includes(item));
-    console.warn(
-      `Warning: Could not find flows needed for execution in order: ${notFound.join(', ')}\n` +
-      `This may be intentional if flows were excluded by tags.\n` +
-      `Available flow names:\n${availableNames.join('\n')}`,
-    );
-    return [];
-  }
-
-  if (
-    flowOrder
-      .slice(0, result.length)
-      .every((value, index) => value === result[index])
-  ) {
-    const resolvedPaths = result.map((item) => paths[item]);
-
-    if (debug) {
-      console.log(`[DEBUG] getFlowsToRunInSequence: Order matches, returning ${resolvedPaths.length} path(s)`);
-    }
-
-    return resolvedPaths;
-  }
-
-  throw new Error(
-    `Flow order mismatch in executionOrder.flowsOrder.\n\n` +
-    `Expected order: [${flowOrder.slice(0, result.length).join(', ')}]\n` +
-    `Actual order: [${result.join(', ')}]\n\n` +
-    `Please ensure flows are specified in the correct order.`,
-  );
+  return namesInOrder.map((name) => paths[name]);
 }
 
 export function isFlowFile(filePath: string): boolean {
@@ -124,17 +94,18 @@ export const readTestYamlFileAsJson = (filePath: string) => {
     if (normalizedText.includes('\n---\n')) {
       const yamlTexts = normalizedText.split('\n---\n');
       const config = yaml.load(yamlTexts[0]) as Record<string, unknown>;
-      const testSteps = yaml.load(yamlTexts[1]) as Record<string, unknown>[];
-      if (Object.keys(config ?? {}).length > 0) {
+      // Rejoin everything after the first separator so step documents beyond
+      // a second `---` aren't silently dropped.
+      const testSteps = yaml.load(yamlTexts.slice(1).join('\n')) as Record<
+        string,
+        unknown
+      >[];
+      if (config && Object.keys(config).length > 0) {
         return { config, testSteps };
       }
     }
 
     const testSteps = yaml.load(yamlText) as Record<string, unknown>[];
-    if (Object.keys(testSteps).length > 0) {
-      return { config: null, testSteps };
-    }
-
     return { config: null, testSteps };
   } catch (error) {
     const message = `Error parsing YAML file ${filePath}: ${error}`;
@@ -187,9 +158,9 @@ export const checkIfFilesExistInWorkspace = (
     files.push(absoluteFilePath);
   };
 
-  // simple command
+  // simple command — processFilePath already resolves against `directory`
   if (typeof command === 'string') {
-    processFilePath(path.normalize(path.join(directory, command)));
+    processFilePath(command);
   }
 
   // array command

@@ -42,10 +42,9 @@ export async function checkInternetConnectivity(): Promise<ConnectivityCheckResu
   // Try each endpoint with a short timeout
   for (const { url, description } of testEndpoints) {
     const startTime = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-
       const response = await fetch(url, {
         method: 'HEAD', // Use HEAD to minimize data transfer
         signal: controller.signal,
@@ -53,7 +52,6 @@ export async function checkInternetConnectivity(): Promise<ConnectivityCheckResu
         redirect: 'manual',
       });
 
-      clearTimeout(timeoutId);
       const latencyMs = Date.now() - startTime;
 
       // Any response (including 3xx redirects) indicates connectivity
@@ -98,6 +96,10 @@ export async function checkInternetConnectivity(): Promise<ConnectivityCheckResu
       });
       // Continue to next endpoint if this one fails
       continue;
+    } finally {
+      // Always clear — a dangling abort timer keeps the event loop alive
+      // for up to 3s per failed endpoint.
+      clearTimeout(timeoutId);
     }
   }
 
