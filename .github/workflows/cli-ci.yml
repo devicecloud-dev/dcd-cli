@@ -58,6 +58,10 @@ jobs:
       working-directory: ./cli
       run: pnpm lint
 
+    - name: Type check (strict, src + tests)
+      working-directory: ./cli
+      run: pnpm typecheck
+
     - name: Run CLI tests
       working-directory: ./cli
       env:

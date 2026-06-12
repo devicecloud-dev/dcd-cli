@@ -8,8 +8,9 @@ import { checkInternetConnectivity } from '../utils/connectivity';
 import { ux } from '../utils/progress';
 import { colors, formatTestSummary, table } from '../utils/styling';
 
-type TestResult =
-  paths['/results/{uploadId}']['get']['responses']['200']['content']['application/json']['results'][number];
+type TestResult = NonNullable<
+  paths['/results/{uploadId}']['get']['responses']['200']['content']['application/json']['results']
+>[number];
 
 /**
  * Custom error for run failures that includes the polling result
@@ -177,7 +178,7 @@ export class ResultsPollingService {
         ? 'PASSED'
         : 'FAILED',
       tests: resultsWithoutEarlierTries.map((r) => ({
-        durationSeconds: r.duration_seconds,
+        durationSeconds: r.duration_seconds ?? null,
         failReason:
           r.status === 'FAILED' ? r.fail_reason || 'No reason provided' : undefined,
         fileName: r.test_file_name,

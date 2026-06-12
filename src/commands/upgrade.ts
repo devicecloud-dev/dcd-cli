@@ -131,7 +131,10 @@ async function downloadToFile(url: string, dest: string): Promise<void> {
     throw new Error(`HTTP ${res.status} fetching ${url}`);
   }
   // Node 22 exposes Readable.fromWeb for piping a WHATWG ReadableStream.
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
+  await pipeline(
+    Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
+    createWriteStream(dest),
+  );
 }
 
 async function fetchExpectedChecksum(

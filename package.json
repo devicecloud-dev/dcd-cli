@@ -60,9 +60,10 @@
     "dcd": "tsx src/index.ts",
     "build": "shx rm -rf dist && tsc -b && shx chmod +x dist/index.js",
     "build:binaries": "node scripts/build-binaries.mjs",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src test --ext .ts",
     "prepare": "pnpm build",
-    "test": "node scripts/test-runner.mjs"
+    "test": "node scripts/test-runner.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
   "version": "5.0.0",
   "bugs": {
