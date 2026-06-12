@@ -1,30 +1,21 @@
 import { expect } from 'chai';
-import { exec as execCallback } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { promisify } from 'node:util';
 
-const exec = promisify(execCallback);
-
-function getErrorOutput(error: unknown): string {
-  if (!error || typeof error !== 'object') return '';
-
-  if ('stderr' in error && typeof error.stderr === 'string') {
-    return error.stderr;
-  }
-
-  if ('stdout' in error && typeof error.stdout === 'string') {
-    return error.stdout;
-  }
-
-  return '';
-}
+import {
+  CLI,
+  MOCK_API_KEY,
+  MOCK_API_URL,
+  exec,
+  runExpectingFailure,
+} from './helpers';
 
 describe('DCD Cloud Command Integration Tests', () => {
-  const mockApiUrl = 'http://localhost:3001';
-  const mockApiKey = 'test-api-key-123';
+  const mockApiUrl = MOCK_API_URL;
+  const mockApiKey = MOCK_API_KEY;
   let tempDir: string;
+  let outputDir: string;
   let androidAppFile: string;
   let iosAppFile: string;
   let testFlowFile: string;
@@ -33,6 +24,9 @@ describe('DCD Cloud Command Integration Tests', () => {
 
   before(async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-test-'));
+    // Separate cwd for tests that write output files, so flow-directory tests
+    // never pick up JSON artifacts and nothing lands in the repo tree.
+    outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-test-out-'));
 
     // Use real binary files
     androidAppFile = path.resolve('test/fixtures/wikipedia.apk');
@@ -63,397 +57,161 @@ appId: com.example.app
   });
 
   after(() => {
-    if (fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { force: true, recursive: true });
+    for (const dir of [tempDir, outputDir]) {
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { force: true, recursive: true });
+      }
     }
   });
 
+  // The mock API serves Prism example responses, so a successful async run
+  // always yields this shape (string-typed example values).
+  const expectAsyncRunJson = (stdout: string) => {
+    const result = JSON.parse(stdout);
+    expect(result).to.have.property('uploadId');
+    expect(result.uploadId).to.be.a('string');
+    expect(result).to.have.property('status', 'PENDING');
+    expect(result).to.have.property('tests');
+    expect(result.tests).to.be.an('array').that.is.not.empty;
+    return result;
+  };
+
   describe('uploadFlow path', () => {
     it('should successfully upload Android flow with valid parameters', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --async --json`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --async --json`;
 
-      try {
-        const { stderr, stdout } = await exec(command, {
-          cwd: process.cwd(),
-          timeout: 30_000,
-        });
-
-        const result = JSON.parse(stdout);
-        expect(result).to.have.property('uploadId');
-        expect(result).to.have.property('status', 'PENDING');
-        expect(result).to.have.property('tests');
-        expect(result.tests).to.be.an('array');
-        expect(stderr).to.be.empty;
-      } catch (error: unknown) {
-        // Mock API may not have compatibility endpoint - verify command processes correctly
-        if (
-          error &&
-          typeof error === 'object' &&
-          'code' in error &&
-          error.code === 1 &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          // JSON error format or stderr text format
-          expect(output).to.match(
-            /compatibility|device.*data|failed to fetch|"oclif"|"error"|"status": "FAILED"|Submitting new job/i,
-          );
-        } else {
-          throw error;
-        }
-      }
+      const { stdout } = await exec(command, { timeout: 30_000 });
+      expectAsyncRunJson(stdout);
     });
 
     it('should successfully upload iOS flow with valid parameters', async () => {
-      const command = `./dist/index.js cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --async --json`;
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --async --json`;
 
-      try {
-        const { stderr, stdout } = await exec(command, {
-          cwd: process.cwd(),
-          timeout: 30_000,
-        });
-
-        const result = JSON.parse(stdout);
-        expect(result).to.have.property('uploadId');
-        expect(result).to.have.property('status', 'PENDING');
-        expect(result).to.have.property('tests');
-        expect(result.tests).to.be.an('array');
-        expect(stderr).to.be.empty;
-      } catch (error: unknown) {
-        // Mock API may not have compatibility endpoint - verify command processes correctly
-        if (
-          error &&
-          typeof error === 'object' &&
-          'code' in error &&
-          error.code === 1 &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          // JSON error format or stderr text format
-          expect(output).to.match(
-            /compatibility|device.*data|failed to fetch|"oclif"|"error"|"status": "FAILED"|Submitting new job/i,
-          );
-        } else {
-          throw error;
-        }
-      }
+      const { stdout } = await exec(command, { timeout: 30_000 });
+      expectAsyncRunJson(stdout);
     });
 
     it('should handle invalid app file format', async () => {
       const invalidAppFile = path.join(tempDir, 'invalid-app.txt');
       fs.writeFileSync(invalidAppFile, 'not an app file');
 
-      const command = `./dist/index.js cloud ${invalidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl}`;
+      const command = `${CLI} cloud ${invalidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl}`;
 
-      try {
-        await exec(command, { timeout: 10_000 });
-        expect.fail('Should have thrown an error for invalid app file');
-      } catch (error: unknown) {
-        const errorOutput = getErrorOutput(error);
-        expect(errorOutput).to.match(
-          /app file must be|failed to fetch.*compatibility/i,
-        );
-      }
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.match(/App file must be/i);
     });
 
     it('should validate required flow file parameter', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} --api-key ${mockApiKey} --api-url ${mockApiUrl}`;
+      const command = `${CLI} cloud ${androidAppFile} --api-key ${mockApiKey} --api-url ${mockApiUrl}`;
 
-      try {
-        await exec(command, { timeout: 10_000 });
-        expect.fail('Should have thrown an error for missing flow file');
-      } catch (error: unknown) {
-        const errorOutput = getErrorOutput(error);
-        expect(errorOutput).to.match(
-          /flow file|failed to fetch.*compatibility/i,
-        );
-      }
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('You must provide a flow file');
     });
   });
 
   describe('authentication path', () => {
     it('should fail without API key', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-url ${mockApiUrl}`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-url ${mockApiUrl}`;
 
-      try {
-        await exec(command, { timeout: 10_000 });
-        expect.fail('Should have thrown an error for missing API key');
-      } catch (error: unknown) {
-        const errorOutput = getErrorOutput(error);
-        expect(errorOutput).to.include('API key');
-      }
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('API key');
     });
 
     it('should accept API key from environment variable', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-url ${mockApiUrl} --async --json`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-url ${mockApiUrl} --async --json`;
 
-      try {
-        const { stderr, stdout } = await exec(command, {
-          env: { ...process.env, DEVICE_CLOUD_API_KEY: mockApiKey },
-          timeout: 30_000,
-        });
-
-        const result = JSON.parse(stdout);
-        expect(result).to.have.property('uploadId');
-        expect(stderr).to.be.empty;
-      } catch (error: unknown) {
-        // If mock server returns expected error, verify it's not about missing API key
-        if (
-          error &&
-          typeof error === 'object' &&
-          'code' in error &&
-          error.code === 1 &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          expect(output).to.not.include('You must provide an API key');
-        } else {
-          throw error;
-        }
-      }
+      const { stdout } = await exec(command, {
+        env: { ...process.env, DEVICE_CLOUD_API_KEY: mockApiKey },
+        timeout: 30_000,
+      });
+      expectAsyncRunJson(stdout);
     });
 
     it('should handle authentication failure with invalid API key', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key invalid-key --api-url ${mockApiUrl}`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key invalid-key --api-url ${mockApiUrl}`;
 
-      try {
-        await exec(command, { timeout: 15_000 });
-        expect.fail('Should have thrown an error for invalid API key');
-      } catch (error: unknown) {
-        const errorOutput = getErrorOutput(error);
-        expect(errorOutput).to.match(
-          /compatibility|device.*data|failed to fetch/i,
-        );
-      }
+      const { code, output } = await runExpectingFailure(command);
+      expect(code).to.equal(1);
+      // The first authenticated call is the compatibility fetch, which
+      // surfaces the mock's 401.
+      expect(output).to.include('Failed to fetch device compatibility data');
+      expect(output).to.include('401');
     });
   });
 
   describe('device management path', () => {
     it('should accept valid iOS device configuration', async () => {
-      const command = `./dist/index.js cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device iphone-14 --ios-version 17 --async --json`;
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device iphone-14 --ios-version 17 --async --json`;
 
-      try {
-        const { stderr, stdout } = await exec(command, {
-          timeout: 30_000,
-        });
-
-        const result = JSON.parse(stdout);
-        expect(result).to.have.property('uploadId');
-        expect(stderr).to.be.empty;
-      } catch (error: unknown) {
-        // If mock server returns expected error, verify device config was accepted
-        if (
-          error &&
-          typeof error === 'object' &&
-          'code' in error &&
-          error.code === 1 &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          expect(output).to.not.include('Device');
-          expect(output).to.not.include('not supported');
-        } else {
-          throw error;
-        }
-      }
+      const { stdout } = await exec(command, { timeout: 30_000 });
+      expectAsyncRunJson(stdout);
     });
 
     it('should accept valid Android device configuration', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --android-device pixel-7 --android-api-level 34 --async --json`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --android-device pixel-7 --android-api-level 34 --async --json`;
 
-      try {
-        const { stderr, stdout } = await exec(command, {
-          timeout: 30_000,
-        });
-
-        const result = JSON.parse(stdout);
-        expect(result).to.have.property('uploadId');
-        expect(stderr).to.be.empty;
-      } catch (error: unknown) {
-        // If mock server returns expected error, verify device config was accepted
-        if (
-          error &&
-          typeof error === 'object' &&
-          'code' in error &&
-          error.code === 1 &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          expect(output).to.not.include("don't support that device");
-        } else {
-          throw error;
-        }
-      }
+      const { stdout } = await exec(command, { timeout: 30_000 });
+      expectAsyncRunJson(stdout);
     });
 
     it('should handle unsupported device configurations', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device unsupported-device --ios-version 99`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device unsupported-device --ios-version 99`;
 
-      try {
-        await exec(command, { timeout: 15_000 });
-        expect.fail('Should have thrown an error for unsupported device');
-      } catch (error: unknown) {
-        const errorOutput = getErrorOutput(error);
-        expect(errorOutput).to.match(
-          /not supported|unsupported|supported.*versions/i,
-        );
-      }
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('Invalid value for --ios-device');
+      expect(output).to.include('unsupported-device');
     });
   });
 
   describe('device configuration options', () => {
+    // Async non-JSON runs always reach submission against the mock API.
+    // `.include` keeps these robust to incidental extra lines (e.g. the
+    // new-version notice on dev machines).
+    const expectAsyncSubmission = (stdout: string) => {
+      expect(stdout).to.include('Submitting new job');
+      expect(stdout).to.include('Not waiting for results as async flag is set');
+    };
+
     it('should support all Android device options', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --name test-android-devices --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --name test-android-devices --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        // May show version notification, then should run tests
-        expect(stdout).to.match(/Submitting new job|A new version/);
-        if (stdout.includes('Submitting new job')) {
-          expect(stdout).to.include(
-            'Not waiting for results as async flag is set',
-          );
-        }
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Submitting new job')) {
-            expect(true).to.be.true;
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expectAsyncSubmission(stdout);
     });
 
     it('should support all iOS device options', async () => {
-      const command = `./dist/index.js cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --name test-ios-devices --async`;
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --name test-ios-devices --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        // May show version notification, then should run tests
-        expect(stdout).to.match(/Submitting new job|A new version/);
-        if (stdout.includes('Submitting new job')) {
-          expect(stdout).to.include(
-            'Not waiting for results as async flag is set',
-          );
-        }
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Submitting new job')) {
-            expect(true).to.be.true;
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expectAsyncSubmission(stdout);
     });
 
     it('should support device orientation options', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --orientation 90 --name test-orientation --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --orientation 90 --name test-orientation --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        // May show version notification, then should run tests
-        expect(stdout).to.match(/Submitting new job|A new version/);
-        if (stdout.includes('Submitting new job')) {
-          expect(stdout).to.include(
-            'Not waiting for results as async flag is set',
-          );
-        }
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Submitting new job')) {
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expectAsyncSubmission(stdout);
     });
 
     it('should support device locale configuration', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --device-locale en_US --name test-locale --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --device-locale en_US --name test-locale --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        // May show version notification, then should run tests
-        expect(stdout).to.match(/Submitting new job|A new version/);
-        if (stdout.includes('Submitting new job')) {
-          expect(stdout).to.include(
-            'Not waiting for results as async flag is set',
-          );
-        }
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Submitting new job')) {
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expectAsyncSubmission(stdout);
     });
   });
 
   describe('advanced execution options', () => {
+    const expectAsyncSubmission = (stdout: string) => {
+      expect(stdout).to.include('Submitting new job');
+      expect(stdout).to.include('Not waiting for results as async flag is set');
+    };
+
     it('should support custom Maestro versions', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --maestro-version 1.39.5 --name test-maestro-version --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --maestro-version 1.39.5 --name test-maestro-version --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        // May show version notification, then should run tests
-        expect(stdout).to.match(/Submitting new job|A new version/);
-        if (stdout.includes('Submitting new job')) {
-          expect(stdout).to.include(
-            'Not waiting for results as async flag is set',
-          );
-        }
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Submitting new job')) {
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expectAsyncSubmission(stdout);
     });
 
     it('should support runner type options', async () => {
@@ -461,128 +219,42 @@ appId: com.example.app
 
       // Run runner type tests sequentially to avoid overwhelming mock API
       for (const runnerType of runnerTypes) {
-        const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --runner-type ${runnerType} --android-device pixel-6 --name test-runner-${runnerType} --async`;
+        const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --runner-type ${runnerType} --android-device pixel-6 --name test-runner-${runnerType} --async`;
 
-        try {
-          const { stdout } = await exec(command, { timeout: 15_000 });
-          // May show version notification, then should run tests
-          expect(stdout).to.match(/Submitting new job|A new version/);
-          if (stdout.includes('Submitting new job')) {
-            expect(stdout).to.include(
-              'Not waiting for results as async flag is set',
-            );
-            if (runnerType === 'm4') {
-              expect(stdout).to.include('experimental');
-            }
-          }
-        } catch (error: unknown) {
-          if (
-            error &&
-            typeof error === 'object' &&
-            'stdout' in error &&
-            typeof error.stdout === 'string'
-          ) {
-            const output = error.stdout;
-            if (output.includes('Submitting new job')) {
-              continue;
-            }
-          }
-
-          throw error;
+        const { stdout } = await exec(command, { timeout: 15_000 });
+        expectAsyncSubmission(stdout);
+        if (runnerType === 'm4') {
+          expect(stdout).to.include('experimental');
         }
       }
     });
 
     it('should support retry configuration', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --retry 2 --android-device pixel-6 --name test-retry --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --retry 2 --android-device pixel-6 --name test-retry --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        // May show version notification, then should run tests
-        expect(stdout).to.match(/Submitting new job|A new version/);
-        if (stdout.includes('Submitting new job')) {
-          expect(stdout).to.include(
-            'Not waiting for results as async flag is set',
-          );
-        }
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Submitting new job')) {
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expectAsyncSubmission(stdout);
     });
 
     it('should limit retry attempts to maximum of 2', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --retry 5 --android-device pixel-6 --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --retry 5 --android-device pixel-6 --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        // Should show warning about retry limit and still run
-        expect(stdout).to.include('limited to 2');
-        expect(stdout).to.include('Submitting new job');
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (
-            output.includes('limited to 2') ||
-            output.includes('Submitting new job')
-          ) {
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('limited to 2');
+      expect(stdout).to.include('Submitting new job');
     });
 
     it('should support report format options', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --report junit --android-device pixel-6 --name test-report --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --report junit --android-device pixel-6 --name test-report --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        // May show version notification, then should run tests
-        expect(stdout).to.match(/Submitting new job|A new version/);
-        if (stdout.includes('Submitting new job')) {
-          expect(stdout).to.include(
-            'Not waiting for results as async flag is set',
-          );
-        }
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Submitting new job')) {
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expectAsyncSubmission(stdout);
     });
   });
 
   describe('tag and flow filtering', () => {
     it('should support tag filtering', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --include-tags smoke --exclude-tags slow --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --include-tags smoke --exclude-tags slow --dry-run`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Dry run mode');
@@ -591,14 +263,14 @@ appId: com.example.app
 
   describe('file and binary management', () => {
     it('should support app binary ID instead of file', async () => {
-      const command = `./dist/index.js cloud --app-binary-id test-binary-123 ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --dry-run`;
+      const command = `${CLI} cloud --app-binary-id test-binary-123 ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --dry-run`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Dry run mode');
     });
 
     it('should support custom config file', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --config ${basicConfigFile} --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --config ${basicConfigFile} --dry-run`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Dry run mode');
@@ -608,7 +280,7 @@ appId: com.example.app
     });
 
     it('should process config file tag filtering', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --config ${tagFilteringConfigFile} --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --config ${tagFilteringConfigFile} --dry-run`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Dry run mode');
@@ -624,7 +296,7 @@ appId: com.example.app
         'TEST_VAR=test_value\nANOTHER_VAR=another_value',
       );
 
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --env ${envFile} --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --env ${envFile} --dry-run`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Dry run mode');
@@ -633,89 +305,29 @@ appId: com.example.app
 
   describe('output and debugging options', () => {
     it('should support quiet mode', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --quiet --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --quiet --dry-run`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Dry run mode');
-      // In quiet mode, should have less verbose output
     });
 
     it('should support debug mode', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --debug --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --debug --dry-run`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        expect(stdout).to.include('[DEBUG]');
-        expect(stdout).to.include('Dry run mode');
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('[DEBUG]')) {
-            expect(true).to.be.true;
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('[DEBUG]');
+      expect(stdout).to.include('Dry run mode');
     });
 
     it('should support JSON output format', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        const result = JSON.parse(stdout);
-        expect(result).to.have.property('uploadId');
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('"oclif"') || output.includes('"status": "FAILED"')) {
-            expect(true).to.be.true;
-            return;
-          }
-        }
-
-        throw error;
-      }
-    });
-
-    it('should support JSON file output', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file --name test-run --async`;
-
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        expect(stdout).to.include('JSON output will be written to file');
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('JSON output will be written to file')) {
-            expect(true).to.be.true;
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expectAsyncRunJson(stdout);
     });
 
     it('should support custom naming', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --name "My Test Run" --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --name "My Test Run" --dry-run`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Dry run mode');
@@ -724,7 +336,7 @@ appId: com.example.app
 
   describe('advanced features', () => {
     it('should support Google Play and advanced options', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --google-play --show-crosshairs --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --google-play --show-crosshairs --dry-run`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Dry run mode');
@@ -753,32 +365,13 @@ tags:
     `,
       );
 
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowWithOverrides} --api-key ${mockApiKey} --api-url ${mockApiUrl} --debug --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowWithOverrides} --api-key ${mockApiKey} --api-url ${mockApiUrl} --debug --dry-run`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        expect(stdout).to.include('Dry run mode');
-        expect(stdout).to.include('[DEBUG]');
-
-        // In debug mode, the CLI should show that overrides are being processed
-        // The exact debug output format may vary, but it should contain references to the test file
-        expect(stdout).to.include('test-flow-with-overrides.yaml');
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Dry run mode') && output.includes('[DEBUG]')) {
-            expect(output).to.include('test-flow-with-overrides.yaml');
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('Dry run mode');
+      expect(stdout).to.include('[DEBUG]');
+      // In debug mode, the CLI should show the test file being processed
+      expect(stdout).to.include('test-flow-with-overrides.yaml');
     });
 
     it('should handle test files without device cloud overrides normally', async () => {
@@ -800,28 +393,11 @@ tags:
     `,
       );
 
-      const command = `./dist/index.js cloud ${androidAppFile} ${normalTestFlow} --api-key ${mockApiKey} --api-url ${mockApiUrl} --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${normalTestFlow} --api-key ${mockApiKey} --api-url ${mockApiUrl} --dry-run`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        expect(stdout).to.include('Dry run mode');
-        expect(stdout).to.include('normal-test-flow.yaml');
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Dry run mode')) {
-            expect(output).to.include('normal-test-flow.yaml');
-            return;
-          }
-        }
-
-        throw error;
-      }
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('Dry run mode');
+      expect(stdout).to.include('normal-test-flow.yaml');
     });
 
     it('should process multiple test files with different override configurations', async () => {
@@ -872,127 +448,84 @@ tags:
       );
 
       // Test with a directory containing multiple flows
-      const testDir = tempDir;
-      const command = `./dist/index.js cloud ${androidAppFile} ${testDir} --api-key ${mockApiKey} --api-url ${mockApiUrl} --debug --dry-run`;
+      const command = `${CLI} cloud ${androidAppFile} ${tempDir} --api-key ${mockApiKey} --api-url ${mockApiUrl} --debug --dry-run`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        expect(stdout).to.include('Dry run mode');
-        expect(stdout).to.include('[DEBUG]');
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('Dry run mode');
+      expect(stdout).to.include('[DEBUG]');
 
-        // Should process all test files
-        expect(stdout).to.include('test-with-overrides-1.yaml');
-        expect(stdout).to.include('test-with-overrides-2.yaml');
-        expect(stdout).to.include('test-no-overrides.yaml');
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('Dry run mode') && output.includes('[DEBUG]')) {
-            // At least verify that the files are being processed
-            expect(true).to.be.true;
-            return;
-          }
-        }
-
-        throw error;
-      }
+      // Should process all test files
+      expect(stdout).to.include('test-with-overrides-1.yaml');
+      expect(stdout).to.include('test-with-overrides-2.yaml');
+      expect(stdout).to.include('test-no-overrides.yaml');
     });
   });
 
   describe('json-file-name functionality', () => {
-    it('should accept json-file flag and show expected message', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file --name test-json-default --async`;
+    // These run with cwd: outputDir so the written files are verified and
+    // never pollute the repo working tree.
+    const readWrittenJson = (filePath: string) => {
+      expect(fs.existsSync(filePath), `expected ${filePath} to exist`).to.be
+        .true;
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    };
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        expect(stdout).to.include('JSON output will be written to file');
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('JSON output will be written to file')) {
-            expect(true).to.be.true;
-            return;
-          }
-        }
+    it('should write JSON output to the default file', async () => {
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file --name test-json-default --async`;
 
-        throw error;
-      }
+      const { stdout } = await exec(command, {
+        cwd: outputDir,
+        timeout: 15_000,
+      });
+      expect(stdout).to.include('JSON output will be written to file');
+
+      // Default file name is <uploadId>_dcd.json.
+      const written = fs
+        .readdirSync(outputDir)
+        .filter((f) => f.endsWith('_dcd.json'));
+      expect(written).to.have.lengthOf(1);
+      const result = readWrittenJson(path.join(outputDir, written[0]));
+      expect(result).to.have.property('uploadId');
+      expect(result).to.have.property('status', 'PENDING');
     });
 
-    it('should accept json-file-name with json-file flag', async () => {
+    it('should write JSON output to a custom file name', async () => {
       const customJsonFile = 'custom-output.json';
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file --json-file-name ${customJsonFile} --name test-json-custom --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file --json-file-name ${customJsonFile} --name test-json-custom --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        expect(stdout).to.include('JSON output will be written to file');
-        // Command accepts the custom filename parameter without errors
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('JSON output will be written to file')) {
-            expect(true).to.be.true;
-            return;
-          }
-        }
+      const { stdout } = await exec(command, {
+        cwd: outputDir,
+        timeout: 15_000,
+      });
+      expect(stdout).to.include('JSON output will be written to file');
 
-        throw error;
-      }
+      const result = readWrittenJson(path.join(outputDir, customJsonFile));
+      expect(result).to.have.property('uploadId');
     });
 
-    it('should accept relative paths in json-file-name', async () => {
+    it('should write JSON output to a relative path', async () => {
       const customJsonFile = './output/results.json';
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file --json-file-name ${customJsonFile} --name test-json-path --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file --json-file-name ${customJsonFile} --name test-json-path --async`;
 
-      try {
-        const { stdout } = await exec(command, { timeout: 15_000 });
-        expect(stdout).to.include('JSON output will be written to file');
-        // Command accepts the relative path parameter without errors
-      } catch (error: unknown) {
-        if (
-          error &&
-          typeof error === 'object' &&
-          'stdout' in error &&
-          typeof error.stdout === 'string'
-        ) {
-          const output = error.stdout;
-          if (output.includes('JSON output will be written to file')) {
-            expect(true).to.be.true;
-            return;
-          }
-        }
+      const { stdout } = await exec(command, {
+        cwd: outputDir,
+        timeout: 15_000,
+      });
+      expect(stdout).to.include('JSON output will be written to file');
 
-        throw error;
-      }
+      const result = readWrittenJson(
+        path.join(outputDir, 'output', 'results.json'),
+      );
+      expect(result).to.have.property('uploadId');
     });
 
     it('should fail when json-file-name is used without json-file flag', async () => {
-      const command = `./dist/index.js cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file-name custom.json`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --json-file-name custom.json`;
 
-      try {
-        await exec(command, { timeout: 15_000 });
-        expect.fail('Command should have failed');
-      } catch (error) {
-        const errorOutput = getErrorOutput(error);
-        // Citty port raises a CliError when --json-file-name is used without --json-file.
-        expect(errorOutput).to.match(/--json-file-name.*--json-file|must also provide/i);
-        expect(errorOutput).to.include('--json-file');
-      }
+      const { output } = await runExpectingFailure(command);
+      // Citty port raises a CliError when --json-file-name is used without --json-file.
+      expect(output).to.match(/--json-file-name.*--json-file|must also provide/i);
+      expect(output).to.include('--json-file');
     });
   });
 });
