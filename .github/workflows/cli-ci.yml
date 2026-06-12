@@ -26,9 +26,12 @@ jobs:
         repository: moropo-com/dcd
         path: dcd
         ssh-key: ${{ secrets.DCD_SSH_DEPLOY_KEY }}
+        # api/swagger.json is a file, which cone-mode sparse checkout rejects
+        # as of git 2.51 ("is not a directory") — use non-cone patterns.
+        sparse-checkout-cone-mode: false
         sparse-checkout: |
-          mock-api
-          api/swagger.json
+          /mock-api/
+          /api/swagger.json
 
     - name: Setup pnpm
       uses: pnpm/action-setup@v4
