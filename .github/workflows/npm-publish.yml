@@ -41,6 +41,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Prod publishes land on the npm `latest` tag and must only ever come
+      # from the `production` branch (release-please's prod target branch).
+      # Without this guard, workflow_dispatch could publish any ref whose
+      # version lacks a -beta suffix as `latest`, bypassing release-please.
+      # workflow_call is unaffected: release-please.yml only requests a prod
+      # release on pushes to `production`, so github.ref_name matches there.
+      - name: Enforce production branch for prod releases
+        if: ${{ inputs.release_type == 'prod' && github.ref_name != 'production' }}
+        run: |
+          echo "Error: prod releases may only be published from the 'production' branch (got '${{ github.ref_name }}')"
+          exit 1
+
       # Version validation for production release
       - name: Validate Production Version
         if: ${{ inputs.release_type == 'prod' }}
