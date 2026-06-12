@@ -1,0 +1,84 @@
+name: Release
+
+# Drives the full release pipeline:
+#   - Push to `production` → stable release (no -beta suffix, npm `latest` tag).
+#   - Push to `dev` → beta release (e.g. 5.1.0-beta.0, npm `beta` tag, GitHub
+#     "pre-release" badge).
+# In both cases release-please opens/updates a Release PR; merging that PR
+# creates the tag + GitHub Release whose body is the freshly-rendered changelog
+# section, and the same workflow run chains into npm publish + binary uploads.
+# (Chained as jobs because GITHUB_TOKEN-created releases don't trigger
+# workflows listening on `release: published`.)
+on:
+  push:
+    branches: [production, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please-prod:
+    if: github.ref_name == 'production'
+    runs-on: k8s
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          target-branch: production
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  release-please-beta:
+    if: github.ref_name == 'dev'
+    runs-on: k8s
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          target-branch: dev
+          config-file: release-please-config-beta.json
+          manifest-file: .release-please-manifest-beta.json
+
+  publish-npm-prod:
+    needs: release-please-prod
+    if: needs.release-please-prod.outputs.release_created == 'true'
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      release_type: prod
+    secrets: inherit
+
+  publish-binaries-prod:
+    needs: release-please-prod
+    if: needs.release-please-prod.outputs.release_created == 'true'
+    uses: ./.github/workflows/release-binaries.yml
+    with:
+      tag_name: ${{ needs.release-please-prod.outputs.tag_name }}
+    secrets: inherit
+
+  publish-npm-beta:
+    needs: release-please-beta
+    if: needs.release-please-beta.outputs.release_created == 'true'
+    uses: ./.github/workflows/npm-publish.yml
+    with:
+      release_type: beta
+    secrets: inherit
+
+  publish-binaries-beta:
+    needs: release-please-beta
+    if: needs.release-please-beta.outputs.release_created == 'true'
+    uses: ./.github/workflows/release-binaries.yml
+    with:
+      tag_name: ${{ needs.release-please-beta.outputs.tag_name }}
+    secrets: inherit

@@ -1,13 +1,22 @@
 name: Publish standalone binaries
 
-# Fires on the same release event as npm-publish.yml, so a single GitHub
-# Release produces both the npm package and the standalone binaries. The
-# infra Railway proxy (`get.devicecloud.dev`) reads from the GitHub Releases
-# API at runtime, so no separate manifest deploy is needed.
+# Invoked by release-please.yml after a GitHub Release is created, so a single
+# release produces both the npm package and the standalone binaries. The infra
+# Railway proxy (`get.devicecloud.dev`) reads from the GitHub Releases API at
+# runtime, so no separate manifest deploy is needed.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag_name:
+        description: 'Release tag to upload binaries against (e.g. v5.1.0)'
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag to upload binaries against (e.g. v5.1.0). Leave blank to derive from package.json.'
+        required: false
+        type: string
 
 jobs:
   build-binaries:
@@ -42,8 +51,8 @@ jobs:
       - name: Resolve release tag
         id: tag
         run: |
-          if [ -n "${{ github.event.release.tag_name }}" ]; then
-            echo "name=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          if [ -n "${{ inputs.tag_name }}" ]; then
+            echo "name=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
           else
             VERSION=$(node -p "require('./package.json').version")
             echo "name=v${VERSION}" >> "$GITHUB_OUTPUT"
