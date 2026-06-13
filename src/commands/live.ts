@@ -41,25 +41,10 @@ const startSub = defineCommand({
 
     logger.log(`${symbols.running} Starting ${platform} live session...`);
 
-    const res = await fetch(`${apiUrl}/live`, {
-      body: JSON.stringify({ binaryUploadId: binaryId, platform }),
-      headers: {
-        'content-type': 'application/json',
-        ...auth.headers,
-      },
-      method: 'POST',
+    const session = await ApiGateway.startLiveSession(apiUrl, auth, {
+      binaryUploadId: binaryId,
+      platform,
     });
-
-    if (!res.ok) {
-      await ApiGateway.handleApiError(res, 'Failed to start live session');
-    }
-
-    const session = (await res.json()) as {
-      id: number;
-      platform: string;
-      session_name: string;
-      status: string;
-    };
 
     const frontendUrl = resolveFrontendUrl(apiUrl);
 
@@ -104,18 +89,7 @@ const installSub = defineCommand({
       `${symbols.running} Installing binary ${colors.highlight(binaryId)} on session ${colors.highlight(sessionName)}...`,
     );
 
-    const res = await fetch(`${apiUrl}/live/${sessionName}/install`, {
-      body: JSON.stringify({ binaryUploadId: binaryId }),
-      headers: {
-        'content-type': 'application/json',
-        ...auth.headers,
-      },
-      method: 'POST',
-    });
-
-    if (!res.ok) {
-      await ApiGateway.handleApiError(res, 'Failed to install binary');
-    }
+    await ApiGateway.installLiveBinary(apiUrl, auth, sessionName, binaryId);
 
     logger.log(`${symbols.success} Binary installed successfully`);
   },
@@ -138,24 +112,7 @@ const execSub = defineCommand({
       `${symbols.running} Executing commands on session ${colors.highlight(sessionName)}...`,
     );
 
-    const res = await fetch(`${apiUrl}/live/${sessionName}/exec`, {
-      body: JSON.stringify({ yaml }),
-      headers: {
-        'content-type': 'application/json',
-        ...auth.headers,
-      },
-      method: 'POST',
-    });
-
-    if (!res.ok) {
-      await ApiGateway.handleApiError(res, 'Failed to execute test');
-    }
-
-    const result = (await res.json()) as {
-      error?: string;
-      output?: string;
-      success: boolean;
-    };
+    const result = await ApiGateway.execLiveYaml(apiUrl, auth, sessionName, yaml);
 
     logger.log(
       result.success
@@ -188,14 +145,7 @@ const stopSub = defineCommand({
 
     logger.log(`${symbols.running} Stopping session ${colors.highlight(sessionName)}...`);
 
-    const res = await fetch(`${apiUrl}/live/${sessionName}`, {
-      headers: { ...auth.headers },
-      method: 'DELETE',
-    });
-
-    if (!res.ok) {
-      await ApiGateway.handleApiError(res, 'Failed to stop session');
-    }
+    await ApiGateway.stopLiveSession(apiUrl, auth, sessionName);
 
     logger.log(`${symbols.success} Session stopped`);
   },
@@ -212,23 +162,7 @@ const statusSub = defineCommand({
     const apiUrl = args['api-url'] as string;
     const sessionName = args.session as string;
 
-    const res = await fetch(`${apiUrl}/live/${sessionName}`, {
-      headers: { ...auth.headers },
-      method: 'GET',
-    });
-
-    if (!res.ok) {
-      await ApiGateway.handleApiError(res, 'Failed to get session status');
-    }
-
-    const session = (await res.json()) as {
-      binary_upload_id: null | string;
-      created_at: string;
-      id: number;
-      platform: string;
-      session_name: string;
-      status: string;
-    };
+    const session = await ApiGateway.getLiveSession(apiUrl, auth, sessionName);
 
     logger.log(sectionHeader('Live Session'));
     logger.log(`   ${colors.dim('Session:')}    ${colors.highlight(session.session_name)}`);

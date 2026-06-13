@@ -37,6 +37,27 @@ async function parseJsonResponse<T>(res: Response, operation: string): Promise<T
   }
 }
 
+/** Summary returned when a live session is created. */
+export interface LiveSessionSummary {
+  id: number;
+  platform: string;
+  session_name: string;
+  status: string;
+}
+
+/** Full live session record returned by the status endpoint. */
+export interface LiveSession extends LiveSessionSummary {
+  binary_upload_id: null | string;
+  created_at: string;
+}
+
+/** Result of executing Maestro YAML against a live session. */
+export interface LiveExecResult {
+  error?: string;
+  output?: string;
+  success: boolean;
+}
+
 export const ApiGateway = {
   /**
    * Enhances generic "fetch failed" errors with more specific diagnostic information
@@ -566,6 +587,143 @@ export const ApiGateway = {
       }
 
       await this.streamResponseToFile(res, finalReportPath, errorPrefix);
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, url);
+      }
+
+      throw error;
+    }
+  },
+
+  async startLiveSession(
+    baseUrl: string,
+    auth: AuthContext,
+    params: { binaryUploadId?: string; platform: string },
+  ): Promise<LiveSessionSummary> {
+    try {
+      const res = await fetch(`${baseUrl}/live`, {
+        body: JSON.stringify({
+          binaryUploadId: params.binaryUploadId,
+          platform: params.platform,
+        }),
+        headers: {
+          'content-type': 'application/json',
+          ...auth.headers,
+        },
+        method: 'POST',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to start live session');
+      }
+
+      return await parseJsonResponse<LiveSessionSummary>(res, 'Failed to start live session');
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, `${baseUrl}/live`);
+      }
+
+      throw error;
+    }
+  },
+
+  async installLiveBinary(
+    baseUrl: string,
+    auth: AuthContext,
+    sessionName: string,
+    binaryUploadId: string,
+  ): Promise<void> {
+    const url = `${baseUrl}/live/${sessionName}/install`;
+    try {
+      const res = await fetch(url, {
+        body: JSON.stringify({ binaryUploadId }),
+        headers: {
+          'content-type': 'application/json',
+          ...auth.headers,
+        },
+        method: 'POST',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to install binary');
+      }
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, url);
+      }
+
+      throw error;
+    }
+  },
+
+  async execLiveYaml(
+    baseUrl: string,
+    auth: AuthContext,
+    sessionName: string,
+    yaml: string,
+  ): Promise<LiveExecResult> {
+    const url = `${baseUrl}/live/${sessionName}/exec`;
+    try {
+      const res = await fetch(url, {
+        body: JSON.stringify({ yaml }),
+        headers: {
+          'content-type': 'application/json',
+          ...auth.headers,
+        },
+        method: 'POST',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to execute test');
+      }
+
+      return await parseJsonResponse<LiveExecResult>(res, 'Failed to execute test');
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, url);
+      }
+
+      throw error;
+    }
+  },
+
+  async stopLiveSession(
+    baseUrl: string,
+    auth: AuthContext,
+    sessionName: string,
+  ): Promise<void> {
+    const url = `${baseUrl}/live/${sessionName}`;
+    try {
+      const res = await fetch(url, {
+        headers: { ...auth.headers },
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to stop session');
+      }
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, url);
+      }
+
+      throw error;
+    }
+  },
+
+  async getLiveSession(
+    baseUrl: string,
+    auth: AuthContext,
+    sessionName: string,
+  ): Promise<LiveSession> {
+    const url = `${baseUrl}/live/${sessionName}`;
+    try {
+      const res = await fetch(url, {
+        headers: { ...auth.headers },
+        method: 'GET',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to get session status');
+      }
+
+      return await parseJsonResponse<LiveSession>(res, 'Failed to get session status');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, url);
