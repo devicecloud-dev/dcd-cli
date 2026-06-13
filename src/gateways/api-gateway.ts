@@ -6,6 +6,11 @@ import { pipeline } from 'node:stream/promises';
 
 import { TAppMetadata } from '../types';
 import type { AuthContext } from '../types/domain/auth.types';
+import type {
+  LiveExecResult,
+  LiveSession,
+  LiveSessionSummary,
+} from '../types/domain/live.types';
 import { paths } from '../types/generated/schema.types';
 
 /**
@@ -35,27 +40,6 @@ async function parseJsonResponse<T>(res: Response, operation: string): Promise<T
       `${operation}: API returned an invalid JSON response (${error instanceof Error ? error.message : String(error)})`,
     );
   }
-}
-
-/** Summary returned when a live session is created. */
-export interface LiveSessionSummary {
-  id: number;
-  platform: string;
-  session_name: string;
-  status: string;
-}
-
-/** Full live session record returned by the status endpoint. */
-export interface LiveSession extends LiveSessionSummary {
-  binary_upload_id: null | string;
-  created_at: string;
-}
-
-/** Result of executing Maestro YAML against a live session. */
-export interface LiveExecResult {
-  error?: string;
-  output?: string;
-  success: boolean;
 }
 
 export const ApiGateway = {
