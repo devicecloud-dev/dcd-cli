@@ -21,6 +21,8 @@ import {
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 
+import { ENVIRONMENTS } from '../config/environments';
+
 export const CONFIG_SCHEMA_VERSION = 1;
 
 export interface StoredSession {
@@ -76,6 +78,22 @@ export function readConfig(): StoredConfig | null {
     );
     return null;
   }
+}
+
+/**
+ * Resolve the API URL a command should talk to. Precedence:
+ *   1. explicit --api-url flag
+ *   2. api_url stored by `dcd login` (honors the env the user logged into)
+ *   3. prod default
+ *
+ * Without this, session commands default to prod and a dev/staging Bearer
+ * token is rejected with a misleading "Invalid or expired JWT". `switch-org`
+ * has always done this; this helper extends it to every command.
+ */
+export function resolveApiUrl(flag: string | undefined): string {
+  const explicit = flag?.trim();
+  if (explicit) return explicit;
+  return readConfig()?.api_url ?? ENVIRONMENTS.prod.apiUrl;
 }
 
 export function writeConfig(config: StoredConfig): void {

@@ -6,6 +6,7 @@ import { ApiGateway } from '../gateways/api-gateway';
 import type { AuthContext } from '../types/domain/auth.types';
 import { resolveAuth } from '../utils/auth';
 import { logger, validateEnum } from '../utils/cli';
+import { resolveApiUrl } from '../utils/config-store';
 import { colors, sectionHeader, symbols } from '../utils/styling';
 
 const PLATFORM_OPTIONS = ['android', 'ios'] as const;
@@ -31,7 +32,7 @@ const startSub = defineCommand({
   },
   async run({ args }) {
     const auth = await requireAuth(args['api-key'] as string | undefined);
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const platform = validateEnum(
       args.platform as string | undefined,
       PLATFORM_OPTIONS,
@@ -81,7 +82,7 @@ const installSub = defineCommand({
   },
   async run({ args }) {
     const auth = await requireAuth(args['api-key'] as string | undefined);
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const sessionName = args.session as string;
     const binaryId = args['app-binary-id'] as string;
 
@@ -104,7 +105,7 @@ const execSub = defineCommand({
   },
   async run({ args }) {
     const auth = await requireAuth(args['api-key'] as string | undefined);
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const sessionName = args.session as string;
     const yaml = args.yaml as string;
 
@@ -140,7 +141,7 @@ const stopSub = defineCommand({
   },
   async run({ args }) {
     const auth = await requireAuth(args['api-key'] as string | undefined);
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const sessionName = args.session as string;
 
     logger.log(`${symbols.running} Stopping session ${colors.highlight(sessionName)}...`);
@@ -159,7 +160,7 @@ const statusSub = defineCommand({
   },
   async run({ args }) {
     const auth = await requireAuth(args['api-key'] as string | undefined);
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const sessionName = args.session as string;
 
     const session = await ApiGateway.getLiveSession(apiUrl, auth, sessionName);
@@ -189,7 +190,15 @@ export const liveCommand = defineCommand({
     stop: stopSub,
     status: statusSub,
   },
-  run() {
+  // citty's runCommand does not early-return after dispatching to a
+  // subcommand — it still invokes the parent `run` afterwards. So when a
+  // subcommand (start/install/exec/...) was matched, bail out here; otherwise
+  // the menu would print after every successful subcommand.
+  run({ rawArgs }) {
+    const subNames = new Set(['start', 'install', 'exec', 'stop', 'status']);
+    const firstPositional = rawArgs.find((arg) => !arg.startsWith('-'));
+    if (firstPositional && subNames.has(firstPositional)) return;
+
     logger.log(sectionHeader('Live Session Commands'));
     logger.log(`   ${colors.bold('start')}    Start a new live device session`);
     logger.log(`   ${colors.bold('install')}  Install a binary on the device`);

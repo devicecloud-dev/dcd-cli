@@ -4,6 +4,7 @@ import { apiFlags } from '../config/flags/api.flags';
 import { ApiGateway } from '../gateways/api-gateway';
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger, parseIntFlag } from '../utils/cli';
+import { resolveApiUrl } from '../utils/config-store';
 import { colors, formatId, formatUrl, sectionHeader, symbols } from '../utils/styling';
 
 type UploadListItem = {
@@ -126,7 +127,7 @@ export const listCommand = defineCommand({
   },
   async run({ args }) {
     const apiKeyFlag = args['api-key'] as string | undefined;
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const from = args.from as string | undefined;
     const to = args.to as string | undefined;
     const name = args.name as string | undefined;

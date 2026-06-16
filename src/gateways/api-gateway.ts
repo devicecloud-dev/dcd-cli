@@ -141,7 +141,9 @@ export const ApiGateway = {
       }
 
       default: {
-        throw new ApiError(`${operation} failed: ${userMessage} (HTTP ${res.status})`, res.status);
+        // `operation` is already phrased as "Failed to …", so don't append
+        // another "failed" here (avoids "Failed to execute test failed: …").
+        throw new ApiError(`${operation}: ${userMessage} (HTTP ${res.status})`, res.status);
       }
     }
   },

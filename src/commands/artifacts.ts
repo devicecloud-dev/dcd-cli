@@ -4,6 +4,7 @@ import { apiFlags } from '../config/flags/api.flags';
 import { ReportDownloadService } from '../services/report-download.service';
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger, validateEnum } from '../utils/cli';
+import { resolveApiUrl } from '../utils/config-store';
 
 const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
 const REPORT_OPTIONS = ['allure', 'html', 'html-detailed', 'junit'] as const;
@@ -58,7 +59,7 @@ export const artifactsCommand = defineCommand({
   },
   async run({ args }) {
     const apiKeyFlag = args['api-key'] as string | undefined;
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const debug = Boolean(args.debug);
     const uploadId = args['upload-id'] as string;
     const downloadArtifacts = validateEnum(

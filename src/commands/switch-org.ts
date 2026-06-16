@@ -9,7 +9,7 @@ import { defineCommand } from 'citty';
 
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger } from '../utils/cli';
-import { readConfig, writeConfig } from '../utils/config-store';
+import { readConfig, resolveApiUrl, writeConfig } from '../utils/config-store';
 import { fetchOrgs, pickOrg, OrgListItem } from '../utils/orgs';
 import { colors, symbols } from '../utils/styling';
 
@@ -37,10 +37,7 @@ export const switchOrgCommand = defineCommand({
 
     // Honor the env the user logged into — defaulting to prod here would send
     // a dev Bearer token to the prod API.
-    const apiUrl =
-      (args['api-url'] as string | undefined) ??
-      config.api_url ??
-      'https://api.devicecloud.dev';
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const target = args.org as string | undefined;
 
     // sessionOnly: an exported DEVICE_CLOUD_API_KEY must not shadow the
