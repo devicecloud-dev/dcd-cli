@@ -65,7 +65,7 @@
     "test": "node scripts/test-runner.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
-  "version": "5.0.0",
+  "version": "5.1.0",
   "bugs": {
     "url": "https://discord.gg/gm3mJwcNw8"
   },
