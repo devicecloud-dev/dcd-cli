@@ -9,6 +9,7 @@ import {
   configFileMode,
   getConfigPath,
   readConfig,
+  resolveApiUrl,
   writeConfig,
 } from '../../src/utils/config-store';
 
@@ -63,6 +64,49 @@ describe('config-store', () => {
       });
       clearConfig();
       expect(readConfig()).to.equal(null);
+    });
+  });
+});
+
+// Regression coverage for #16: session commands must honor the api_url stored
+// by `dcd login` instead of always defaulting to prod, otherwise a dev/staging
+// Bearer token is sent to prod and rejected as "Invalid or expired JWT".
+describe('resolveApiUrl precedence', () => {
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it('prefers an explicit flag over the stored config', async () => {
+    await withTempConfigDir(() => {
+      writeConfig({
+        version: 1,
+        env: 'dev',
+        api_url: 'https://api.dev.devicecloud.dev',
+        supabase_url: 'https://lbmsowehtjwnqlurpemb.supabase.co',
+      });
+      expect(resolveApiUrl('https://api.devicecloud.dev')).to.equal(
+        'https://api.devicecloud.dev',
+      );
+    });
+  });
+
+  it('falls back to the stored api_url when no flag is given', async () => {
+    await withTempConfigDir(() => {
+      writeConfig({
+        version: 1,
+        env: 'dev',
+        api_url: 'https://api.dev.devicecloud.dev',
+        supabase_url: 'https://lbmsowehtjwnqlurpemb.supabase.co',
+      });
+      expect(resolveApiUrl(undefined)).to.equal('https://api.dev.devicecloud.dev');
+      // A blank/whitespace flag is treated as "not provided".
+      expect(resolveApiUrl('   ')).to.equal('https://api.dev.devicecloud.dev');
+    });
+  });
+
+  it('defaults to prod when neither a flag nor a stored config exists', async () => {
+    await withTempConfigDir(() => {
+      expect(resolveApiUrl(undefined)).to.equal('https://api.devicecloud.dev');
     });
   });
 });

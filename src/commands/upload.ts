@@ -7,6 +7,7 @@ import { outputFlags } from '../config/flags/output.flags';
 import { uploadBinary, verifyAppZip } from '../methods';
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger } from '../utils/cli';
+import { resolveApiUrl } from '../utils/config-store';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
 import { colors, formatId, sectionHeader, symbols } from '../utils/styling';
 
@@ -37,7 +38,7 @@ export const uploadCommand = defineCommand({
     };
     try {
       const apiKeyFlag = args['api-key'] as string | undefined;
-      const apiUrl = args['api-url'] as string;
+      const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
       const appUrl = args['app-url'] as string | undefined;
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
       const debug = Boolean(args.debug);

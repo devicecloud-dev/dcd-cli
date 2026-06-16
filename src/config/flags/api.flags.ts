@@ -13,7 +13,9 @@ export const apiFlags = {
   'api-url': {
     type: 'string',
     alias: ['apiURL', 'apiUrl'],
-    default: 'https://api.devicecloud.dev',
-    description: 'API base URL',
+    // No citty `default` here: commands resolve the effective URL via
+    // resolveApiUrl() so a value stored by `dcd login` (e.g. dev/staging) is
+    // honored instead of always defaulting to prod. See utils/config-store.ts.
+    description: 'API base URL (defaults to the URL stored by `dcd login`, else prod)',
   },
 } as const satisfies ArgsDef;

@@ -5,6 +5,7 @@ import { ApiGateway } from '../gateways/api-gateway';
 import { formatDurationSeconds } from '../methods';
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger } from '../utils/cli';
+import { resolveApiUrl } from '../utils/config-store';
 import {
   ConnectivityCheckResult,
   checkInternetConnectivity,
@@ -81,7 +82,7 @@ export const statusCommand = defineCommand({
   // eslint-disable-next-line complexity
   async run({ args }) {
     const apiKeyFlag = args['api-key'] as string | undefined;
-    const apiUrl = args['api-url'] as string;
+    const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const json = Boolean(args.json);
     const name = args.name as string | undefined;
     const uploadId = args['upload-id'] as string | undefined;

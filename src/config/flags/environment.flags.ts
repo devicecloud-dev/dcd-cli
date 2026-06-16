@@ -7,8 +7,9 @@ export const environmentFlags = {
   env: {
     type: 'string',
     alias: ['e'],
-    description: 'One or more environment variable files to inject into your flows (may be repeated)',
-    valueHint: 'path',
+    description:
+      'One or more environment variables to inject into your flows (format: KEY=VALUE, may be repeated)',
+    valueHint: 'KEY=VALUE',
   },
   metadata: {
     type: 'string',

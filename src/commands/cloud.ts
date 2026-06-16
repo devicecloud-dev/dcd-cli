@@ -36,6 +36,7 @@ import {
   CompatibilityData,
   fetchCompatibilityData,
 } from '../utils/compatibility';
+import { resolveApiUrl } from '../utils/config-store';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
 import { toPortableRelativePath } from '../utils/paths';
 import {
@@ -142,7 +143,7 @@ export const cloudCommand = defineCommand({
     };
     try {
       const apiKeyFlag = args['api-key'] as string | undefined;
-      const apiUrl = args['api-url'] as string;
+      const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
       const appBinaryId = args['app-binary-id'] as string | undefined;
       const appFile = args['app-file'] as string | undefined;
       const appUrl = args['app-url'] as string | undefined;
