@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises';
 import { TAppMetadata } from '../types';
 import type { AuthContext } from '../types/domain/auth.types';
 import type {
+  LiveCommandStatus,
   LiveExecResult,
   LiveSession,
   LiveSessionSummary,
@@ -585,13 +586,22 @@ export const ApiGateway = {
   async startLiveSession(
     baseUrl: string,
     auth: AuthContext,
-    params: { binaryUploadId?: string; platform: string },
+    params: {
+      binaryUploadId?: string;
+      deviceLocale?: string;
+      platform: string;
+      androidDevice?: string;
+      androidApiLevel?: string;
+    },
   ): Promise<LiveSessionSummary> {
     try {
       const res = await fetch(`${baseUrl}/live`, {
         body: JSON.stringify({
           binaryUploadId: params.binaryUploadId,
+          deviceLocale: params.deviceLocale,
           platform: params.platform,
+          androidDevice: params.androidDevice,
+          androidApiLevel: params.androidApiLevel,
         }),
         headers: {
           'content-type': 'application/json',
@@ -646,11 +656,12 @@ export const ApiGateway = {
     auth: AuthContext,
     sessionName: string,
     yaml: string,
+    opts: { async?: boolean } = {},
   ): Promise<LiveExecResult> {
     const url = `${baseUrl}/live/${sessionName}/exec`;
     try {
       const res = await fetch(url, {
-        body: JSON.stringify({ yaml }),
+        body: JSON.stringify({ yaml, async: opts.async }),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
@@ -668,6 +679,43 @@ export const ApiGateway = {
       }
 
       throw error;
+    }
+  },
+
+  async getLiveCommand(
+    baseUrl: string,
+    auth: AuthContext,
+    sessionName: string,
+    commandId: string,
+  ): Promise<LiveCommandStatus> {
+    const url = `${baseUrl}/live/${sessionName}/commands/${commandId}`;
+    try {
+      const res = await fetch(url, { headers: { ...auth.headers }, method: 'GET' });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to get command status');
+      }
+      return await parseJsonResponse<LiveCommandStatus>(res, 'Failed to get command status');
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, url);
+      }
+
+      throw error;
+    }
+  },
+
+  async keepaliveLiveSession(
+    baseUrl: string,
+    auth: AuthContext,
+    sessionName: string,
+  ): Promise<void> {
+    const url = `${baseUrl}/live/${sessionName}/keepalive`;
+    try {
+      const res = await fetch(url, { headers: { ...auth.headers }, method: 'POST' });
+      // A keepalive failure shouldn't kill a long-running poll; swallow non-OK.
+      if (!res.ok) return;
+    } catch {
+      // best effort
     }
   },
 

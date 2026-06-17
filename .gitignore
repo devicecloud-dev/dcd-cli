@@ -25,3 +25,6 @@ custom-output.json
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Local Maestro flow files (scratch / experimentation)
+flows/

@@ -64,8 +64,14 @@ export interface PollingResult {
  * Service for polling test results from the API
  */
 export class ResultsPollingService {
-  private readonly MAX_SEQUENTIAL_FAILURES = 10;
+  // The run keeps executing in the cloud regardless of whether the CLI can
+  // poll, so tolerate a long stretch of transient API/network blips (~5 min at
+  // the 10s base interval) before giving up. Losing a run to a brief hiccup is
+  // far more costly than waiting a bit longer.
+  private readonly MAX_SEQUENTIAL_FAILURES = 30;
   private readonly POLL_INTERVAL_MS = 10_000;
+  // Cap for the backoff applied between failed polls.
+  private readonly MAX_ERROR_BACKOFF_MS = 30_000;
 
   /**
    * Poll for test results until all tests complete
@@ -154,10 +160,17 @@ export class ResultsPollingService {
           sequentialPollFailures,
           debug,
           logger,
+          uploadId,
         );
 
-        // Wait before retrying after an error
-        await this.sleep(this.POLL_INTERVAL_MS);
+        // Back off (capped) before retrying so a flaky API gets some breathing
+        // room instead of being hammered every 10s.
+        await this.sleep(
+          Math.min(
+            this.POLL_INTERVAL_MS * sequentialPollFailures,
+            this.MAX_ERROR_BACKOFF_MS,
+          ),
+        );
       }
     }
   }
@@ -431,7 +444,13 @@ export class ResultsPollingService {
     sequentialPollFailures: number,
     debug: boolean,
     logger?: (message: string) => void,
+    uploadId?: string,
   ): Promise<void> {
+    // The run is unaffected by our inability to poll — always point the user at
+    // how to reconnect to it rather than leaving them thinking it died.
+    const resumeHint = uploadId
+      ? `\n\nThe test is still running in the cloud. Reconnect with:\n  dcd status --upload-id ${uploadId}`
+      : '';
     if (debug && logger) {
       logger(`[DEBUG] Error polling for results: ${error}`);
       logger(`[DEBUG] Sequential poll failures: ${sequentialPollFailures}`);
@@ -465,12 +484,12 @@ export class ResultsPollingService {
           .join('\n');
 
         throw new Error(
-          `Unable to fetch results after ${this.MAX_SEQUENTIAL_FAILURES} attempts.\n\nInternet connectivity check failed - all test endpoints unreachable:\n${endpointDetails}\n\nPlease verify your network connection and DNS resolution.`,
+          `Unable to fetch results after ${this.MAX_SEQUENTIAL_FAILURES} attempts.\n\nInternet connectivity check failed - all test endpoints unreachable:\n${endpointDetails}\n\nPlease verify your network connection and DNS resolution.${resumeHint}`,
         );
       }
 
       throw new Error(
-        `unable to fetch results after ${this.MAX_SEQUENTIAL_FAILURES} attempts`,
+        `unable to fetch results after ${this.MAX_SEQUENTIAL_FAILURES} attempts${resumeHint}`,
       );
     }
 
