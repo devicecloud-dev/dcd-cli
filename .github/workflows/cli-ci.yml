@@ -14,6 +14,13 @@ jobs:
   lint-and-test:
     runs-on: k8s
 
+    # The mock-api lives in the private moropo-com/dcd repo, checked out via an
+    # SSH deploy key. GitHub does NOT expose secrets to pull_request workflows
+    # triggered from forks, so that checkout (and the integration tests that need
+    # it) can only run for same-repo events. Fork PRs still run lint/typecheck/build.
+    env:
+      HAS_PRIVATE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+
     steps:
     - name: Checkout CLI
       uses: actions/checkout@v5
@@ -21,6 +28,7 @@ jobs:
         path: cli
 
     - name: Checkout dcd (mock-api)
+      if: env.HAS_PRIVATE_ACCESS == 'true'
       uses: actions/checkout@v5
       with:
         repository: moropo-com/dcd
@@ -51,6 +59,7 @@ jobs:
       run: pnpm install --frozen-lockfile
 
     - name: Install Mock API dependencies
+      if: env.HAS_PRIVATE_ACCESS == 'true'
       working-directory: ./dcd/mock-api
       run: pnpm install --frozen-lockfile
 
@@ -63,10 +72,15 @@ jobs:
       run: pnpm typecheck
 
     - name: Run CLI tests
+      if: env.HAS_PRIVATE_ACCESS == 'true'
       working-directory: ./cli
       env:
         MOCK_API_DIR: ${{ github.workspace }}/dcd/mock-api
       run: pnpm test
+
+    - name: Skip integration tests (fork PR — no mock-api access)
+      if: env.HAS_PRIVATE_ACCESS != 'true'
+      run: echo "::notice::Integration tests skipped — the mock-api (private moropo-com/dcd) is not accessible from fork PRs. Lint, typecheck, and build still ran."
 
     - name: Build CLI
       working-directory: ./cli
