@@ -1,0 +1,88 @@
+name: Publish Package to npmjs
+on:
+  workflow_call:
+    inputs:
+      release_type:
+        description: 'Release type (prod or beta)'
+        required: false
+        default: 'prod'
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type (prod or beta)'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - beta
+
+jobs:
+  build:
+    runs-on: k8s
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      # Setup .npmrc file to publish to npm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.x'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+          cache-dependency-path: './pnpm-lock.yaml'
+
+      - run: pnpm install --frozen-lockfile
+
+      # Prod publishes land on the npm `latest` tag and must only ever come
+      # from the `production` branch (release-please's prod target branch).
+      # Without this guard, workflow_dispatch could publish any ref whose
+      # version lacks a -beta suffix as `latest`, bypassing release-please.
+      # workflow_call is unaffected: release-please.yml only requests a prod
+      # release on pushes to `production`, so github.ref_name matches there.
+      - name: Enforce production branch for prod releases
+        if: ${{ inputs.release_type == 'prod' && github.ref_name != 'production' }}
+        run: |
+          echo "Error: prod releases may only be published from the 'production' branch (got '${{ github.ref_name }}')"
+          exit 1
+
+      # Version validation for production release
+      - name: Validate Production Version
+        if: ${{ inputs.release_type == 'prod' }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ $VERSION =~ -beta ]]; then
+            echo "Error: Production release cannot have a beta suffix. Current version: $VERSION"
+            exit 1
+          fi
+          echo "Version $VERSION is valid for production release"
+
+      # Version validation for beta release
+      - name: Validate Beta Version
+        if: ${{ inputs.release_type == 'beta' }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ ! $VERSION =~ -beta ]]; then
+            echo "Error: Beta release must have a beta suffix. Current version: $VERSION"
+            exit 1
+          fi
+          echo "Version $VERSION is valid for beta release"
+
+      - name: Publish Production Version
+        if: ${{ inputs.release_type == 'prod' }}
+        run: pnpm publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish Beta Version
+        if: ${{ inputs.release_type == 'beta' }}
+        run: pnpm publish --tag beta --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

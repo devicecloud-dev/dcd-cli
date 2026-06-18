@@ -1,0 +1,303 @@
+import { createHash } from 'node:crypto';
+import * as path from 'node:path';
+
+import { compressFilesFromRelativePath } from '../methods';
+import { toPortableRelativePath } from '../utils/paths';
+import { IExecutionPlan } from './execution-plan.service';
+
+export interface TestSubmissionConfig {
+  androidApiLevel?: string;
+  androidDevice?: string;
+  androidNoSnapshot?: boolean;
+  appBinaryId: string;
+  cliVersion: string;
+  commonRoot: string;
+  continueOnFailure?: boolean;
+  debug?: boolean;
+  deviceLocale?: string;
+  disableAnimations?: boolean;
+  env?: string[];
+  executionPlan: IExecutionPlan;
+  flowFile: string;
+  googlePlay?: boolean;
+  iOSDevice?: string;
+  iOSVersion?: string;
+  logger?: (message: string) => void;
+  maestroChromeOnboarding?: boolean;
+  maestroVersion: string;
+  metadata?: string[];
+  mitmHost?: string;
+  mitmPath?: string;
+  name?: string;
+  orientation?: string;
+  raw?: unknown;
+  report?: string;
+  retry?: number;
+  runnerType?: string;
+  showCrosshairs?: boolean;
+}
+
+const mimeTypeLookupByExtension: Record<string, string> = {
+  zip: 'application/zip',
+};
+
+/**
+ * Service for building test submission form data
+ */
+export class TestSubmissionService {
+  /**
+   * Build FormData for test submission
+   * @param config Test submission configuration
+   * @returns FormData ready to be submitted to the API
+   */
+  public async buildTestFormData(
+    config: TestSubmissionConfig,
+  ): Promise<FormData> {
+    const {
+      appBinaryId,
+      flowFile,
+      executionPlan,
+      commonRoot,
+      cliVersion,
+      env = [],
+      metadata = [],
+      googlePlay = false,
+      androidApiLevel,
+      androidDevice,
+      androidNoSnapshot,
+      iOSVersion,
+      iOSDevice,
+      name,
+      runnerType,
+      maestroVersion,
+      deviceLocale,
+      orientation,
+      mitmHost,
+      mitmPath,
+      retry,
+      continueOnFailure = true,
+      report,
+      showCrosshairs,
+      maestroChromeOnboarding,
+      raw,
+      disableAnimations,
+      debug = false,
+      logger,
+    } = config;
+
+    const {
+      allExcludeTags,
+      allIncludeTags,
+      flowMetadata,
+      flowOverrides,
+      flowsToRun: testFileNames,
+      referencedFiles,
+      sequence,
+      workspaceConfig,
+    } = executionPlan;
+
+    const { flows: sequentialFlows = [] } = sequence ?? {};
+
+    const testFormData = new FormData();
+
+    const envObject = this.parseKeyValuePairs(env);
+    const metadataObject = this.parseKeyValuePairs(metadata);
+
+    if (Object.keys(envObject).length > 0) {
+      this.logDebug(
+        debug,
+        logger,
+        `[DEBUG] Environment variables: ${JSON.stringify(envObject)}`,
+      );
+    }
+
+    if (Object.keys(metadataObject).length > 0) {
+      this.logDebug(
+        debug,
+        logger,
+        `[DEBUG] User metadata: ${JSON.stringify(metadataObject)}`,
+      );
+    }
+
+    // Log non-YAML file assets being uploaded
+    if (referencedFiles.length > 0) {
+      const nonYamlFiles = referencedFiles.filter(
+        (file) => !file.endsWith('.yaml') && !file.endsWith('.yml'),
+      );
+      if (nonYamlFiles.length > 0) {
+        this.logDebug(
+          debug,
+          logger,
+          `[DEBUG] Uploading ${nonYamlFiles.length} non-YAML file asset(s):`,
+        );
+        for (const file of nonYamlFiles) {
+          const normalizedPath = this.normalizeFilePath(file, commonRoot);
+          this.logDebug(debug, logger, `[DEBUG]   - ${normalizedPath}`);
+        }
+      }
+    }
+
+    this.logDebug(debug, logger, `[DEBUG] Compressing files from path: ${flowFile}`);
+
+    const buffer = await compressFilesFromRelativePath(
+      flowFile?.endsWith('.yaml') || flowFile?.endsWith('.yml')
+        ? path.dirname(flowFile)
+        : flowFile,
+      [
+        ...new Set([
+          ...referencedFiles,
+          ...testFileNames,
+          ...sequentialFlows,
+        ]),
+      ],
+      commonRoot,
+    );
+
+    this.logDebug(debug, logger, `[DEBUG] Compressed file size: ${buffer.length} bytes`);
+
+    // Calculate SHA-256 hash of the flow ZIP
+    const sha = createHash('sha256').update(buffer).digest('hex');
+    this.logDebug(debug, logger, `[DEBUG] Flow ZIP SHA-256: ${sha}`);
+
+    const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], {
+      type: mimeTypeLookupByExtension.zip,
+    });
+
+    testFormData.set('file', blob, 'flowFile.zip');
+    testFormData.set('sha', sha);
+    testFormData.set('appBinaryId', appBinaryId);
+    testFormData.set(
+      'testFileNames',
+      JSON.stringify(this.normalizePaths(testFileNames, commonRoot)),
+    );
+    testFormData.set(
+      'flowMetadata',
+      JSON.stringify(this.normalizePathMap(flowMetadata, commonRoot)),
+    );
+    testFormData.set(
+      'testFileOverrides',
+      JSON.stringify(this.normalizePathMap(flowOverrides, commonRoot)),
+    );
+    testFormData.set(
+      'sequentialFlows',
+      JSON.stringify(this.normalizePaths(sequentialFlows, commonRoot)),
+    );
+    testFormData.set('env', JSON.stringify(envObject));
+    // Note: googlePlay is now included in configPayload below instead of as a separate field
+    // to work around a FormData parsing issue in the API
+
+    const targetPlatform = iOSDevice || iOSVersion ? 'ios' : 'android';
+    const configYamlDisableAnimations =
+      targetPlatform === 'ios'
+        ? Boolean(workspaceConfig?.platform?.ios?.disableAnimations)
+        : Boolean(workspaceConfig?.platform?.android?.disableAnimations);
+    const effectiveDisableAnimations = disableAnimations || configYamlDisableAnimations;
+
+    const configPayload: Record<
+      string,
+      | Record<string, string>
+      | boolean
+      | null
+      | number
+      | string
+      | string[]
+      | undefined
+    > = {
+      allExcludeTags,
+      allIncludeTags,
+      androidNoSnapshot,
+      autoRetriesRemaining: retry,
+      continueOnFailure,
+      deviceLocale,
+      googlePlay,
+      maestroVersion,
+      mitmHost,
+      mitmPath,
+      orientation,
+      raw: JSON.stringify(raw),
+      report,
+      showCrosshairs,
+      maestroChromeOnboarding,
+      disableAnimations: effectiveDisableAnimations,
+      version: cliVersion,
+    };
+
+    testFormData.set('config', JSON.stringify(configPayload));
+
+    if (Object.keys(metadataObject).length > 0) {
+      const metadataPayload = { userMetadata: metadataObject };
+      testFormData.set('metadata', JSON.stringify(metadataPayload));
+      this.logDebug(
+        debug,
+        logger,
+        `[DEBUG] Sending metadata to API: ${JSON.stringify(metadataPayload)}`,
+      );
+    }
+
+    this.setOptionalFields(testFormData, {
+      androidApiLevel,
+      androidDevice,
+      iOSDevice,
+      iOSVersion,
+      name,
+      runnerType,
+    });
+
+    if (workspaceConfig) {
+      testFormData.set('workspaceConfig', JSON.stringify(workspaceConfig));
+    }
+
+    return testFormData;
+  }
+
+  private logDebug(
+    debug: boolean,
+    logger: ((message: string) => void) | undefined,
+    message: string,
+  ): void {
+    if (debug && logger) {
+      logger(message);
+    }
+  }
+
+  private normalizeFilePath(filePath: string, commonRoot: string): string {
+    return toPortableRelativePath(filePath, commonRoot);
+  }
+
+  private normalizePathMap(
+    map: Record<string, unknown>,
+    commonRoot: string,
+  ): Record<string, unknown> {
+    return Object.fromEntries(
+      Object.entries(map).map(([key, value]) => [
+        this.normalizeFilePath(key, commonRoot),
+        value,
+      ]),
+    );
+  }
+
+  private normalizePaths(paths: string[], commonRoot: string): string[] {
+    return paths.map((p) => this.normalizeFilePath(p, commonRoot));
+  }
+
+  private parseKeyValuePairs(pairs: string[]): Record<string, string> {
+    // eslint-disable-next-line unicorn/no-array-reduce
+    return pairs.reduce((acc, cur) => {
+      const [key, ...value] = cur.split('=');
+      // handle case where value includes an equals sign
+      acc[key] = value.join('=');
+      return acc;
+    }, {} as Record<string, string>);
+  }
+
+  private setOptionalFields(
+    formData: FormData,
+    fields: Record<string, string | undefined>,
+  ): void {
+    for (const [key, value] of Object.entries(fields)) {
+      if (value) {
+        formData.set(key, value.toString());
+      }
+    }
+  }
+}
