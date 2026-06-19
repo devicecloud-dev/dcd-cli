@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# Scan staged changes for secrets before they ever enter git history.
+# Mirrors the gitleaks CI gate (.github/workflows/cli-ci.yml) and shares the
+# same allowlist (.gitleaks.toml), so the public Supabase anon keys won't trip.
+#
+# gitleaks is NOT a dependency of this package — contributors install the binary
+# themselves. If it's missing we skip (exit 0) rather than block: CI is the
+# real enforcement backstop, this hook is just the fast local warning.
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks not found — skipping local secret scan."
+  echo "  Install it to catch secrets before committing: https://github.com/gitleaks/gitleaks#installing"
+  echo "  (CI still scans on push, so nothing slips through.)"
+  exit 0
+fi
+
+gitleaks git --staged --redact --no-banner
