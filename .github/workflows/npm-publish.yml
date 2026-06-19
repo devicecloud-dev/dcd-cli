@@ -20,7 +20,7 @@ on:
 
 jobs:
   build:
-    runs-on: k8s
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:

@@ -20,7 +20,7 @@ on:
 
 jobs:
   build-binaries:
-    runs-on: k8s
+    runs-on: ubuntu-latest
     permissions:
       contents: write  # Required to upload release assets
     steps:

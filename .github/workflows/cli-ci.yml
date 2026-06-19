@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   lint-and-test:
-    runs-on: k8s
+    runs-on: ubuntu-latest
 
     # The mock-api lives in the private moropo-com/dcd repo, checked out via an
     # SSH deploy key. GitHub does NOT expose secrets to pull_request workflows

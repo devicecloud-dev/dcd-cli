@@ -21,7 +21,7 @@ permissions:
 jobs:
   release-please-prod:
     if: github.ref_name == 'production'
-    runs-on: k8s
+    runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -37,7 +37,7 @@ jobs:
 
   release-please-beta:
     if: github.ref_name == 'dev'
-    runs-on: k8s
+    runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
