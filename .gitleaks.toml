@@ -1,0 +1,20 @@
+# Gitleaks configuration — extends the default ruleset.
+#
+# The only allowlisted secrets are the two PUBLIC Supabase anon keys committed
+# in src/config/environments.ts. Those JWTs are anon-role keys, designed to be
+# embedded in client code and gated by RLS (see the doc comment in that file) —
+# they are intentionally not secret.
+#
+# They are allowlisted by EXACT VALUE, deliberately not by file path or by the
+# whole `jwt` rule: a Supabase service_role key is also a JWT, so a path/rule
+# allowlist would let a genuinely sensitive key pasted into the same file slip
+# through. Matching exact values keeps that detection intact.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public Supabase anon keys (safe to commit, gated by RLS)"
+regexes = [
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBneWRucGhiaW1ldGluc2dma2JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDc1OTQzNDYsImV4cCI6MjAyMzE3MDM0Nn0\.hAYOMFxxwX1exkQkY9xyQJGC_GhGnyogkj2N-kBkMI8''',
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxibXNvd2VodGp3bnFsdXJwZW1iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDkyMTg0ODcsImV4cCI6MjAyNDc5NDQ4N30\.zeLTMAuZ_WwYvGdeP0kdvL_Zrs-RQee5APPyxmWq7qQ''',
+]

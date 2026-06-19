@@ -108,6 +108,9 @@ importers:
       eslint-plugin-unicorn:
         specifier: ^64.0.0
         version: 64.0.0(eslint@9.39.4)
+      husky:
+        specifier: ^9.1.7
+        version: 9.1.7
       mocha:
         specifier: ^11.7.5
         version: 11.7.5
@@ -1098,6 +1101,11 @@ packages:
 
   he@1.2.0:
     resolution: {integrity: sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw==}
+    hasBin: true
+
+  husky@9.1.7:
+    resolution: {integrity: sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==}
+    engines: {node: '>=18'}
     hasBin: true
 
   iceberg-js@0.8.1:
@@ -3009,6 +3017,8 @@ snapshots:
       function-bind: 1.1.2
 
   he@1.2.0: {}
+
+  husky@9.1.7: {}
 
   iceberg-js@0.8.1: {}
 

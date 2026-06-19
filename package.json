@@ -31,6 +31,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-unicorn": "^64.0.0",
+    "husky": "^9.1.7",
     "mocha": "^11.7.5",
     "prettier": "^3.3.3",
     "shx": "^0.4.0",
@@ -61,7 +62,7 @@
     "build": "shx rm -rf dist && tsc -b && shx chmod +x dist/index.js",
     "build:binaries": "node scripts/build-binaries.mjs",
     "lint": "eslint src test --ext .ts",
-    "prepare": "pnpm build",
+    "prepare": "pnpm build && husky",
     "test": "node scripts/test-runner.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
