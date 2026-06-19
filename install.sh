@@ -23,6 +23,42 @@ info() {
   printf '%s\n' "$1"
 }
 
+# Find a dcd on PATH other than the one we just installed — usually a leftover
+# `npm install -g @devicecloud.dev/dcd` that can shadow this binary. Runs in a
+# subshell so the temporary IFS change never leaks back to the caller.
+find_conflicting_dcd() {
+  (
+    IFS=:
+    for dir in $PATH; do
+      [ -n "$dir" ] || continue
+      if [ "$dir" != "$INSTALL_DIR" ] && [ -x "$dir/dcd" ]; then
+        printf '%s\n' "$dir/dcd"
+        exit 0
+      fi
+    done
+    exit 1
+  )
+}
+
+# Pick the shell rc file to persist PATH into, based on the login shell.
+rc_file() {
+  case "${SHELL:-}" in
+    *zsh)
+      printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc"
+      ;;
+    *bash)
+      if [ -f "$HOME/.bashrc" ]; then
+        printf '%s\n' "$HOME/.bashrc"
+      else
+        printf '%s\n' "$HOME/.bash_profile"
+      fi
+      ;;
+    *)
+      printf '%s\n' "$HOME/.profile"
+      ;;
+  esac
+}
+
 main() {
   DOWNLOAD_BASE="${DCD_DOWNLOAD_BASE:-https://get.devicecloud.dev}"
   INSTALL_DIR="${DCD_INSTALL_DIR:-$HOME/.dcd/bin}"
@@ -95,24 +131,48 @@ main() {
   mv "$tmp" "$INSTALL_DIR/dcd"
   trap - EXIT  # tmp has been moved; nothing to clean up
 
-  # --- PATH hint ---
+  # --- PATH setup ---
+  path_line="export PATH=\"$INSTALL_DIR:\$PATH\""
   case ":$PATH:" in
-    *":$INSTALL_DIR:"*)
+    *":$INSTALL_DIR:"*) on_path=1 ;;
+    *)                  on_path=0 ;;
+  esac
+
+  info ""
+  info "✓ Installed dcd $version to $INSTALL_DIR/dcd"
+
+  if [ "$on_path" -eq 0 ]; then
+    rc=$(rc_file)
+    if [ -f "$rc" ] && grep -Fq "$INSTALL_DIR" "$rc" 2>/dev/null; then
+      # rc already references the dir (e.g. a re-install); don't duplicate it.
       info ""
-      info "✓ Installed: $($INSTALL_DIR/dcd --version 2>/dev/null || echo "$version")"
-      info "  Try: dcd --help"
-      ;;
-    *)
+      info "  $INSTALL_DIR is already configured in $rc."
+      info "  Restart your shell, or run:  $path_line"
+    elif printf '\n# dcd\n%s\n' "$path_line" >> "$rc" 2>/dev/null; then
       info ""
-      info "✓ Installed dcd $version to $INSTALL_DIR/dcd"
+      info "  Added $INSTALL_DIR to your PATH in $rc."
+      info "  Restart your shell, or run:  $path_line"
+    else
       info ""
       info "  $INSTALL_DIR is not on your PATH. Add this to your shell rc:"
-      info "    export PATH=\"$INSTALL_DIR:\$PATH\""
-      info ""
-      info "  Then restart your shell, or run:"
-      info "    export PATH=\"$INSTALL_DIR:\$PATH\""
-      ;;
-  esac
+      info "    $path_line"
+    fi
+  fi
+
+  # --- warn about a conflicting (shadowing) install ---
+  if conflict=$(find_conflicting_dcd); then
+    info ""
+    info "! Another dcd is already on your PATH:"
+    info "    $conflict"
+    info "  This is usually a previous 'npm install -g @devicecloud.dev/dcd', which"
+    info "  can shadow this binary depending on PATH order. Remove it with:"
+    info "    npm uninstall -g @devicecloud.dev/dcd"
+  fi
+
+  if [ "$on_path" -eq 1 ]; then
+    info ""
+    info "  Try: dcd --help"
+  fi
 }
 
 main "$@"
