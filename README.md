@@ -33,7 +33,6 @@ $ dcd cloud --apiKey <apiKey> <appFile> .myFlows/
 
 See full documentation: [Docs](https://docs.devicecloud.dev)
 
----
 
 ## Development
 
@@ -57,6 +56,4 @@ A [gitleaks](https://github.com/gitleaks/gitleaks) scan runs in two places, both
   ```
 - **CI** — the `secret-scan` job scans the full history on every push and pull request, and is the enforced backstop regardless of local setup.
 
----
 
-*Engineering notes:* internal architecture, telemetry, and release-process docs for DeviceCloud staff live at [bo.devicecloud.dev/docs/services/cli/](https://bo.devicecloud.dev/docs/services/cli/) (Supabase OTP sign-in required).
