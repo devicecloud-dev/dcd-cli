@@ -91,3 +91,21 @@ if (-not $alreadyOnPath) {
     Write-Host "Installed: $(& "$InstallDir\dcd.exe" --version)"
     Write-Host '  Try: dcd --help'
 }
+
+# --- warn about a conflicting (shadowing) install ---
+# A leftover `npm install -g @devicecloud.dev/dcd` resolves earlier on PATH than
+# the appended install dir, so it would keep shadowing this binary. Get-Command
+# reads the current session PATH (which doesn't include the registry change we
+# just made), so any hit here is a different, pre-existing dcd.
+$target = Join-Path $InstallDir 'dcd.exe'
+$existing = Get-Command dcd -All -ErrorAction SilentlyContinue |
+    Where-Object { $_.Source -and ($_.Source -ine $target) } |
+    Select-Object -First 1
+if ($existing) {
+    Write-Host ''
+    Write-Host '! Another dcd is already on your PATH:'
+    Write-Host "    $($existing.Source)"
+    Write-Host "  This is usually a previous 'npm install -g @devicecloud.dev/dcd', which"
+    Write-Host '  can shadow this binary depending on PATH order. Remove it with:'
+    Write-Host '    npm uninstall -g @devicecloud.dev/dcd'
+}
