@@ -59,6 +59,46 @@ rc_file() {
   esac
 }
 
+# Persist INSTALL_DIR onto PATH in the given rc file, idempotently. Anything a
+# previous run wrote is stripped first — the current sentinel-delimited block,
+# and the legacy bare "# dcd" marker with its export line — so re-running the
+# installer never accumulates duplicate markers or export lines. Trailing blank
+# lines are trimmed so the rc doesn't grow a gap on each run. Returns non-zero
+# (leaving the rc untouched) if it can't be written.
+persist_path() {
+  rc="$1"
+  begin='# >>> dcd installer >>>'
+  end='# <<< dcd installer <<<'
+
+  if [ ! -e "$rc" ]; then
+    : >> "$rc" 2>/dev/null || return 1
+  fi
+  [ -w "$rc" ] || return 1
+
+  cleaned=$(mktemp "${TMPDIR:-/tmp}/dcd-rc-XXXXXX") || return 1
+  # Drop our managed block (between the sentinels) and any legacy lines we may
+  # have written before, then trim trailing blanks. buf[] preserves order.
+  awk -v dir="$INSTALL_DIR" -v b="$begin" -v e="$end" '
+    $0 == b { skip = 1; next }
+    $0 == e { skip = 0; next }
+    skip    { next }
+    $0 == "# dcd" { next }
+    $0 == "export PATH=\"" dir ":$PATH\"" { next }
+    { buf[++n] = $0 }
+    END {
+      while (n > 0 && buf[n] ~ /^[[:space:]]*$/) n--
+      for (i = 1; i <= n; i++) print buf[i]
+    }
+  ' "$rc" > "$cleaned" || { rm -f "$cleaned"; return 1; }
+
+  printf '\n%s\n%s\n%s\n' "$begin" "$path_line" "$end" >> "$cleaned" \
+    || { rm -f "$cleaned"; return 1; }
+
+  # Truncate-and-rewrite so the rc keeps its original inode and permissions.
+  cat "$cleaned" > "$rc" || { rm -f "$cleaned"; return 1; }
+  rm -f "$cleaned"
+}
+
 main() {
   DOWNLOAD_BASE="${DCD_DOWNLOAD_BASE:-https://get.devicecloud.dev}"
   INSTALL_DIR="${DCD_INSTALL_DIR:-$HOME/.dcd/bin}"
@@ -143,12 +183,7 @@ main() {
 
   if [ "$on_path" -eq 0 ]; then
     rc=$(rc_file)
-    if [ -f "$rc" ] && grep -Fq "$INSTALL_DIR" "$rc" 2>/dev/null; then
-      # rc already references the dir (e.g. a re-install); don't duplicate it.
-      info ""
-      info "  $INSTALL_DIR is already configured in $rc."
-      info "  Restart your shell, or run:  $path_line"
-    elif printf '\n# dcd\n%s\n' "$path_line" >> "$rc" 2>/dev/null; then
+    if persist_path "$rc"; then
       info ""
       info "  Added $INSTALL_DIR to your PATH in $rc."
       info "  Restart your shell, or run:  $path_line"
