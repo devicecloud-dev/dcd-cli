@@ -4,12 +4,12 @@
  */
 import { defineCommand } from 'citty';
 
-import { ENVIRONMENTS } from '../config/environments';
-import { CliAuthGateway } from '../gateways/cli-auth-gateway';
-import { logger } from '../utils/cli';
-import { clearConfig, getConfigPath, readConfig } from '../utils/config-store';
-import { colors } from '../utils/styling';
-import { ui } from '../utils/ui';
+import { ENVIRONMENTS } from '../config/environments.js';
+import { CliAuthGateway } from '../gateways/cli-auth-gateway.js';
+import { logger } from '../utils/cli.js';
+import { clearConfig, getConfigPath, readConfig } from '../utils/config-store.js';
+import { colors } from '../utils/styling.js';
+import { ui } from '../utils/ui.js';
 
 export const logoutCommand = defineCommand({
   meta: {

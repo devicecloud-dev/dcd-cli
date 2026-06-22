@@ -4,15 +4,15 @@ import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import { TAppMetadata } from '../types';
-import type { AuthContext } from '../types/domain/auth.types';
+import { TAppMetadata } from '../types.js';
+import type { AuthContext } from '../types/domain/auth.types.js';
 import type {
   LiveCommandStatus,
   LiveExecResult,
   LiveSession,
   LiveSessionSummary,
-} from '../types/domain/live.types';
-import { paths } from '../types/generated/schema.types';
+} from '../types/domain/live.types.js';
+import { paths } from '../types/generated/schema.types.js';
 
 /**
  * Error thrown for non-OK API responses, carrying the HTTP status so callers

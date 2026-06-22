@@ -1,4 +1,4 @@
-import type { DcdEnvName } from '../../config/environments';
+import type { DcdEnvName } from '../../config/environments.js';
 
 /**
  * Auth context threaded through gateways and services. Callers build this once

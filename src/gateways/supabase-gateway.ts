@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import * as tus from 'tus-js-client';
 
-import { ENVIRONMENTS, type DcdEnvName } from '../config/environments';
+import { ENVIRONMENTS, type DcdEnvName } from '../config/environments.js';
 
 /** Disk-backed upload descriptor — see UploadSource in src/methods.ts. */
 export interface ResumableUploadSource {

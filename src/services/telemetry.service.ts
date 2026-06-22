@@ -18,8 +18,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { AuthContext } from '../types/domain/auth.types';
-import { getCliVersion, getInstallMethod } from '../utils/cli';
+import type { AuthContext } from '../types/domain/auth.types.js';
+import { getCliVersion, getInstallMethod } from '../utils/cli.js';
 
 export type TelemetryLevel = 'log' | 'info' | 'warn' | 'error';
 

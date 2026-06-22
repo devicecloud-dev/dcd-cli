@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "declaration": true,
-    "module": "commonjs",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "esModuleInterop": true,
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,

@@ -6,15 +6,19 @@
  * - A minimal Logger mirroring the oclif Command log/warn/error shape so call
  *   sites ported from oclif keep working.
  */
-import { telemetry } from '../services/telemetry.service';
+import { readFileSync } from 'node:fs';
 
-import { symbols } from './styling';
+import { telemetry } from '../services/telemetry.service.js';
 
-// Resolve version at runtime — avoids pulling package.json into the tsbuildinfo rootDir.
+import { symbols } from './styling.js';
+
+// Resolve version at runtime — read the file rather than importing it, so
+// package.json never gets pulled into the tsc program / dist rootDir.
 export function getCliVersion(): string {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pkg = require('../../package.json') as { version: string };
+    const pkg = JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    ) as { version: string };
     return pkg.version;
   } catch {
     return '0.0.0';

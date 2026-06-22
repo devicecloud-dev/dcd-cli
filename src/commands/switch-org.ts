@@ -7,12 +7,12 @@
  */
 import { defineCommand } from 'citty';
 
-import { resolveAuth } from '../utils/auth';
-import { CliError, logger } from '../utils/cli';
-import { readConfig, resolveApiUrl, writeConfig } from '../utils/config-store';
-import { fetchOrgs, pickOrg, OrgListItem } from '../utils/orgs';
-import { colors } from '../utils/styling';
-import { ui } from '../utils/ui';
+import { resolveAuth } from '../utils/auth.js';
+import { CliError, logger } from '../utils/cli.js';
+import { readConfig, resolveApiUrl, writeConfig } from '../utils/config-store.js';
+import { fetchOrgs, pickOrg, OrgListItem } from '../utils/orgs.js';
+import { colors } from '../utils/styling.js';
+import { ui } from '../utils/ui.js';
 
 export const switchOrgCommand = defineCommand({
   meta: {

@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 
-import { ApiGateway } from '../gateways/api-gateway';
-import type { AuthContext } from '../types/domain/auth.types';
+import { ApiGateway } from '../gateways/api-gateway.js';
+import type { AuthContext } from '../types/domain/auth.types.js';
 
 export interface DownloadOptions {
   auth: AuthContext;

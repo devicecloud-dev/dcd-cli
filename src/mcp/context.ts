@@ -7,9 +7,9 @@
  * with `logStderr` (never the `utils/cli` `logger`, which writes to stdout and
  * can `process.exit`).
  */
-import type { AuthContext } from '../types/domain/auth.types';
-import { resolveAuth } from '../utils/auth';
-import { resolveApiUrl } from '../utils/config-store';
+import type { AuthContext } from '../types/domain/auth.types.js';
+import { resolveAuth } from '../utils/auth.js';
+import { resolveApiUrl } from '../utils/config-store.js';
 
 /** Write a line to stderr. Safe under stdio transport; stdout is reserved. */
 export function logStderr(message: string): void {

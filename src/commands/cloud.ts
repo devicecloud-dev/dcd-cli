@@ -2,32 +2,32 @@
 import { defineCommand } from 'citty';
 import * as path from 'node:path';
 
-import { flags as allFlags } from '../constants';
-import { ApiGateway } from '../gateways/api-gateway';
-import { uploadBinary, verifyAppZip, writeJSONFile } from '../methods';
-import { DeviceValidationService } from '../services/device-validation.service';
-import { plan } from '../services/execution-plan.service';
+import { flags as allFlags } from '../constants.js';
+import { ApiGateway } from '../gateways/api-gateway.js';
+import { uploadBinary, verifyAppZip, writeJSONFile } from '../methods.js';
+import { DeviceValidationService } from '../services/device-validation.service.js';
+import { plan } from '../services/execution-plan.service.js';
 import {
   buildTestMetadataMap,
   computeCommonRoot,
-} from '../services/flow-paths';
-import { MoropoService } from '../services/moropo.service';
-import { ReportDownloadService } from '../services/report-download.service';
+} from '../services/flow-paths.js';
+import { MoropoService } from '../services/moropo.service.js';
+import { ReportDownloadService } from '../services/report-download.service.js';
 import {
   ResultsPollingService,
   RunFailedError,
-} from '../services/results-polling.service';
-import { telemetry } from '../services/telemetry.service';
-import { TestSubmissionService } from '../services/test-submission.service';
-import { VersionService } from '../services/version.service';
+} from '../services/results-polling.service.js';
+import { telemetry } from '../services/telemetry.service.js';
+import { TestSubmissionService } from '../services/test-submission.service.js';
+import { VersionService } from '../services/version.service.js';
 import {
   EAndroidApiLevels,
   EAndroidDevices,
   EiOSDevices,
   EiOSVersions,
-} from '../types/domain/device.types';
-import { resolveAuth } from '../utils/auth';
-import { isCI } from '../utils/ci';
+} from '../types/domain/device.types.js';
+import { resolveAuth } from '../utils/auth.js';
+import { isCI } from '../utils/ci.js';
 import {
   CliError,
   coerceArray,
@@ -36,20 +36,20 @@ import {
   logger,
   parseIntFlag,
   validateEnum,
-} from '../utils/cli';
+} from '../utils/cli.js';
 import {
   CompatibilityData,
   fetchCompatibilityData,
-} from '../utils/compatibility';
-import { resolveApiUrl } from '../utils/config-store';
-import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
+} from '../utils/compatibility.js';
+import { resolveApiUrl } from '../utils/config-store.js';
+import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo.js';
 import {
   colors,
   formatId,
   formatUrl,
   getConsoleUrl,
-} from '../utils/styling';
-import { type Field, ui } from '../utils/ui';
+} from '../utils/styling.js';
+import { type Field, ui } from '../utils/ui.js';
 
 // Suppress punycode deprecation warning (caused by whatwg, supabase dependency).
 // Every other warning must still reach the user — removeAllListeners drops

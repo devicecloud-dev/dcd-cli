@@ -7,7 +7,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 
-import type { StoredSession } from '../utils/config-store';
+import type { StoredSession } from '../utils/config-store.js';
 
 export interface RefreshedSession {
   access_token: string;

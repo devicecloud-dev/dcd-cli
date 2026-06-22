@@ -1,16 +1,16 @@
 import { defineCommand } from 'citty';
 import { readFileSync, writeFileSync } from 'node:fs';
 
-import { resolveFrontendUrl } from '../config/environments';
-import { apiFlags } from '../config/flags/api.flags';
-import { ApiGateway } from '../gateways/api-gateway';
-import type { AuthContext } from '../types/domain/auth.types';
-import type { LiveSession } from '../types/domain/live.types';
-import { resolveAuth } from '../utils/auth';
-import { CliError, logger, validateEnum } from '../utils/cli';
-import { resolveApiUrl } from '../utils/config-store';
-import { colors, formatUrl } from '../utils/styling';
-import { type Field, ui } from '../utils/ui';
+import { resolveFrontendUrl } from '../config/environments.js';
+import { apiFlags } from '../config/flags/api.flags.js';
+import { ApiGateway } from '../gateways/api-gateway.js';
+import type { AuthContext } from '../types/domain/auth.types.js';
+import type { LiveSession } from '../types/domain/live.types.js';
+import { resolveAuth } from '../utils/auth.js';
+import { CliError, logger, validateEnum } from '../utils/cli.js';
+import { resolveApiUrl } from '../utils/config-store.js';
+import { colors, formatUrl } from '../utils/styling.js';
+import { type Field, ui } from '../utils/ui.js';
 
 const PLATFORM_OPTIONS = ['android', 'ios'] as const;
 type Platform = (typeof PLATFORM_OPTIONS)[number];

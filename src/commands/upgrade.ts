@@ -20,15 +20,15 @@ import { pipeline } from 'node:stream/promises';
 
 import { defineCommand } from 'citty';
 
-import { VersionService } from '../services/version.service';
+import { VersionService } from '../services/version.service.js';
 import {
   CliError,
   getCliVersion,
   getInstallMethod,
   logger,
-} from '../utils/cli';
-import { colors } from '../utils/styling';
-import { ui } from '../utils/ui';
+} from '../utils/cli.js';
+import { colors } from '../utils/styling.js';
+import { ui } from '../utils/ui.js';
 
 const DEFAULT_DOWNLOAD_BASE = 'https://get.devicecloud.dev';
 

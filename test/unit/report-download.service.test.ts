@@ -3,8 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { ReportDownloadService } from '../../src/services/report-download.service';
-import type { AuthContext } from '../../src/types/domain/auth.types';
+import { ReportDownloadService } from '../../src/services/report-download.service.js';
+import type { AuthContext } from '../../src/types/domain/auth.types.js';
 
 const TEST_AUTH: AuthContext = {
   mode: 'apiKey',

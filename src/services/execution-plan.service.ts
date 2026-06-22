@@ -8,7 +8,7 @@ import {
   readDirectory,
   readTestYamlFileAsJson,
   readYamlFileAsJson,
-} from './execution-plan.utils';
+} from './execution-plan.utils.js';
 
 /** Email notification configuration */
 interface INotificationsConfig {

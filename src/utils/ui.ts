@@ -17,7 +17,7 @@ import {
   statusPalette,
   stripAnsi,
   symbols,
-} from './styling';
+} from './styling.js';
 
 /**
  * Indentation under a section. The branch glyph sits two columns in and its

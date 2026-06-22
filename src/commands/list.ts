@@ -1,12 +1,12 @@
 import { defineCommand } from 'citty';
 
-import { apiFlags } from '../config/flags/api.flags';
-import { ApiGateway } from '../gateways/api-gateway';
-import { resolveAuth } from '../utils/auth';
-import { CliError, logger, parseIntFlag } from '../utils/cli';
-import { resolveApiUrl } from '../utils/config-store';
-import { colors, formatId, formatUrl } from '../utils/styling';
-import { ui } from '../utils/ui';
+import { apiFlags } from '../config/flags/api.flags.js';
+import { ApiGateway } from '../gateways/api-gateway.js';
+import { resolveAuth } from '../utils/auth.js';
+import { CliError, logger, parseIntFlag } from '../utils/cli.js';
+import { resolveApiUrl } from '../utils/config-store.js';
+import { colors, formatId, formatUrl } from '../utils/styling.js';
+import { ui } from '../utils/ui.js';
 
 type UploadListItem = {
   consoleUrl: string;

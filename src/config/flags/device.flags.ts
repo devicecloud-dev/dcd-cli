@@ -5,7 +5,7 @@ import {
   EAndroidDevices,
   EiOSDevices,
   EiOSVersions,
-} from '../../types/domain/device.types';
+} from '../../types/domain/device.types.js';
 
 const androidApiLevels = Object.values(EAndroidApiLevels).join(', ');
 const androidDevices = Object.values(EAndroidDevices).join(', ');

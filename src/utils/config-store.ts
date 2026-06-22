@@ -21,7 +21,7 @@ import {
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 
-import { ENVIRONMENTS } from '../config/environments';
+import { ENVIRONMENTS } from '../config/environments.js';
 
 export const CONFIG_SCHEMA_VERSION = 1;
 

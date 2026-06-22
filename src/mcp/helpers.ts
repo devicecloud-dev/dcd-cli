@@ -5,7 +5,7 @@
  */
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-import { telemetry } from '../services/telemetry.service';
+import { telemetry } from '../services/telemetry.service.js';
 
 /** A tool result whose text payload is pretty-printed JSON. */
 export function jsonResult(data: unknown): CallToolResult {

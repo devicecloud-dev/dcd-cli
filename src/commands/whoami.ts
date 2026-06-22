@@ -3,10 +3,10 @@
  */
 import { defineCommand } from 'citty';
 
-import { logger } from '../utils/cli';
-import { readConfig } from '../utils/config-store';
-import { colors, formatId } from '../utils/styling';
-import { type Field, ui } from '../utils/ui';
+import { logger } from '../utils/cli.js';
+import { readConfig } from '../utils/config-store.js';
+import { colors, formatId } from '../utils/styling.js';
+import { type Field, ui } from '../utils/ui.js';
 
 export const whoamiCommand = defineCommand({
   meta: {

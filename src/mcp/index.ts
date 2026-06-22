@@ -9,10 +9,10 @@
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { telemetry } from '../services/telemetry.service';
+import { telemetry } from '../services/telemetry.service.js';
 
-import { isReadOnly, logStderr } from './context';
-import { createServer } from './server';
+import { isReadOnly, logStderr } from './context.js';
+import { createServer } from './server.js';
 
 async function main(): Promise<void> {
   telemetry.setCommand('mcp');
