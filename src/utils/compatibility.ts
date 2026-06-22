@@ -41,7 +41,9 @@ export async function fetchCompatibilityData(apiUrl: string, auth: AuthContext):
     return result.data;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to fetch compatibility data from API: ${errorMessage}`);
+    throw new Error(`Failed to fetch compatibility data from API: ${errorMessage}`, {
+      cause: error,
+    });
   }
 }
 

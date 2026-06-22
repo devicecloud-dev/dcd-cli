@@ -2,7 +2,7 @@ import { parseBuffer } from 'bplist-parser';
 import { Apk } from 'node-apk';
 import { readFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
-import * as StreamZip from 'node-stream-zip';
+import StreamZip = require('node-stream-zip');
 import { parse } from 'plist';
 
 export interface TAppMetadata {

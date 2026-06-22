@@ -101,7 +101,9 @@ export class MoropoService {
       }
 
       this.logDebug(debug, logger, `[DEBUG] Error downloading/extracting Moropo tests: ${error}`);
-      throw new Error(`Failed to download/extract Moropo tests: ${error}`);
+      throw new Error(`Failed to download/extract Moropo tests: ${error}`, {
+        cause: error,
+      });
     }
   }
 
