@@ -20,7 +20,7 @@
     "yazl": "^3.3.1",
     "zod": "^4.4.3"
   },
-  "description": "Better cloud maestro testing",
+  "description": "Run Maestro mobile UI tests in the cloud — upload an iOS/Android build, execute flows across real devices, and stream results. Ships the dcd CLI and a dcd-mcp MCP server.",
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@types/chai": "^4.3.20",
