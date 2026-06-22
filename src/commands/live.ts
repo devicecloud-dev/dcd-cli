@@ -9,7 +9,8 @@ import type { LiveSession } from '../types/domain/live.types.js';
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
-import { colors, sectionHeader, symbols } from '../utils/styling.js';
+import { colors, formatUrl } from '../utils/styling.js';
+import { type Field, ui } from '../utils/ui.js';
 
 const PLATFORM_OPTIONS = ['android', 'ios'] as const;
 type Platform = (typeof PLATFORM_OPTIONS)[number];
@@ -105,15 +106,15 @@ function readFlowFile(filePath: string): string {
 function printExecResult(result: { error?: string; output?: string; success: boolean }): void {
   logger.log(
     result.success
-      ? `${symbols.success} Command executed successfully`
-      : `${symbols.error} Command failed`,
+      ? ui.success('Command executed successfully')
+      : `${ui.statusSymbol('FAILED')} Command failed`,
   );
   if (result.output) {
-    logger.log(sectionHeader('Output'));
+    logger.log(ui.section('Output'));
     logger.log(result.output);
   }
   if (result.error) {
-    logger.log(sectionHeader('Error'));
+    logger.log(ui.section('Error'));
     logger.log(colors.error(result.error));
   }
 }
@@ -170,7 +171,7 @@ const startSub = defineCommand({
       throw new CliError('--android-device and --android-api-level must be provided together.');
     }
 
-    logger.log(`${symbols.running} Starting ${platform} live session...`);
+    logger.log(ui.running(`Starting ${platform} live session…`));
 
     const session = await ApiGateway.startLiveSession(apiUrl, auth, {
       binaryUploadId: binaryId,
@@ -182,33 +183,36 @@ const startSub = defineCommand({
 
     const frontendUrl = resolveFrontendUrl(apiUrl);
 
-    logger.log(`${symbols.success} Live session started`);
-    logger.log(`   ${colors.dim('Session:')}    ${colors.highlight(session.session_name)}`);
-    logger.log(`   ${colors.dim('Platform:')}   ${session.platform}`);
-    logger.log(`   ${colors.dim('Status:')}     ${session.status}`);
+    logger.log(ui.success('Live session started'));
     logger.log(
-      `   ${colors.dim('Console:')}    ${colors.highlight(`${frontendUrl}/live?session=${session.session_name}`)}`,
+      ui.branch(
+        ui.fields([
+          ['session', colors.highlight(session.session_name)],
+          ['platform', session.platform],
+          ['status', session.status],
+          ['console', formatUrl(`${frontendUrl}/live?session=${session.session_name}`)],
+        ]),
+      ),
     );
 
     if (args.wait) {
-      logger.log('');
-      logger.log(`${symbols.running} Waiting for the device to be ready...`);
+      logger.log(ui.running('Waiting for the device to be ready…'));
       const ready = await waitForReady(apiUrl, auth, session.session_name);
-      logger.log(`${symbols.success} Device ready${ready.device_model ? ` (${ready.device_model})` : ''}`);
+      logger.log(
+        ui.success(`Device ready${ready.device_model ? ` (${ready.device_model})` : ''}`),
+      );
     }
 
-    logger.log('');
+    logger.log(ui.section('Next steps'));
     logger.log(
-      `   ${colors.dim('Install a binary:')}  ${colors.highlight(`dcd live install --session ${session.session_name} --app-binary-id <id>`)}`,
-    );
-    logger.log(
-      `   ${colors.dim('Run a flow:')}        ${colors.highlight(`dcd live run --session ${session.session_name} path/to/flow.yaml`)}`,
-    );
-    logger.log(
-      `   ${colors.dim('Inspect screen:')}    ${colors.highlight(`dcd live hierarchy --session ${session.session_name}`)}`,
-    );
-    logger.log(
-      `   ${colors.dim('Stop session:')}      ${colors.highlight(`dcd live stop --session ${session.session_name}`)}`,
+      ui.branch(
+        ui.fields([
+          ['install a binary', colors.highlight(`dcd live install --session ${session.session_name} --app-binary-id <id>`)],
+          ['run a flow', colors.highlight(`dcd live run --session ${session.session_name} path/to/flow.yaml`)],
+          ['inspect screen', colors.highlight(`dcd live hierarchy --session ${session.session_name}`)],
+          ['stop session', colors.highlight(`dcd live stop --session ${session.session_name}`)],
+        ]),
+      ),
     );
   },
 });
@@ -236,17 +240,19 @@ const installSub = defineCommand({
     const binaryId = args['app-binary-id'] as string;
 
     logger.log(
-      `${symbols.running} Installing binary ${colors.highlight(binaryId)} on session ${colors.highlight(sessionName)}...`,
+      ui.running(
+        `Installing binary ${colors.highlight(binaryId)} on session ${colors.highlight(sessionName)}…`,
+      ),
     );
 
     await ApiGateway.installLiveBinary(apiUrl, auth, sessionName, binaryId);
 
-    logger.log(`${symbols.success} Binary installed successfully`);
+    logger.log(ui.success('Binary installed successfully'));
 
     if (args.wait) {
-      logger.log(`${symbols.running} Waiting for the device to be ready...`);
+      logger.log(ui.running('Waiting for the device to be ready…'));
       await waitForReady(apiUrl, auth, sessionName);
-      logger.log(`${symbols.success} Device ready`);
+      logger.log(ui.success('Device ready'));
     }
   },
 });
@@ -287,7 +293,7 @@ const execSub = defineCommand({
     }
 
     logger.log(
-      `${symbols.running} Executing commands on session ${colors.highlight(sessionName)}...`,
+      ui.running(`Executing commands on session ${colors.highlight(sessionName)}…`),
     );
 
     const result = await ApiGateway.execLiveYaml(apiUrl, auth, sessionName, yaml);
@@ -336,7 +342,9 @@ const runSub = defineCommand({
     }
 
     logger.log(
-      `${symbols.running} Running ${colors.highlight(flowFile)} on session ${colors.highlight(sessionName)}...`,
+      ui.running(
+        `Running ${colors.highlight(flowFile)} on session ${colors.highlight(sessionName)}…`,
+      ),
     );
 
     // Submit asynchronously and poll, so a long flow isn't capped by the
@@ -416,10 +424,14 @@ const screenshotSub = defineCommand({
 
     writeFileSync(output, Buffer.from(base64, 'base64'));
 
-    logger.log(`${symbols.success} Screenshot saved to ${colors.highlight(output)}`);
+    logger.log(ui.success(`Screenshot saved to ${colors.highlight(output)}`));
     if (session.hierarchy) {
       logger.log(
-        `   ${colors.dim('Resolution:')} ${session.hierarchy.width}x${session.hierarchy.height}`,
+        ui.branch(
+          ui.fields([
+            ['resolution', `${session.hierarchy.width}x${session.hierarchy.height}`],
+          ]),
+        ),
       );
     }
   },
@@ -460,7 +472,7 @@ const hierarchySub = defineCommand({
       const out = JSON.stringify(hierarchy, null, 2);
       if (output) {
         writeFileSync(output, out);
-        logger.log(`${symbols.success} Hierarchy written to ${colors.highlight(output)}`);
+        logger.log(ui.success(`Hierarchy written to ${colors.highlight(output)}`));
       } else {
         // eslint-disable-next-line no-console
         console.log(out);
@@ -488,7 +500,7 @@ const hierarchySub = defineCommand({
 
     if (output) {
       writeFileSync(output, `${out}\n`);
-      logger.log(`${symbols.success} Hierarchy written to ${colors.highlight(output)}`);
+      logger.log(ui.success(`Hierarchy written to ${colors.highlight(output)}`));
     } else {
       logger.log(out);
     }
@@ -506,11 +518,11 @@ const stopSub = defineCommand({
     const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const sessionName = args.session as string;
 
-    logger.log(`${symbols.running} Stopping session ${colors.highlight(sessionName)}...`);
+    logger.log(ui.running(`Stopping session ${colors.highlight(sessionName)}…`));
 
     await ApiGateway.stopLiveSession(apiUrl, auth, sessionName);
 
-    logger.log(`${symbols.success} Session stopped`);
+    logger.log(ui.success('Session stopped'));
   },
 });
 
@@ -527,34 +539,32 @@ const statusSub = defineCommand({
 
     const session = await ApiGateway.getLiveSession(apiUrl, auth, sessionName);
 
-    logger.log(sectionHeader('Live Session'));
-    logger.log(`   ${colors.dim('Session:')}    ${colors.highlight(session.session_name)}`);
-    logger.log(`   ${colors.dim('Platform:')}   ${session.platform}`);
-    logger.log(`   ${colors.dim('Status:')}     ${session.status}`);
-    logger.log(
-      `   ${colors.dim('Ready:')}      ${session.ready ? colors.success('yes') : colors.warning('no')}`,
-    );
+    const fields: Field[] = [
+      ['session', colors.highlight(session.session_name)],
+      ['platform', session.platform],
+      ['status', session.status],
+      ['ready', session.ready ? colors.success('yes') : colors.warning('no')],
+    ];
     const phase = session.device_state?.phase_label ?? session.device_state?.phase;
     if (phase) {
-      logger.log(`   ${colors.dim('Phase:')}      ${phase}`);
+      fields.push(['phase', phase]);
     }
     if (session.device_model) {
-      logger.log(`   ${colors.dim('Device:')}     ${session.device_model}`);
+      fields.push(['device', session.device_model]);
     }
     if (session.device_locale) {
-      logger.log(`   ${colors.dim('Locale:')}     ${session.device_locale}`);
+      fields.push(['locale', session.device_locale]);
     }
     if (session.binary_upload_id) {
-      logger.log(`   ${colors.dim('Binary:')}     ${session.binary_upload_id}`);
+      fields.push(['binary', session.binary_upload_id]);
     }
     if (typeof session.seconds_until_auto_cancel === 'number') {
-      logger.log(
-        `   ${colors.dim('Auto-cancel in:')} ${session.seconds_until_auto_cancel}s`,
-      );
+      fields.push(['auto-cancel in', `${session.seconds_until_auto_cancel}s`]);
     }
-    logger.log(
-      `   ${colors.dim('Created:')}    ${new Date(session.created_at).toLocaleString()}`,
-    );
+    fields.push(['created', new Date(session.created_at).toLocaleString()]);
+
+    logger.log(ui.section('Live Session'));
+    logger.log(ui.branch(ui.fields(fields)));
   },
 });
 
@@ -591,17 +601,22 @@ export const liveCommand = defineCommand({
     const firstPositional = rawArgs.find((arg) => !arg.startsWith('-'));
     if (firstPositional && subNames.has(firstPositional)) return;
 
-    logger.log(sectionHeader('Live Session Commands'));
-    logger.log(`   ${colors.bold('start')}       Start a new live device session`);
-    logger.log(`   ${colors.bold('install')}     Install a binary on the device`);
-    logger.log(`   ${colors.bold('exec')}        Execute Maestro YAML commands`);
-    logger.log(`   ${colors.bold('run')}         Run a whole Maestro flow file`);
-    logger.log(`   ${colors.bold('screenshot')}  Save the current device screen to an image file`);
-    logger.log(`   ${colors.bold('hierarchy')}   Dump the current view hierarchy (selectors)`);
-    logger.log(`   ${colors.bold('stop')}        Stop a live session`);
-    logger.log(`   ${colors.bold('status')}      Get session status`);
-    logger.log('');
-    logger.log(`   Run ${colors.highlight('dcd live <command> --help')} for details`);
+    logger.log(ui.section('Live Session Commands'));
+    logger.log(
+      ui.branch(
+        ui.fields([
+          [colors.bold('start'), 'Start a new live device session'],
+          [colors.bold('install'), 'Install a binary on the device'],
+          [colors.bold('exec'), 'Execute Maestro YAML commands'],
+          [colors.bold('run'), 'Run a whole Maestro flow file'],
+          [colors.bold('screenshot'), 'Save the current device screen to an image file'],
+          [colors.bold('hierarchy'), 'Dump the current view hierarchy (selectors)'],
+          [colors.bold('stop'), 'Stop a live session'],
+          [colors.bold('status'), 'Get session status'],
+        ]),
+      ),
+    );
+    logger.log(ui.note(`\nRun ${colors.highlight('dcd live <command> --help')} for details`));
   },
 });
 

@@ -44,16 +44,12 @@ import {
 import { resolveApiUrl } from '../utils/config-store.js';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo.js';
 import {
-  box,
   colors,
-  dividers,
   formatId,
   formatUrl,
   getConsoleUrl,
-  listItem,
-  sectionHeader,
-  symbols,
 } from '../utils/styling.js';
+import { type Field, ui } from '../utils/ui.js';
 
 // Suppress punycode deprecation warning (caused by whatwg, supabase dependency).
 // Every other warning must still reach the user — removeAllListeners drops
@@ -120,14 +116,13 @@ export const cloudCommand = defineCommand({
     const versionCheck = async () => {
       const latestVersion = await versionService.checkLatestCliVersion();
       if (latestVersion && versionService.isOutdated(cliVersion, latestVersion)) {
-        const body =
-          `${symbols.warning} ${colors.bold('Update Available')}\n` +
-          colors.dim('A new version of the DeviceCloud CLI is available: ') +
-          colors.highlight(latestVersion) +
-          '\n' +
-          colors.dim('Run: ') +
-          colors.info(getUpgradeCommand());
-        out(`\n${box(body)}\n`);
+        out(ui.warn(colors.bold('Update available')));
+        out(
+          ui.branch([
+            `A new version of the DeviceCloud CLI is available: ${colors.highlight(latestVersion)}`,
+            `${colors.dim('Run:')} ${colors.info(getUpgradeCommand())}`,
+          ]),
+        );
       }
     };
 
@@ -377,38 +372,34 @@ export const cloudCommand = defineCommand({
 
       if (retry !== undefined && retry > 2) {
         out(
-          `${symbols.warning} ` +
-            colors.dim(
-              'Retries are now free of charge but limited to 2. If your test is still failing after 2 retries, please ask for help on Discord.',
-            ),
+          ui.warn(
+            'Retries are now free of charge but limited to 2. If your test is still failing after 2 retries, please ask for help on Discord.',
+          ),
         );
         retry = 2;
       }
 
       if (runnerType === 'm4') {
         out(
-          `${symbols.info} ` +
-            colors.dim(
-              'Note: runnerType m4 is experimental and currently supports iOS only, Android will revert to default.',
-            ),
+          ui.info(
+            'runnerType m4 is experimental and currently supports iOS only, Android will revert to default.',
+          ),
         );
       }
 
       if (runnerType === 'm1') {
         out(
-          `${symbols.info} ` +
-            colors.dim(
-              'Note: runnerType m1 is experimental and currently supports Android (Pixel 7, API Level 34) only.',
-            ),
+          ui.info(
+            'runnerType m1 is experimental and currently supports Android (Pixel 7, API Level 34) only.',
+          ),
         );
       }
 
       if (runnerType === 'gpu1') {
         out(
-          `${symbols.info} ` +
-            colors.dim(
-              'Note: runnerType gpu1 is Android-only (all devices, API Level 34 or 35), available to all users.',
-            ),
+          ui.info(
+            'runnerType gpu1 is Android-only (all devices, API Level 34 or 35), available to all users.',
+          ),
         );
       }
 
@@ -615,63 +606,58 @@ export const cloudCommand = defineCommand({
       const hasOverrides = overridesEntries.some(
         ([, overrides]) => Object.keys(overrides).length > 0,
       );
-      let overridesLog = '';
 
-      if (hasOverrides) {
-        overridesLog = '\n\n   ' + colors.bold('With overrides');
-        for (const [flowPath, overrides] of overridesEntries) {
-          if (Object.keys(overrides).length > 0) {
-            const relativePath = flowPath.replace(process.cwd(), '.');
-            overridesLog += `\n   ${colors.dim('→')} ${relativePath}:`;
-            for (const [key, value] of Object.entries(overrides)) {
-              overridesLog += `\n     ${colors.dim(key + ':')} ${colors.highlight(String(value))}`;
-            }
-          }
-        }
-      }
-
-      out(sectionHeader('Submitting new job'));
-      out(`   ${colors.dim('→ Flow(s):')} ${colors.highlight(flowFile)}`);
-      out(
-        `   ${colors.dim('→ App:')} ${colors.highlight(appBinaryId || finalAppFile || '')}`,
-      );
+      const submitRows: string[] = ui.fields([
+        ['flow(s)', colors.highlight(flowFile)],
+        ['app', colors.highlight(appBinaryId || finalAppFile || '')],
+      ]);
 
       if (flagLogs.length > 0) {
-        out(`\n   ${colors.bold('With options')}`);
-        for (const flagLog of flagLogs) {
-          const [key, ...valueParts] = flagLog.split(': ');
-          const value = valueParts.join(': ');
-          out(
-            `   ${colors.dim('→ ' + key + ':')} ${colors.highlight(value)}`,
+        submitRows.push('', colors.bold('Options'));
+        submitRows.push(
+          ...ui.fields(
+            flagLogs.map((flagLog) => {
+              const [key, ...valueParts] = flagLog.split(': ');
+              return [key, colors.highlight(valueParts.join(': '))] as Field;
+            }),
+          ),
+        );
+      }
+
+      if (hasOverrides) {
+        submitRows.push('', colors.bold('Overrides'));
+        for (const [flowPath, overrides] of overridesEntries) {
+          if (Object.keys(overrides).length === 0) {
+            continue;
+          }
+          submitRows.push(colors.dim(`${flowPath.replace(process.cwd(), '.')}:`));
+          submitRows.push(
+            ...ui.fields(
+              Object.entries(overrides).map(
+                ([key, value]) => [key, colors.highlight(String(value))] as Field,
+              ),
+            ),
           );
         }
       }
 
-      if (hasOverrides) {
-        out(overridesLog);
-      }
-
-      out('');
+      out(ui.section('Submitting new job'));
+      out(ui.branch(submitRows));
 
       if (dryRun) {
         out(
-          `\n${symbols.warning} ${colors.bold('Dry run mode')} ${colors.dim('- no tests were actually triggered')}\n`,
+          ui.warn(
+            `${colors.bold('Dry run mode')} ${colors.dim('— no tests were actually triggered')}`,
+          ),
         );
-        out(colors.bold('The following tests would have been run:'));
-        out(dividers.light);
-        for (const test of testFileNames) {
-          out(listItem(test));
-        }
+        out(ui.section('The following tests would have been run'));
+        out(ui.branch(testFileNames));
 
         if (sequentialFlows.length > 0) {
-          out(`\n${colors.bold('Sequential flows:')}`);
-          out(dividers.short);
-          for (const flow of sequentialFlows) {
-            out(listItem(flow));
-          }
+          out(ui.section('Sequential flows'));
+          out(ui.branch(sequentialFlows));
         }
 
-        out('\n');
         return;
       }
 
@@ -766,31 +752,27 @@ export const cloudCommand = defineCommand({
       if (!results?.length) {
         throw new CliError('No tests created: ' + message);
       }
-      out(`${symbols.success} ${colors.bold('Submitted')} ${colors.dim(message)}`);
+      out(`${ui.success('Submitted')} ${colors.dim(message)}`);
 
       const testNames = results
         .map((r) => r.test_file_name)
         .sort((a, b) => a.localeCompare(b))
         .join(colors.dim(', '));
-      out(
-        `\n${colors.bold(`Created ${results.length} test${results.length === 1 ? '' : 's'}:`)} ${testNames}\n`,
-      );
-
       const url = getConsoleUrl(apiUrl, results[0].test_upload_id, results[0].id);
-      out(
-        colors.bold('Run triggered') + colors.dim(', you can access the results at:'),
-      );
-      out(formatUrl(url));
 
-      out('');
+      out(ui.section(`Created ${results.length} test${results.length === 1 ? '' : 's'}`));
       out(
-        colors.dim('Your upload ID is: ') + formatId(results[0].test_upload_id),
-      );
-      out(
-        colors.dim('Poll upload status using: ') +
-          colors.info(
-            `dcd status --api-key ... --upload-id ${results[0].test_upload_id}`,
-          ),
+        ui.branch([
+          testNames,
+          ...ui.fields([
+            ['results', formatUrl(url)],
+            ['upload id', formatId(results[0].test_upload_id)],
+            [
+              'poll status',
+              colors.info(`dcd status --upload-id ${results[0].test_upload_id}`),
+            ],
+          ]),
+        ]),
       );
 
       if (async) {
@@ -827,9 +809,7 @@ export const cloudCommand = defineCommand({
           return;
         }
 
-        out(
-          `\n${symbols.info} ${colors.dim('Not waiting for results as async flag is set to true')}\n`,
-        );
+        out(ui.info('Not waiting for results as async flag is set to true'));
         return;
       }
 

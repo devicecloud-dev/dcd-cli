@@ -34,7 +34,8 @@ import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, writeConfig } from '../utils/config-store.js';
 import { fetchOrgs, pickOrg } from '../utils/orgs.js';
-import { colors, sectionHeader, symbols } from '../utils/styling.js';
+import { colors } from '../utils/styling.js';
+import { ui } from '../utils/ui.js';
 
 interface ClaimedSession {
   access_token: string;
@@ -92,7 +93,7 @@ export const loginCommand = defineCommand({
         initialValue: false,
       });
       if (p.isCancel(ok) || !ok) {
-        logger.log(`${symbols.info} Keeping existing session.`);
+        logger.log(ui.info('Keeping existing session.'));
         return;
       }
     }
@@ -107,23 +108,26 @@ export const loginCommand = defineCommand({
 
     const loginUrl = `${frontendUrl}/cli-login?state=${state}&code_challenge=${codeChallenge}`;
 
-    logger.log(sectionHeader('Signing in to devicecloud.dev'));
+    logger.log(ui.section('Signing in to devicecloud.dev'));
 
+    const rows: string[] = [];
     if (noBrowser) {
-      logger.log(`   ${colors.dim('Open this URL in a browser to finish login:')}`);
-      logger.log(`   ${colors.highlight(loginUrl)}`);
+      rows.push(ui.note('Open this URL in a browser to finish login:'), colors.highlight(loginUrl));
     } else {
-      logger.log(`   ${colors.dim('Opening your browser...')}`);
       const opened = openBrowser(loginUrl);
+      rows.push(
+        ui.note(
+          opened
+            ? 'Opening your browser…'
+            : 'Could not launch a browser. Open this URL manually:',
+        ),
+      );
       if (!opened) {
-        logger.log(
-          `   ${colors.dim('Could not launch a browser. Open this URL manually:')}`,
-        );
-        logger.log(`   ${colors.highlight(loginUrl)}`);
+        rows.push(colors.highlight(loginUrl));
       }
     }
-
-    logger.log(`   ${colors.dim('Waiting for login to complete...')}\n`);
+    rows.push(ui.note('Waiting for login to complete…'));
+    logger.log(ui.branch(rows));
 
     try {
       const payload = await pollForClaim(apiUrl, state, codeVerifier);
@@ -174,15 +178,15 @@ export const loginCommand = defineCommand({
         current_org_name: chosen.name,
       });
 
+      logger.log(ui.success(`Logged in as ${colors.highlight(payload.user_email)}`));
       logger.log(
-        `${symbols.success} ${colors.bold('Logged in')} as ${colors.highlight(payload.user_email)}`,
+        ui.branch([
+          ...ui.fields([['organization', colors.highlight(chosen.name)]]),
+          ...(orgs.length > 1
+            ? [ui.note(`Switch orgs later with ${colors.highlight('dcd switch-org')}`)]
+            : []),
+        ]),
       );
-      logger.log(`   ${colors.dim('Organization:')} ${colors.highlight(chosen.name)}`);
-      if (orgs.length > 1) {
-        logger.log(
-          `   ${colors.dim('Switch orgs later with')} ${colors.highlight('dcd switch-org')}`,
-        );
-      }
     } catch (error) {
       logger.error(error as Error, { exit: 1 });
     }
