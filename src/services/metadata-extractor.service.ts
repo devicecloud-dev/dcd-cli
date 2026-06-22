@@ -1,9 +1,15 @@
-import { parseBuffer } from 'bplist-parser';
-import { Apk } from 'node-apk';
+import bplistParser from 'bplist-parser';
+import nodeApk from 'node-apk';
 import { readFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import StreamZip from 'node-stream-zip';
 import { parse } from 'plist';
+
+// node-apk and bplist-parser are CJS with no `exports` map; Node's named-export
+// detection for CJS (cjs-module-lexer) is version-dependent, so destructure off
+// the default import instead — that interop is guaranteed on every Node version.
+const { Apk } = nodeApk;
+const { parseBuffer } = bplistParser;
 
 export interface TAppMetadata {
   appId: string;
