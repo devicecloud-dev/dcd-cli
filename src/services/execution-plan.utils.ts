@@ -80,7 +80,9 @@ export const readYamlFileAsJson = (filePath: string) => {
 
     return result;
   } catch (error) {
-    throw new Error(`Error parsing YAML file ${filePath}: ${error}`);
+    throw new Error(`Error parsing YAML file ${filePath}: ${error}`, {
+      cause: error,
+    });
   }
 };
 
@@ -110,7 +112,7 @@ export const readTestYamlFileAsJson = (filePath: string) => {
   } catch (error) {
     const message = `Error parsing YAML file ${filePath}: ${error}`;
     console.error(message);
-    throw new Error(message);
+    throw new Error(message, { cause: error });
   }
 };
 

@@ -183,7 +183,7 @@ export class SupabaseGateway {
 
       // Re-throw with additional context
       const errorMsg = error instanceof Error ? error.message : String(error);
-      throw new Error(`Supabase upload error: ${errorMsg}`);
+      throw new Error(`Supabase upload error: ${errorMsg}`, { cause: error });
     }
   }
 

@@ -39,6 +39,7 @@ async function parseJsonResponse<T>(res: Response, operation: string): Promise<T
   } catch (error) {
     throw new Error(
       `${operation}: API returned an invalid JSON response (${error instanceof Error ? error.message : String(error)})`,
+      { cause: error },
     );
   }
 }

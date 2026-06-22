@@ -613,11 +613,14 @@ async function requestUploadPaths(
     if (error instanceof Error) {
       if (error.name === 'NetworkError') {
         throw new Error(
-          `Failed to request upload URL from API.\n\n${error.message}`
+          `Failed to request upload URL from API.\n\n${error.message}`,
+          { cause: error }
         );
       }
 
-      throw new Error(`Failed to request upload URL: ${error.message}`);
+      throw new Error(`Failed to request upload URL: ${error.message}`, {
+        cause: error,
+      });
     }
 
     throw error;
@@ -713,12 +716,12 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
   let lastError = backblazeResult.error;
 
   // Always upload to Supabase (re-enabled as always-on alongside Backblaze)
-  let supabaseResult: { error: Error | null; success: boolean } = { error: null, success: false };
   if (debug) {
     console.log('[DEBUG] Uploading to Supabase...');
   }
 
-  supabaseResult = await uploadToSupabase(env, tempPath, source, debug);
+  const supabaseResult: { error: Error | null; success: boolean } =
+    await uploadToSupabase(env, tempPath, source, debug);
   if (!supabaseResult.success && supabaseResult.error) {
     lastError = supabaseResult.error;
   }
@@ -959,7 +962,9 @@ async function uploadPartToBackblaze(config: UploadPartConfig): Promise<void> {
         console.error(`[DEBUG] Network error uploading part ${partNumber} - could be DNS, connection, or SSL issue`);
       }
 
-      throw new Error(`Part ${partNumber} upload failed due to network error`);
+      throw new Error(`Part ${partNumber} upload failed due to network error`, {
+        cause: error,
+      });
     }
 
     throw error;
