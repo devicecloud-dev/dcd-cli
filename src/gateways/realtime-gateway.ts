@@ -22,6 +22,12 @@ import {
 import { ENVIRONMENTS, type DcdEnvName } from '../config/environments';
 
 export interface RealtimeResultsSubscription {
+  /**
+   * Whether the channel is currently subscribed and receiving pushes. False
+   * until the socket subscribes, and again if it errors/closes — the backstop
+   * poll always covers the gap.
+   */
+  isConnected(): boolean;
   /** Tear down the channel and close the socket. Best-effort, never throws. */
   unsubscribe(): Promise<void>;
 }
@@ -35,6 +41,8 @@ export interface RealtimeSubscribeOptions {
   log?: (message: string) => void;
   /** Fired when a result row for this upload changes. */
   onChange: () => void;
+  /** Fired whenever the connection state flips (subscribed ↔ disconnected). */
+  onConnectionChange?: (connected: boolean) => void;
   orgId: string;
   uploadId: string;
 }
@@ -55,9 +63,16 @@ export class RealtimeResultsGateway {
   static subscribe(
     options: RealtimeSubscribeOptions,
   ): RealtimeResultsSubscription {
-    const { accessToken, debug, env, log, onChange, orgId, uploadId } = options;
+    const { accessToken, debug, env, log, onChange, onConnectionChange, orgId, uploadId } = options;
     const dbg = (message: string) => {
       if (debug && log) log(`[DEBUG] [realtime] ${message}`);
+    };
+
+    let connected = false;
+    const setConnected = (next: boolean) => {
+      if (next === connected) return;
+      connected = next;
+      onConnectionChange?.(next);
     };
 
     let client: SupabaseClient | undefined;
@@ -94,6 +109,7 @@ export class RealtimeResultsGateway {
         .subscribe((status) => {
           if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
             dbg('subscribed');
+            setConnected(true);
           } else if (
             status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
             status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
@@ -102,12 +118,15 @@ export class RealtimeResultsGateway {
             // Don't try to recover — the backstop poll covers us. Surface in
             // debug so a network-blocked websocket is diagnosable.
             dbg(`channel ${status}; relying on backstop poll`);
+            setConnected(false);
           }
         });
 
       const activeClient = client;
       return {
+        isConnected: () => connected,
         async unsubscribe() {
+          setConnected(false);
           try {
             await activeClient.removeChannel(channel);
             await activeClient.realtime.disconnect();
@@ -124,7 +143,7 @@ export class RealtimeResultsGateway {
       } catch {
         /* ignore */
       }
-      return { async unsubscribe() {} };
+      return { isConnected: () => false, async unsubscribe() {} };
     }
   }
 }

@@ -10,7 +10,8 @@ import type { AuthContext } from '../types/domain/auth.types';
 import { paths } from '../types/generated/schema.types';
 import { checkInternetConnectivity } from '../utils/connectivity';
 import { ux } from '../utils/progress';
-import { colors, formatTestSummary, table } from '../utils/styling';
+import { colors, formatTestSummary, statusPalette, table } from '../utils/styling';
+import { type Field, ui } from '../utils/ui';
 
 type TestResult = NonNullable<
   paths['/results/{uploadId}']['get']['responses']['200']['content']['application/json']['results']
@@ -114,7 +115,6 @@ export class ResultsPollingService {
     this.initializePollingDisplay(json, logger);
 
     let sequentialPollFailures = 0;
-    let previousSummary = '';
 
     const pollIntervalMs =
       auth.mode === 'bearer'
@@ -152,17 +152,38 @@ export class ResultsPollingService {
       });
     };
 
+    // Live display state, recomposed by renderStatus() so the footer (countdown
+    // to the next backstop poll + realtime connection state) stays current
+    // between polls without re-fetching. `nextPollAt` is an epoch-ms deadline
+    // while waiting, or null while a fetch is in flight.
+    let subscription: RealtimeResultsSubscription | undefined;
+    let realtimeEnabled = false;
+    let statusBody = '';
+    let nextPollAt: null | number = null;
+    const renderStatus = () => {
+      if (json) return;
+      const footer = this.buildStatusFooter(
+        realtimeEnabled,
+        subscription?.isConnected() ?? false,
+        nextPollAt,
+      );
+      ux.action.status = footer ? `${statusBody}\n${footer}` : statusBody;
+    };
+
     // Realtime is a latency optimisation over the backstop poll; only logged-in
     // (bearer) users can authenticate the socket under RLS. Any failure inside
     // the gateway degrades silently to pure polling.
-    let subscription: RealtimeResultsSubscription | undefined;
     if (auth.mode === 'bearer' && auth.accessToken && auth.orgId && auth.env) {
+      realtimeEnabled = true;
       subscription = RealtimeResultsGateway.subscribe({
         accessToken: auth.accessToken,
         debug,
         env: auth.env,
         log: logger,
         onChange: poke,
+        // Reflect connect/disconnect in the live footer immediately rather than
+        // waiting for the next ticker frame.
+        onConnectionChange: renderStatus,
         orgId: auth.orgId,
         uploadId,
       });
@@ -177,21 +198,26 @@ export class ResultsPollingService {
       logger(`[DEBUG] Starting polling loop for results`);
     }
 
+    // Tick the live footer once a second so the countdown actually counts down
+    // (the spinner's own frames don't recompute our message). Unref'd so it
+    // never keeps the process alive on its own.
+    const ticker: NodeJS.Timeout | null = json ? null : setInterval(renderStatus, 1000);
+    ticker?.unref?.();
+
     try {
       // Poll in a loop until all tests complete
       // eslint-disable-next-line no-constant-condition
       while (true) {
         try {
+          nextPollAt = null;
+          renderStatus();
+
           const updatedResults = await this.fetchAndLogResults(apiUrl, auth, uploadId, debug, logger);
 
           const { summary } = this.calculateStatusSummary(updatedResults);
-          previousSummary = this.updateDisplayStatus(
-            updatedResults,
-            quiet,
-            json,
-            summary,
-            previousSummary,
-          );
+          if (!json) {
+            statusBody = this.buildStatusBody(updatedResults, quiet, summary);
+          }
 
           const allComplete = updatedResults.every(
             (result) => !['PENDING', 'QUEUED', 'RUNNING'].includes(result.status),
@@ -212,7 +238,9 @@ export class ResultsPollingService {
           sequentialPollFailures = 0;
 
           // Wait for the next backstop poll, or a realtime poke, whichever comes
-          // first.
+          // first, while the footer counts down to the deadline.
+          nextPollAt = Date.now() + pollIntervalMs;
+          renderStatus();
           await waitForNextPoll(pollIntervalMs);
         } catch (error) {
           // Re-throw RunFailedError immediately (test failures, not polling errors)
@@ -242,6 +270,9 @@ export class ResultsPollingService {
         }
       }
     } finally {
+      if (ticker) {
+        clearInterval(ticker);
+      }
       if (subscription) {
         if (debug && logger) {
           logger('[DEBUG] Closing realtime subscription');
@@ -344,32 +375,8 @@ export class ResultsPollingService {
         },
         status: {
           get(row) {
-            const statusUpper = row.status.toUpperCase();
-            switch (statusUpper) {
-              case 'PASSED': {
-                return colors.success(row.status);
-              }
-
-              case 'FAILED': {
-                return colors.error(row.status);
-              }
-
-              case 'RUNNING': {
-                return colors.info(row.status);
-              }
-
-              case 'PENDING': {
-                return colors.warning(row.status);
-              }
-
-              case 'QUEUED': {
-                return colors.dim(row.status);
-              }
-
-              default: {
-                return colors.dim(row.status);
-              }
-            }
+            const { color } = statusPalette(row.status);
+            return color(row.status.toLowerCase());
           },
         },
         test: {
@@ -395,8 +402,8 @@ export class ResultsPollingService {
 
     if (logger) {
       logger('\n');
-      logger(colors.bold('Run completed') + colors.dim(', you can access the results at:'));
-      logger(colors.url(consoleUrl));
+      logger(ui.success('Run completed'));
+      logger(ui.branch(ui.fields([['results', colors.url(consoleUrl)]])));
       logger('\n');
     }
   }
@@ -607,43 +614,60 @@ export class ResultsPollingService {
     });
   }
 
-  private updateDisplayStatus(
+  /**
+   * Build the body of the live status display (the per-test table, or just the
+   * one-line summary in quiet mode). The footer (countdown + realtime state) is
+   * appended separately by {@link buildStatusFooter} so it can re-render on a
+   * timer without re-fetching.
+   */
+  private buildStatusBody(
     results: TestResult[],
     quiet: boolean,
-    json: boolean,
     summary: string,
-    previousSummary: string,
   ): string {
-    if (json) {
-      return previousSummary;
-    }
-
     if (quiet) {
-      if (summary !== previousSummary) {
-        ux.action.status = summary;
-        return summary;
-      }
-    } else {
-      ux.action.status = colors.dim('\nStatus      Test\n─────────── ───────────────');
-      for (const {
-        retry_of: isRetry,
-        status,
-        test_file_name: test,
-      } of results) {
-        const statusFormatted = status.toUpperCase() === 'PASSED'
-          ? colors.success(status.padEnd(10, ' '))
-          : status.toUpperCase() === 'FAILED'
-          ? colors.error(status.padEnd(10, ' '))
-          : status.toUpperCase() === 'RUNNING'
-          ? colors.info(status.padEnd(10, ' '))
-          : status.toUpperCase() === 'QUEUED'
-          ? colors.dim(status.padEnd(10, ' '))
-          : colors.warning(status.padEnd(10, ' '));
-        const retryText = isRetry ? colors.dim(' (retry)') : '';
-        ux.action.status += `\n${statusFormatted}  ${test}${retryText}`;
-      }
+      return summary;
     }
 
-    return previousSummary;
+    const rows: Field[] = results.map(
+      ({ retry_of: isRetry, status, test_file_name: test }) => {
+        const label = `${ui.statusSymbol(status)} ${ui.statusWord(status)}`;
+        const retryText = isRetry ? colors.dim(' (retry)') : '';
+        return [label, `${test}${retryText}`];
+      },
+    );
+
+    return `\n${ui.branch(ui.fields(rows))}`;
+  }
+
+  /**
+   * Build the live footer shown under the status display: whether realtime
+   * updates are connected (for logged-in users) and how long until the next
+   * backstop poll. While a fetch is in flight (`nextPollAt` is null) the
+   * countdown reads "refreshing…".
+   */
+  private buildStatusFooter(
+    realtimeEnabled: boolean,
+    realtimeConnected: boolean,
+    nextPollAt: null | number,
+  ): string {
+    const parts: string[] = [];
+
+    if (realtimeEnabled) {
+      parts.push(
+        realtimeConnected
+          ? colors.success('● realtime connected')
+          : colors.warning('○ realtime connecting…'),
+      );
+    }
+
+    if (nextPollAt === null) {
+      parts.push(colors.dim('refreshing…'));
+    } else {
+      const secondsLeft = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
+      parts.push(colors.dim(`next refresh in ${secondsLeft}s`));
+    }
+
+    return parts.join(colors.dim('  ·  '));
   }
 }

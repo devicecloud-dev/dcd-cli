@@ -5,7 +5,8 @@ import { ApiGateway } from '../gateways/api-gateway';
 import { resolveAuth } from '../utils/auth';
 import { CliError, logger, parseIntFlag } from '../utils/cli';
 import { resolveApiUrl } from '../utils/config-store';
-import { colors, formatId, formatUrl, sectionHeader, symbols } from '../utils/styling';
+import { colors, formatId, formatUrl } from '../utils/styling';
+import { ui } from '../utils/ui';
 
 type UploadListItem = {
   consoleUrl: string;
@@ -44,19 +45,13 @@ function displayResults(response: ListResponse): void {
   const { uploads, total, limit, offset } = response;
 
   if (uploads.length === 0) {
-    logger.log(`\n${symbols.info} No uploads found matching your criteria.\n`);
+    logger.log(ui.info('No uploads found matching your criteria.'));
     return;
   }
 
-  logger.log(sectionHeader('Recent Uploads'));
-  logger.log(
-    `   ${colors.dim('Showing')} ${uploads.length} ${colors.dim('of')} ${total} ${colors.dim('uploads')}`,
-  );
-  if (offset > 0) {
-    logger.log(`   ${colors.dim('(offset:')} ${offset}${colors.dim(')')}`);
-  }
-
-  logger.log('');
+  const offsetNote = offset > 0 ? colors.dim(`, offset ${offset}`) : '';
+  logger.log(ui.section('Recent Uploads'));
+  logger.log(ui.note(`  showing ${uploads.length} of ${total}${offsetNote}`));
 
   for (const upload of uploads) {
     const date = new Date(upload.created_at);
@@ -68,24 +63,29 @@ function displayResults(response: ListResponse): void {
       year: 'numeric',
     });
 
-    const displayName = upload.name || colors.dim('(unnamed)');
-    logger.log(`   ${colors.bold(displayName)}`);
-    logger.log(`      ${colors.dim('ID:')} ${formatId(upload.id)}`);
-    logger.log(`      ${colors.dim('Created:')} ${formattedDate}`);
-    logger.log(`      ${colors.dim('Console:')} ${formatUrl(upload.consoleUrl)}`);
-    logger.log('');
+    const displayName = upload.name ? colors.bold(upload.name) : colors.dim('(unnamed)');
+    logger.log(
+      ui.branch([
+        displayName,
+        ...ui.fields([
+          ['id', formatId(upload.id)],
+          ['created', formattedDate],
+          ['console', formatUrl(upload.consoleUrl)],
+        ]),
+      ]),
+    );
   }
 
   if (total > offset + uploads.length) {
     const remaining = total - (offset + uploads.length);
     logger.log(
-      `   ${colors.dim('Use')} --offset ${offset + uploads.length} ${colors.dim('to see the next')} ${Math.min(remaining, limit)} ${colors.dim('uploads')}\n`,
+      ui.note(
+        `\nUse --offset ${offset + uploads.length} to see the next ${Math.min(remaining, limit)} uploads`,
+      ),
     );
   }
 
-  logger.log(
-    `   ${symbols.info} ${colors.dim('Use')} dcd status --upload-id <id> ${colors.dim('for detailed test results')}\n`,
-  );
+  logger.log(ui.info(colors.dim('Use dcd status --upload-id <id> for detailed test results')));
 }
 
 export const listCommand = defineCommand({

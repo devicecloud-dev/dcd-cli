@@ -9,7 +9,8 @@ import { resolveAuth } from '../utils/auth';
 import { CliError, logger } from '../utils/cli';
 import { resolveApiUrl } from '../utils/config-store';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
-import { colors, formatId, sectionHeader, symbols } from '../utils/styling';
+import { colors, formatId } from '../utils/styling';
+import { ui } from '../utils/ui';
 
 export const uploadCommand = defineCommand({
   meta: {
@@ -54,14 +55,14 @@ export const uploadCommand = defineCommand({
       }
 
       if (isUrl(resolvedFile)) {
-        out(`   ${colors.dim('→ Downloading Expo build from URL...')}`);
+        out(ui.running('Downloading Expo build from URL…'));
         const tarPath = await downloadExpoUrl(resolvedFile, debug);
         tempFiles.push(tarPath);
         resolvedFile = tarPath;
       }
 
       if (resolvedFile.endsWith('.tar.gz')) {
-        out(`   ${colors.dim('→ Extracting Expo archive...')}`);
+        out(ui.running('Extracting Expo archive…'));
         const extractDir = await extractTarGz(resolvedFile, debug);
         tempFiles.push(extractDir);
         resolvedFile = await findAppBundle(extractDir);
@@ -80,9 +81,8 @@ export const uploadCommand = defineCommand({
         await verifyAppZip(resolvedFile);
       }
 
-      out(sectionHeader('Uploading app binary'));
-      out(`   ${colors.dim('→ File:')} ${colors.highlight(resolvedFile)}`);
-      out('');
+      out(ui.section('Uploading app binary'));
+      out(ui.branch(ui.fields([['file', colors.highlight(resolvedFile)]])));
 
       const appBinaryId = await uploadBinary({
         auth,
@@ -99,10 +99,14 @@ export const uploadCommand = defineCommand({
         return;
       }
 
-      logger.log(`\n${symbols.success} ${colors.bold('Upload complete')}`);
-      logger.log(`   ${colors.dim('Binary ID:')} ${formatId(appBinaryId)}\n`);
-      logger.log(colors.dim('You can use this Binary ID in subsequent test runs with:'));
-      logger.log(colors.info(`dcd cloud --app-binary-id ${appBinaryId} path/to/flow.yaml\n`));
+      logger.log(`\n${ui.success('Upload complete')}`);
+      logger.log(
+        ui.branch([
+          ...ui.fields([['binary id', formatId(appBinaryId)]]),
+          ui.note('Use this Binary ID in subsequent test runs with:'),
+          colors.info(`dcd cloud --app-binary-id ${appBinaryId} path/to/flow.yaml`),
+        ]),
+      );
     } catch (error) {
       logger.error(error as Error, { exit: 1, json });
     } finally {

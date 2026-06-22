@@ -141,7 +141,7 @@ describe('List Command Integration Tests', () => {
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expect(stdout).to.include('Recent Uploads');
-      expect(stdout).to.match(/Showing \d+ of \d+ uploads/);
+      expect(stdout).to.match(/showing \d+ of \d+/);
     });
   });
 
