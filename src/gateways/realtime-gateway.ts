@@ -19,7 +19,7 @@ import {
   type SupabaseClient,
 } from '@supabase/supabase-js';
 
-import { ENVIRONMENTS, type DcdEnvName } from '../config/environments';
+import { ENVIRONMENTS, type DcdEnvName } from '../config/environments.js';
 
 export interface RealtimeResultsSubscription {
   /** Tear down the channel and close the socket. Best-effort, never throws. */

@@ -9,7 +9,7 @@ import {
   MOCK_API_URL,
   exec,
   runExpectingFailure,
-} from './helpers';
+} from './helpers.js';
 
 describe('DCD Cloud Command Integration Tests', () => {
   const mockApiUrl = MOCK_API_URL;

@@ -2,19 +2,19 @@
 import type { CommandDef, SubCommandsDef } from 'citty';
 import { defineCommand, runCommand, showUsage } from 'citty';
 
-import { artifactsCommand } from './commands/artifacts';
-import { cloudCommand } from './commands/cloud';
-import { listCommand } from './commands/list';
-import { liveCommand } from './commands/live';
-import { loginCommand } from './commands/login';
-import { logoutCommand } from './commands/logout';
-import { statusCommand } from './commands/status';
-import { switchOrgCommand } from './commands/switch-org';
-import { upgradeCommand } from './commands/upgrade';
-import { uploadCommand } from './commands/upload';
-import { whoamiCommand } from './commands/whoami';
-import { telemetry } from './services/telemetry.service';
-import { CliError, getCliVersion, logger } from './utils/cli';
+import { artifactsCommand } from './commands/artifacts.js';
+import { cloudCommand } from './commands/cloud.js';
+import { listCommand } from './commands/list.js';
+import { liveCommand } from './commands/live.js';
+import { loginCommand } from './commands/login.js';
+import { logoutCommand } from './commands/logout.js';
+import { statusCommand } from './commands/status.js';
+import { switchOrgCommand } from './commands/switch-org.js';
+import { upgradeCommand } from './commands/upgrade.js';
+import { uploadCommand } from './commands/upload.js';
+import { whoamiCommand } from './commands/whoami.js';
+import { telemetry } from './services/telemetry.service.js';
+import { CliError, getCliVersion, logger } from './utils/cli.js';
 
 const main = defineCommand({
   meta: {

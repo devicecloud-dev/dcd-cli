@@ -1,15 +1,15 @@
 import { defineCommand } from 'citty';
 import { rm } from 'node:fs/promises';
 
-import { apiFlags } from '../config/flags/api.flags';
-import { binaryFlags } from '../config/flags/binary.flags';
-import { outputFlags } from '../config/flags/output.flags';
-import { uploadBinary, verifyAppZip } from '../methods';
-import { resolveAuth } from '../utils/auth';
-import { CliError, logger } from '../utils/cli';
-import { resolveApiUrl } from '../utils/config-store';
-import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
-import { colors, formatId, sectionHeader, symbols } from '../utils/styling';
+import { apiFlags } from '../config/flags/api.flags.js';
+import { binaryFlags } from '../config/flags/binary.flags.js';
+import { outputFlags } from '../config/flags/output.flags.js';
+import { uploadBinary, verifyAppZip } from '../methods.js';
+import { resolveAuth } from '../utils/auth.js';
+import { CliError, logger } from '../utils/cli.js';
+import { resolveApiUrl } from '../utils/config-store.js';
+import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo.js';
+import { colors, formatId, sectionHeader, symbols } from '../utils/styling.js';
 
 export const uploadCommand = defineCommand({
   meta: {

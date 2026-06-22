@@ -7,7 +7,7 @@
  */
 import * as path from 'node:path';
 
-import { toPortableRelativePath } from '../utils/paths';
+import { toPortableRelativePath } from '../utils/paths.js';
 
 /**
  * Longest whole-segment directory prefix shared by every flow + referenced

@@ -12,7 +12,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect } from 'chai';
 import * as path from 'node:path';
 
-import { MOCK_API_KEY, MOCK_API_URL } from './helpers';
+import { MOCK_API_KEY, MOCK_API_URL } from './helpers.js';
 
 const MCP_BIN = path.resolve('dist/mcp/index.js');
 

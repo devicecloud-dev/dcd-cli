@@ -1,4 +1,4 @@
-import type { AuthContext } from '../types/domain/auth.types';
+import type { AuthContext } from '../types/domain/auth.types.js';
 
 export interface CompatibilityData {
   android: Record<string, string[]>;

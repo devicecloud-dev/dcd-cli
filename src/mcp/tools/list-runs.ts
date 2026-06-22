@@ -1,9 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { ApiGateway } from '../../gateways/api-gateway';
-import { getContext } from '../context';
-import { jsonResult, runTool } from '../helpers';
+import { ApiGateway } from '../../gateways/api-gateway.js';
+import { getContext } from '../context.js';
+import { jsonResult, runTool } from '../helpers.js';
 
 /** List recent flow uploads for the org, with optional filters + pagination. */
 export function registerListRuns(server: McpServer): void {

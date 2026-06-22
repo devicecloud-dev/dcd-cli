@@ -1,9 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { ApiGateway } from '../../gateways/api-gateway';
-import { getContext } from '../context';
-import { jsonResult, runTool } from '../helpers';
+import { ApiGateway } from '../../gateways/api-gateway.js';
+import { getContext } from '../context.js';
+import { jsonResult, runTool } from '../helpers.js';
 
 /**
  * Status of a single upload by id or name. This is the polling primitive: after

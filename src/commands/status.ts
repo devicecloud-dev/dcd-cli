@@ -1,16 +1,16 @@
 import { defineCommand } from 'citty';
 
-import { apiFlags } from '../config/flags/api.flags';
-import { ApiGateway } from '../gateways/api-gateway';
-import { formatDurationSeconds } from '../methods';
-import { resolveAuth } from '../utils/auth';
-import { CliError, logger } from '../utils/cli';
-import { resolveApiUrl } from '../utils/config-store';
+import { apiFlags } from '../config/flags/api.flags.js';
+import { ApiGateway } from '../gateways/api-gateway.js';
+import { formatDurationSeconds } from '../methods.js';
+import { resolveAuth } from '../utils/auth.js';
+import { CliError, logger } from '../utils/cli.js';
+import { resolveApiUrl } from '../utils/config-store.js';
 import {
   ConnectivityCheckResult,
   checkInternetConnectivity,
-} from '../utils/connectivity';
-import { colors, formatId, formatStatus, formatUrl, sectionHeader } from '../utils/styling';
+} from '../utils/connectivity.js';
+import { colors, formatId, formatStatus, formatUrl, sectionHeader } from '../utils/styling.js';
 
 type StatusKind = 'CANCELLED' | 'FAILED' | 'PASSED' | 'PENDING' | 'QUEUED' | 'RUNNING';
 

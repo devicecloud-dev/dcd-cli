@@ -30,11 +30,11 @@ import { defineCommand } from 'citty';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 
-import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments';
-import { CliError, logger } from '../utils/cli';
-import { readConfig, writeConfig } from '../utils/config-store';
-import { fetchOrgs, pickOrg } from '../utils/orgs';
-import { colors, sectionHeader, symbols } from '../utils/styling';
+import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments.js';
+import { CliError, logger } from '../utils/cli.js';
+import { readConfig, writeConfig } from '../utils/config-store.js';
+import { fetchOrgs, pickOrg } from '../utils/orgs.js';
+import { colors, sectionHeader, symbols } from '../utils/styling.js';
 
 interface ClaimedSession {
   access_token: string;

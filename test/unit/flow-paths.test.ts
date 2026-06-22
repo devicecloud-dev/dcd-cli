@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import {
   buildTestMetadataMap,
   computeCommonRoot,
-} from '../../src/services/flow-paths';
+} from '../../src/services/flow-paths.js';
 
 describe('flow-paths', () => {
   describe('computeCommonRoot', () => {

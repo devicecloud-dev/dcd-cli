@@ -1,6 +1,6 @@
-import chalk = require('chalk');
+import chalk from 'chalk';
 
-import { findEnvByApiUrl } from '../config/environments';
+import { findEnvByApiUrl } from '../config/environments.js';
 
 /**
  * Centralized styling utilities for CLI output

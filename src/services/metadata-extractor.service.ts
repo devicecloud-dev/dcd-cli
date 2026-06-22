@@ -2,7 +2,7 @@ import { parseBuffer } from 'bplist-parser';
 import { Apk } from 'node-apk';
 import { readFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
-import StreamZip = require('node-stream-zip');
+import StreamZip from 'node-stream-zip';
 import { parse } from 'plist';
 
 export interface TAppMetadata {
@@ -136,7 +136,7 @@ export class ExpoTarGzMetadataExtractor implements IMetadataExtractor {
   }
 
   async extract(filePath: string): Promise<TAppMetadata> {
-    const { extractTarGz, findAppBundle } = await import('../utils/expo');
+    const { extractTarGz, findAppBundle } = await import('../utils/expo.js');
     const extractDir = await extractTarGz(filePath, false);
     try {
       const appPath = await findAppBundle(extractDir);

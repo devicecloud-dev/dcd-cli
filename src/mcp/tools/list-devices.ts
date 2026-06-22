@@ -1,8 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { fetchCompatibilityData } from '../../utils/compatibility';
-import { getContext } from '../context';
-import { jsonResult, runTool } from '../helpers';
+import { fetchCompatibilityData } from '../../utils/compatibility.js';
+import { getContext } from '../context.js';
+import { jsonResult, runTool } from '../helpers.js';
 
 /**
  * Discovery tool: the matrix of devices, OS versions, and Maestro versions the

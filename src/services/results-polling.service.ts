@@ -1,16 +1,16 @@
 import * as path from 'node:path';
 
-import { ApiGateway } from '../gateways/api-gateway';
+import { ApiGateway } from '../gateways/api-gateway.js';
 import {
   RealtimeResultsGateway,
   type RealtimeResultsSubscription,
-} from '../gateways/realtime-gateway';
-import { formatDurationSeconds } from '../methods';
-import type { AuthContext } from '../types/domain/auth.types';
-import { paths } from '../types/generated/schema.types';
-import { checkInternetConnectivity } from '../utils/connectivity';
-import { ux } from '../utils/progress';
-import { colors, formatTestSummary, table } from '../utils/styling';
+} from '../gateways/realtime-gateway.js';
+import { formatDurationSeconds } from '../methods.js';
+import type { AuthContext } from '../types/domain/auth.types.js';
+import { paths } from '../types/generated/schema.types.js';
+import { checkInternetConnectivity } from '../utils/connectivity.js';
+import { ux } from '../utils/progress.js';
+import { colors, formatTestSummary, table } from '../utils/styling.js';
 
 type TestResult = NonNullable<
   paths['/results/{uploadId}']['get']['responses']['200']['content']['application/json']['results']

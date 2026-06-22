@@ -1,13 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { getCliVersion } from '../utils/cli';
+import { getCliVersion } from '../utils/cli.js';
 
-import { isReadOnly } from './context';
-import { registerDownloadArtifacts } from './tools/download-artifacts';
-import { registerGetStatus } from './tools/get-status';
-import { registerListDevices } from './tools/list-devices';
-import { registerListRuns } from './tools/list-runs';
-import { registerRunCloudTest } from './tools/run-cloud-test';
+import { isReadOnly } from './context.js';
+import { registerDownloadArtifacts } from './tools/download-artifacts.js';
+import { registerGetStatus } from './tools/get-status.js';
+import { registerListDevices } from './tools/list-devices.js';
+import { registerListRuns } from './tools/list-runs.js';
+import { registerRunCloudTest } from './tools/run-cloud-test.js';
 
 /**
  * Build the devicecloud.dev MCP server with its tool set registered. Read-only

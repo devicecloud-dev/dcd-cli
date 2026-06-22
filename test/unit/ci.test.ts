@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { isCI } from '../../src/utils/ci';
+import { isCI } from '../../src/utils/ci.js';
 
 // Every env var isCI() inspects — cleared before each case so the environment
 // the suite happens to run in (often a real CI) can't leak into assertions.
