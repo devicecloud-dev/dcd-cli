@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.json",
+  "name": "dev.devicecloud/dcd",
+  "description": "Run Maestro mobile app tests on devicecloud.dev — submit flows, check status, and download artifacts.",
+  "version": "5.0.0-beta.0",
+  "repository": {
+    "url": "https://github.com/devicecloud-dev/dcd-cli",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@devicecloud.dev/dcd",
+      "version": "5.0.0-beta.0",
+      "runtimeHint": "npx",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        { "type": "positional", "value": "dcd-mcp", "valueHint": "dcd-mcp" }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DEVICE_CLOUD_API_KEY",
+          "description": "Your devicecloud.dev API key. Alternatively run `dcd login` once to use a stored session.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "DCD_MCP_READONLY",
+          "description": "Set to 1 to hide the billable dcd_run_cloud_test tool (recommended for autonomous agents).",
+          "isRequired": false
+        },
+        {
+          "name": "DCD_API_URL",
+          "description": "Override the API base URL (e.g. for a non-production environment).",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

@@ -34,6 +34,41 @@ $ dcd cloud --apiKey <apiKey> <appFile> .myFlows/
 See full documentation: [Docs](https://docs.devicecloud.dev)
 
 
+## MCP server
+
+The same npm package ships an [MCP](https://modelcontextprotocol.io) server (`dcd-mcp` bin) so AI agents — Claude, Cursor, VS Code — can drive devicecloud.dev directly.
+
+Add it to your MCP client config:
+
+```jsonc
+{
+  "mcpServers": {
+    "devicecloud": {
+      "command": "npx",
+      "args": ["-y", "@devicecloud.dev/dcd", "dcd-mcp"],
+      "env": { "DEVICE_CLOUD_API_KEY": "<your-api-key>" }
+    }
+  }
+}
+```
+
+Auth is inherited from the CLI: set `DEVICE_CLOUD_API_KEY` as above, or run `dcd login` once and the server picks up the stored session. Point it at a non-prod environment with `DCD_API_URL`.
+
+**Tools**
+
+| Tool | What it does |
+| --- | --- |
+| `dcd_list_devices` | Discover available devices, OS versions, and Maestro versions |
+| `dcd_list_runs` | List recent test runs (filter by name/date, paginated) |
+| `dcd_get_status` | Get the status + per-test results of a run |
+| `dcd_download_artifacts` | Download a run's artifacts/report to disk |
+| `dcd_run_cloud_test` | Submit a flow to run on the cloud (**billable**) |
+
+**Read-only mode.** `dcd_run_cloud_test` consumes test minutes, so it is annotated as non-read-only/destructive (clients can prompt before calling it). To hide it entirely — recommended for autonomous or untrusted agents — pass `--read-only` in `args`, or set `DCD_MCP_READONLY=1` in `env`.
+
+By default `dcd_run_cloud_test` is async: it returns an `uploadId` immediately, which you poll with `dcd_get_status`. Pass `wait: true` (bounded by `waitTimeoutSeconds`) to block until completion, or `dryRun: true` to preview the flows without submitting.
+
+
 ## Development
 
 Requires Node 22+ and [pnpm](https://pnpm.io). `pnpm install` builds the CLI and installs the git hooks automatically.
