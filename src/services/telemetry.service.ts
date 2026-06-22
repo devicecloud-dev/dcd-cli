@@ -64,10 +64,39 @@ class Telemetry {
     };
   }
 
+  /**
+   * Override the command label attached to telemetry meta. The MCP server is
+   * long-lived and isn't a citty subcommand, so `inferCommandFromArgv` can't
+   * name it — `src/mcp/index.ts` calls this at boot.
+   */
+  setCommand(command: string) {
+    this.command = command;
+  }
+
   recordCommandStart() {
     this.startedAt = Date.now();
     this.enqueue('info', 'cli.lifecycle', 'command started', {
       argv: scrubArgv(process.argv.slice(2)),
+    });
+  }
+
+  recordMcpToolStart(tool: string) {
+    this.enqueue('info', 'cli.mcp', 'mcp tool invoked', { tool });
+  }
+
+  recordMcpToolSuccess(tool: string, durationMs: number) {
+    this.enqueue('info', 'cli.mcp', 'mcp tool completed', {
+      tool,
+      duration_ms: durationMs,
+    });
+  }
+
+  recordMcpToolFailure(tool: string, error: unknown, durationMs: number) {
+    this.enqueue('error', 'cli.mcp', 'mcp tool failed', {
+      tool,
+      duration_ms: durationMs,
+      error_message: error instanceof Error ? error.message : String(error),
+      error_name: error instanceof Error ? error.name : 'Error',
     });
   }
 

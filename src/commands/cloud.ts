@@ -7,6 +7,10 @@ import { ApiGateway } from '../gateways/api-gateway';
 import { uploadBinary, verifyAppZip, writeJSONFile } from '../methods';
 import { DeviceValidationService } from '../services/device-validation.service';
 import { plan } from '../services/execution-plan.service';
+import {
+  buildTestMetadataMap,
+  computeCommonRoot,
+} from '../services/flow-paths';
 import { MoropoService } from '../services/moropo.service';
 import { ReportDownloadService } from '../services/report-download.service';
 import {
@@ -38,7 +42,6 @@ import {
 } from '../utils/compatibility';
 import { resolveApiUrl } from '../utils/config-store';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo';
-import { toPortableRelativePath } from '../utils/paths';
 import {
   box,
   colors,
@@ -533,45 +536,13 @@ export const cloudCommand = defineCommand({
         out(`[DEBUG] Test file names: ${testFileNames.join(', ')}`);
       }
 
-      const pathsShortestToLongest = [
-        ...testFileNames,
-        ...referencedFiles,
-      ].sort((a, b) => a.split(path.sep).length - b.split(path.sep).length);
-
-      // Longest whole-segment directory prefix shared by every path. Segment
-      // comparison (not startsWith) so sibling dirs like `flows`/`flows-extra`
-      // can't merge, and the file segment itself is never consumed. '' when
-      // the paths share no root at all.
-      const splitPaths = pathsShortestToLongest.map((p) => p.split(path.sep));
-      const shortestSegments = splitPaths[0];
-      let matchedSegments = 0;
-      for (let i = 0; i < shortestSegments.length - 1; i++) {
-        if (splitPaths.every((segments) => segments[i] === shortestSegments[i])) {
-          matchedSegments = i + 1;
-        } else {
-          break;
-        }
-      }
-      const commonRoot = shortestSegments.slice(0, matchedSegments).join(path.sep);
+      const commonRoot = computeCommonRoot(testFileNames, referencedFiles);
 
       if (debug) {
         out(`[DEBUG] Common root directory: ${commonRoot}`);
       }
 
-      const testMetadataMap: Record<string, { flowName: string; tags: string[] }> = {};
-      for (const [absolutePath, meta] of Object.entries(flowMetadata)) {
-        const normalizedPath = toPortableRelativePath(absolutePath, commonRoot);
-        const metadataRecord = meta as Record<string, unknown> | null;
-        const flowName =
-          (metadataRecord?.name as string) || path.parse(absolutePath).name;
-        const rawTags = metadataRecord?.tags;
-        const tags = Array.isArray(rawTags)
-          ? rawTags.map(String)
-          : rawTags
-            ? [String(rawTags)]
-            : [];
-        testMetadataMap[normalizedPath] = { flowName, tags };
-      }
+      const testMetadataMap = buildTestMetadataMap(flowMetadata, commonRoot);
 
       if (debug) {
         out(
