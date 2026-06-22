@@ -91,6 +91,8 @@ export async function resolveAuth(
 
   const auth: AuthContext = {
     mode: 'bearer',
+    accessToken: session.access_token,
+    env: config.env,
     orgId: config.current_org_id,
     userEmail: session.user_email,
     headers: {
