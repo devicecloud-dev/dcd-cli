@@ -10,7 +10,8 @@ import {
   ConnectivityCheckResult,
   checkInternetConnectivity,
 } from '../utils/connectivity';
-import { colors, formatId, formatStatus, formatUrl, sectionHeader } from '../utils/styling';
+import { colors, formatId, formatUrl } from '../utils/styling';
+import { type Field, ui } from '../utils/ui';
 
 type StatusKind = 'CANCELLED' | 'FAILED' | 'PASSED' | 'PENDING' | 'QUEUED' | 'RUNNING';
 
@@ -234,51 +235,48 @@ async function statusMain({
         return;
       }
 
-      logger.log(sectionHeader('Upload Status'));
-      logger.log(`   ${formatStatus(status.status)}`);
-
+      const fields: Field[] = [];
       if (status.name) {
-        logger.log(`   ${colors.dim('Name:')} ${colors.bold(status.name)}`);
+        fields.push(['name', colors.bold(status.name)]);
       }
-
       if (status.uploadId) {
-        logger.log(`   ${colors.dim('Upload ID:')} ${formatId(status.uploadId)}`);
+        fields.push(['upload id', formatId(status.uploadId)]);
       }
-
       if (status.appBinaryId) {
-        logger.log(`   ${colors.dim('Binary ID:')} ${formatId(status.appBinaryId)}`);
+        fields.push(['binary id', formatId(status.appBinaryId)]);
       }
-
       if (status.createdAt) {
-        logger.log(`   ${colors.dim('Created:')} ${formatDateTime(status.createdAt)}`);
+        fields.push(['created', formatDateTime(status.createdAt)]);
+      }
+      if (status.consoleUrl) {
+        fields.push(['console', formatUrl(status.consoleUrl)]);
       }
 
-      if (status.consoleUrl) {
-        logger.log(`   ${colors.dim('Console:')} ${formatUrl(status.consoleUrl)}`);
-      }
+      logger.log(ui.section('Upload Status'));
+      logger.log(ui.branch([ui.status(status.status), ...ui.fields(fields)]));
 
       if (status.tests.length > 0) {
-        logger.log(sectionHeader('Test Results'));
-
-        for (const item of status.tests) {
-          logger.log(`   ${formatStatus(item.status)} ${colors.bold(item.name)}`);
-
-          if (item.status === 'FAILED' && item.failReason) {
-            logger.log(`      ${colors.error('Fail reason:')} ${item.failReason}`);
-          }
-
-          if (item.durationSeconds) {
-            logger.log(
-              `      ${colors.dim('Duration:')} ${formatDurationSeconds(item.durationSeconds)}`,
-            );
-          }
-
-          if (item.createdAt) {
-            logger.log(`      ${colors.dim('Created:')} ${formatDateTime(item.createdAt)}`);
-          }
-
-          logger.log('');
-        }
+        logger.log(ui.section('Test Results'));
+        logger.log(
+          ui.branch(
+            status.tests.map((item) => {
+              const head = `${ui.statusSymbol(item.status)} ${item.name}`;
+              const meta: string[] = [];
+              if (item.durationSeconds) {
+                meta.push(formatDurationSeconds(item.durationSeconds));
+              }
+              if (item.createdAt) {
+                meta.push(colors.dim(formatDateTime(item.createdAt)));
+              }
+              if (item.status === 'FAILED' && item.failReason) {
+                meta.push(colors.error(item.failReason));
+              }
+              return meta.length > 0
+                ? `${head}   ${colors.dim('·')} ${meta.join(colors.dim(' · '))}`
+                : head;
+            }),
+          ),
+        );
       }
     } catch (error) {
       throw new CliError(`Failed to get status: ${(error as Error).message}`);

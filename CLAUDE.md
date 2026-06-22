@@ -23,6 +23,8 @@ Top-level `defineCommand` in `src/index.ts` wires ten subcommands (`cloud`, `upl
 
 **Flag composition.** Flag definitions are split by domain in `src/config/flags/*.flags.ts` (api, binary, device, environment, execution, github, output) and re-exported as a single `flags` object from `src/constants.ts`. Commands that need the full cloud surface spread `...flags` into their citty `args`; subset commands import individual flag groups.
 
+**Output rendering.** All human-facing output goes through `src/utils/ui.ts` (the canonical layer: `section`/`branch`/`fields`/`status`/`success`/`info`/`warn`) on top of `src/utils/styling.ts` (`colors`, `symbols`, `statusPalette`). The visual language is a Claude Code-style tree (`⏺` section headings, `⎿` branch groups). Commands must not hand-roll layouts from `colors`/`symbols` or call `console.log` (except the single `JSON.stringify` line under `--json`). Full rules and a cookbook live in `STYLE_GUIDE.md`.
+
 **Layered call stack.**
 - `src/commands/*` — thin citty command definitions; orchestrate services, no I/O logic.
 - `src/services/*.service.ts` — domain workflows (execution planning, device validation, test submission, results polling, report download, version check, metadata extraction). Services call gateways and each other.
