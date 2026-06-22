@@ -27,6 +27,7 @@ import {
   EiOSVersions,
 } from '../types/domain/device.types';
 import { resolveAuth } from '../utils/auth';
+import { isCI } from '../utils/ci';
 import {
   CliError,
   coerceArray,
@@ -323,6 +324,16 @@ export const cloudCommand = defineCommand({
       }
 
       const auth = await resolveAuth({ apiKeyFlag });
+
+      // Nudge interactive api-key users toward `dcd login`, which unlocks live
+      // (realtime) status updates. Suppressed in CI and non-interactive output.
+      if (auth.mode === 'apiKey' && !json && !quiet && !isCI()) {
+        out(
+          colors.dim(
+            'Tip: run `dcd login` for live test updates and a smoother experience than passing --api-key.',
+          ),
+        );
+      }
 
       let compatibilityData: CompatibilityData;
       try {
