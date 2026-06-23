@@ -7,7 +7,7 @@ import {
   readdirSync,
   writeFileSync,
 } from 'node:fs';
-import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -763,6 +763,102 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
 
   return id;
 }
+
+/**
+ * Storage reference for an already-uploaded flow zip, threaded into the
+ * `submitFlowTest` JSON body so the API can locate the staged file.
+ */
+export interface FlowZipUploadResult {
+  backblazeSuccess: boolean;
+  bytes: number;
+  id: string;
+  path: string;
+  supabaseSuccess: boolean;
+  useTus: boolean;
+}
+
+/**
+ * Uploads an already-built flow zip directly to storage, mirroring the binary
+ * client-direct path: getFlowUploadUrl → upload to storage (Backblaze if
+ * offered + TUS to Supabase) → return the storage reference for submitFlowTest.
+ *
+ * The zip arrives as an in-memory Buffer (from `compressFilesFromRelativePath`);
+ * it's written to a temp file so the exact same disk-streaming uploaders the
+ * binary path uses can be reused unchanged. `supabaseSuccess`/`backblazeSuccess`
+ * are reported honestly based on which uploads succeeded.
+ *
+ * Errors from `getFlowUploadUrl` propagate untouched so callers can detect a
+ * 404 from an older API and fall back to the legacy multipart endpoint.
+ */
+export const uploadFlowZip = async (config: {
+  apiUrl: string;
+  auth: AuthContext;
+  buffer: Buffer;
+  debug?: boolean;
+}): Promise<FlowZipUploadResult> => {
+  const { apiUrl, auth, buffer, debug = false } = config;
+
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'dcd-flow-zip-'));
+  const diskPath = path.join(tempDir, 'flowFile.zip');
+
+  try {
+    await writeFile(diskPath, buffer);
+
+    const source: UploadSource = {
+      contentType: 'application/zip',
+      diskPath,
+      name: 'flowFile.zip',
+      size: buffer.length,
+    };
+
+    // Same response shape as getBinaryUploadUrl. A 404 here means the API
+    // predates the client-direct flow path — let it propagate so the caller
+    // falls back to the multipart endpoint.
+    const { id, tempPath, finalPath, b2 } = await ApiGateway.getFlowUploadUrl(
+      apiUrl,
+      auth,
+      buffer.length,
+    );
+
+    if (!tempPath) throw new Error('No upload path provided by API');
+
+    const env = inferEnvFromApiUrl(apiUrl);
+
+    // Upload to Backblaze first (primary, if configured)
+    const backblazeResult = await handleBackblazeUpload({
+      auth,
+      apiUrl,
+      b2: b2 as { large?: unknown; simple?: unknown; strategy: string } | undefined,
+      debug,
+      finalPath,
+      source,
+    });
+    let lastError = backblazeResult.error;
+
+    // Always upload to Supabase (always-on alongside Backblaze)
+    const supabaseResult = await uploadToSupabase(env, tempPath, source, debug);
+    if (!supabaseResult.success && supabaseResult.error) {
+      lastError = supabaseResult.error;
+    }
+
+    validateUploadResults(supabaseResult.success, backblazeResult.success, lastError, b2, debug);
+
+    if (debug) {
+      console.log(`[DEBUG] Flow zip upload summary - Backblaze: ${backblazeResult.success ? '✓' : '✗'}, Supabase: ${supabaseResult.success ? '✓' : '✗'}`);
+    }
+
+    return {
+      backblazeSuccess: backblazeResult.success,
+      bytes: buffer.length,
+      id,
+      path: tempPath,
+      supabaseSuccess: supabaseResult.success,
+      useTus: true,
+    };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+};
 
 /**
  * Upload file to Backblaze using signed URL (simple upload for files < 100MB)

@@ -3,8 +3,13 @@ import { defineCommand } from 'citty';
 import * as path from 'node:path';
 
 import { flags as allFlags } from '../constants.js';
-import { ApiGateway } from '../gateways/api-gateway.js';
-import { uploadBinary, verifyAppZip, writeJSONFile } from '../methods.js';
+import { ApiError, ApiGateway } from '../gateways/api-gateway.js';
+import {
+  uploadBinary,
+  uploadFlowZip,
+  verifyAppZip,
+  writeJSONFile,
+} from '../methods.js';
 import { DeviceValidationService } from '../services/device-validation.service.js';
 import { plan } from '../services/execution-plan.service.js';
 import {
@@ -701,7 +706,7 @@ export const cloudCommand = defineCommand({
       if (ghPrUrl) ghMetadataOverrides.push(`gh_pr_url=${ghPrUrl}`);
       const mergedMetadata = [...ghMetadataOverrides, ...metadata];
 
-      const testFormData = await testSubmissionService.buildTestFormData({
+      const { buffer, fields } = await testSubmissionService.buildTestPayload({
         androidApiLevel,
         androidDevice,
         androidNoSnapshot,
@@ -733,18 +738,48 @@ export const cloudCommand = defineCommand({
         disableAnimations,
       });
 
-      if (debug) {
-        out(`[DEBUG] Submitting flow upload request to ${apiUrl}/uploads/flow`);
+      // New path: upload the zip directly to storage, then submit a JSON test
+      // referencing it. Older API deployments lack these endpoints — a real API
+      // 404s (route undefined), some proxies 405 (path/method not allowed); in
+      // either case fall back to the legacy multipart POST /uploads/flow, which
+      // is byte-identical bar the storage reference.
+      let response: Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>;
+      try {
+        const storageRef = await uploadFlowZip({ apiUrl, auth, buffer, debug });
+
+        if (debug) {
+          out(
+            `[DEBUG] Flow zip uploaded (id=${storageRef.id}, supabase=${storageRef.supabaseSuccess}, backblaze=${storageRef.backblazeSuccess})`,
+          );
+          out(`[DEBUG] Submitting flow test to ${apiUrl}/uploads/submitFlowTest`);
+        }
+
+        response = await ApiGateway.submitFlowTest(apiUrl, auth, {
+          ...fields,
+          ...storageRef,
+        });
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 404 || error.status === 405)
+        ) {
+          if (debug) {
+            out(
+              `[DEBUG] Client-direct flow upload unavailable (HTTP ${error.status}); falling back to multipart ${apiUrl}/uploads/flow`,
+            );
+          }
+
+          const testFormData = testSubmissionService.buildFormData(fields, buffer);
+          response = await ApiGateway.uploadFlow(apiUrl, auth, testFormData);
+        } else {
+          throw error;
+        }
       }
 
-      const { message, results } = await ApiGateway.uploadFlow(
-        apiUrl,
-        auth,
-        testFormData,
-      );
+      const { message, results } = response;
 
       if (debug) {
-        out(`[DEBUG] Flow upload response received`);
+        out(`[DEBUG] Flow submission response received`);
         out(`[DEBUG] Message: ${message}`);
         out(`[DEBUG] Results count: ${results?.length || 0}`);
       }

@@ -3,13 +3,13 @@ import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { ApiGateway } from '../../gateways/api-gateway.js';
+import { ApiError, ApiGateway } from '../../gateways/api-gateway.js';
 import { plan } from '../../services/execution-plan.service.js';
 import { computeCommonRoot, buildTestMetadataMap } from '../../services/flow-paths.js';
 import { DeviceValidationService } from '../../services/device-validation.service.js';
 import { TestSubmissionService } from '../../services/test-submission.service.js';
 import { VersionService } from '../../services/version.service.js';
-import { uploadBinary, verifyAppZip } from '../../methods.js';
+import { uploadBinary, uploadFlowZip, verifyAppZip } from '../../methods.js';
 import { getCliVersion } from '../../utils/cli.js';
 import { fetchCompatibilityData } from '../../utils/compatibility.js';
 import { getConsoleUrl } from '../../utils/styling.js';
@@ -197,7 +197,8 @@ export function registerRunCloudTest(server: McpServer): void {
         }
 
         const { continueOnFailure = true } = executionPlan.sequence ?? {};
-        const testFormData = await new TestSubmissionService().buildTestFormData({
+        const testSubmissionService = new TestSubmissionService();
+        const { buffer, fields } = await testSubmissionService.buildTestPayload({
           appBinaryId,
           cliVersion,
           commonRoot,
@@ -217,11 +218,33 @@ export function registerRunCloudTest(server: McpServer): void {
           logger: logStderr,
         });
 
-        const { message, results } = await ApiGateway.uploadFlow(
-          apiUrl,
-          auth,
-          testFormData,
-        );
+        // New path: upload the zip to storage, then submit a JSON test
+        // referencing it. Older API deployments lack these endpoints (404/405);
+        // fall back to the legacy multipart POST /uploads/flow. Mirrors
+        // `dcd cloud`.
+        let response: Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>;
+        try {
+          const storageRef = await uploadFlowZip({ apiUrl, auth, buffer });
+          response = await ApiGateway.submitFlowTest(apiUrl, auth, {
+            ...fields,
+            ...storageRef,
+          });
+        } catch (error) {
+          if (
+            error instanceof ApiError &&
+            (error.status === 404 || error.status === 405)
+          ) {
+            const testFormData = testSubmissionService.buildFormData(
+              fields,
+              buffer,
+            );
+            response = await ApiGateway.uploadFlow(apiUrl, auth, testFormData);
+          } else {
+            throw error;
+          }
+        }
+
+        const { message, results } = response;
         if (!results?.length) {
           throw new Error(`No tests were created: ${message}`);
         }

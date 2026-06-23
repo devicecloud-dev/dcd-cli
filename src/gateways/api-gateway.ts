@@ -12,7 +12,7 @@ import type {
   LiveSession,
   LiveSessionSummary,
 } from '../types/domain/live.types.js';
-import { paths } from '../types/generated/schema.types.js';
+import { components, paths } from '../types/generated/schema.types.js';
 
 /**
  * Error thrown for non-OK API responses, carrying the HTTP status so callers
@@ -507,6 +507,81 @@ export const ApiGateway = {
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/flow`);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * Requests a storage URL for a client-direct flow zip upload. Mirrors
+   * `getBinaryUploadUrl` (same response shape) but stages the zip under
+   * `<orgId>/tests/` instead of the app-binary path. A 404 here means the API
+   * predates the client-direct flow path — callers fall back to `uploadFlow`.
+   */
+  async getFlowUploadUrl(
+    baseUrl: string,
+    auth: AuthContext,
+    fileSize: number,
+  ) {
+    try {
+      const res = await fetch(`${baseUrl}/uploads/getFlowUploadUrl`, {
+        body: JSON.stringify({ fileSize, useTus: true }),
+        headers: {
+          'content-type': 'application/json',
+          ...auth.headers,
+        },
+        method: 'POST',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to get flow upload URL');
+      }
+
+      // Same response shape as getBinaryUploadUrl: { id, tempPath, finalPath, path, b2?, token? }.
+      return await parseJsonResponse<
+        components['schemas']['IGetBinaryUploadUrlResponse']
+      >(res, 'Failed to get flow upload URL');
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, `${baseUrl}/uploads/getFlowUploadUrl`);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * Submits a flow test that references an already-uploaded zip (JSON body, no
+   * multipart). The response is identical to the legacy `POST /uploads/flow`.
+   * A 404 means the API predates this endpoint — callers fall back to
+   * `uploadFlow`.
+   */
+  async submitFlowTest(
+    baseUrl: string,
+    auth: AuthContext,
+    body: Record<string, unknown>,
+  ) {
+    try {
+      const res = await fetch(`${baseUrl}/uploads/submitFlowTest`, {
+        body: JSON.stringify(body),
+        headers: {
+          'content-type': 'application/json',
+          ...auth.headers,
+        },
+        method: 'POST',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to submit test flows');
+      }
+
+      // Identical response to the legacy multipart POST /uploads/flow.
+      return await parseJsonResponse<{
+        message?: string;
+        results?: components['schemas']['IDBResult'][];
+      }>(res, 'Failed to submit test flows');
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, `${baseUrl}/uploads/submitFlowTest`);
       }
 
       throw error;

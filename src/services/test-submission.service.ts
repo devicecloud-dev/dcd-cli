@@ -46,13 +46,17 @@ const mimeTypeLookupByExtension: Record<string, string> = {
  */
 export class TestSubmissionService {
   /**
-   * Build FormData for test submission
+   * Build the test-submission payload: the compressed flow zip plus every
+   * non-`file` field, each encoded exactly as it is sent today. The same
+   * `fields` feed both the new JSON `submitFlowTest` body and the legacy
+   * multipart `buildFormData`, guaranteeing byte-identical field encoding
+   * across both paths.
    * @param config Test submission configuration
-   * @returns FormData ready to be submitted to the API
+   * @returns The flow zip buffer, its SHA-256, and the string-encoded fields
    */
-  public async buildTestFormData(
+  public async buildTestPayload(
     config: TestSubmissionConfig,
-  ): Promise<FormData> {
+  ): Promise<{ buffer: Buffer; fields: Record<string, string>; sha: string }> {
     const {
       appBinaryId,
       flowFile,
@@ -97,8 +101,6 @@ export class TestSubmissionService {
     } = executionPlan;
 
     const { flows: sequentialFlows = [] } = sequence ?? {};
-
-    const testFormData = new FormData();
 
     const envObject = this.parseKeyValuePairs(env);
     const metadataObject = this.parseKeyValuePairs(metadata);
@@ -159,30 +161,25 @@ export class TestSubmissionService {
     const sha = createHash('sha256').update(buffer).digest('hex');
     this.logDebug(debug, logger, `[DEBUG] Flow ZIP SHA-256: ${sha}`);
 
-    const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], {
-      type: mimeTypeLookupByExtension.zip,
-    });
+    // String-encoded fields, in the same order and with the same encoding as
+    // the legacy multipart FormData. Reused verbatim by both submission paths.
+    const fields: Record<string, string> = {};
 
-    testFormData.set('file', blob, 'flowFile.zip');
-    testFormData.set('sha', sha);
-    testFormData.set('appBinaryId', appBinaryId);
-    testFormData.set(
-      'testFileNames',
-      JSON.stringify(this.normalizePaths(testFileNames, commonRoot)),
+    fields.sha = sha;
+    fields.appBinaryId = appBinaryId;
+    fields.testFileNames = JSON.stringify(
+      this.normalizePaths(testFileNames, commonRoot),
     );
-    testFormData.set(
-      'flowMetadata',
-      JSON.stringify(this.normalizePathMap(flowMetadata, commonRoot)),
+    fields.flowMetadata = JSON.stringify(
+      this.normalizePathMap(flowMetadata, commonRoot),
     );
-    testFormData.set(
-      'testFileOverrides',
-      JSON.stringify(this.normalizePathMap(flowOverrides, commonRoot)),
+    fields.testFileOverrides = JSON.stringify(
+      this.normalizePathMap(flowOverrides, commonRoot),
     );
-    testFormData.set(
-      'sequentialFlows',
-      JSON.stringify(this.normalizePaths(sequentialFlows, commonRoot)),
+    fields.sequentialFlows = JSON.stringify(
+      this.normalizePaths(sequentialFlows, commonRoot),
     );
-    testFormData.set('env', JSON.stringify(envObject));
+    fields.env = JSON.stringify(envObject);
     // Note: googlePlay is now included in configPayload below instead of as a separate field
     // to work around a FormData parsing issue in the API
 
@@ -222,11 +219,11 @@ export class TestSubmissionService {
       version: cliVersion,
     };
 
-    testFormData.set('config', JSON.stringify(configPayload));
+    fields.config = JSON.stringify(configPayload);
 
     if (Object.keys(metadataObject).length > 0) {
       const metadataPayload = { userMetadata: metadataObject };
-      testFormData.set('metadata', JSON.stringify(metadataPayload));
+      fields.metadata = JSON.stringify(metadataPayload);
       this.logDebug(
         debug,
         logger,
@@ -234,7 +231,7 @@ export class TestSubmissionService {
       );
     }
 
-    this.setOptionalFields(testFormData, {
+    this.setOptionalFields(fields, {
       androidApiLevel,
       androidDevice,
       iOSDevice,
@@ -244,10 +241,36 @@ export class TestSubmissionService {
     });
 
     if (workspaceConfig) {
-      testFormData.set('workspaceConfig', JSON.stringify(workspaceConfig));
+      fields.workspaceConfig = JSON.stringify(workspaceConfig);
     }
 
-    return testFormData;
+    return { buffer, fields, sha };
+  }
+
+  /**
+   * Wraps the payload fields and flow zip into multipart FormData for the
+   * legacy `POST /uploads/flow` fallback. `file` is set first to preserve the
+   * exact part ordering the old code produced.
+   * @param fields String-encoded fields from {@link buildTestPayload}
+   * @param buffer The compressed flow zip
+   * @returns FormData ready to be submitted to the multipart API
+   */
+  public buildFormData(
+    fields: Record<string, string>,
+    buffer: Buffer,
+  ): FormData {
+    const formData = new FormData();
+
+    const blob = new Blob([buffer as Uint8Array<ArrayBuffer>], {
+      type: mimeTypeLookupByExtension.zip,
+    });
+    formData.set('file', blob, 'flowFile.zip');
+
+    for (const [key, value] of Object.entries(fields)) {
+      formData.set(key, value);
+    }
+
+    return formData;
   }
 
   private logDebug(
@@ -291,12 +314,12 @@ export class TestSubmissionService {
   }
 
   private setOptionalFields(
-    formData: FormData,
+    target: Record<string, string>,
     fields: Record<string, string | undefined>,
   ): void {
     for (const [key, value] of Object.entries(fields)) {
       if (value) {
-        formData.set(key, value.toString());
+        target[key] = value.toString();
       }
     }
   }
