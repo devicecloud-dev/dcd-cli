@@ -19,7 +19,7 @@ import { CliError, getCliVersion, logger } from './utils/cli.js';
 
 // @clack/prompts ships the US spelling ("Canceled") for its built-in
 // spinner/prompt cancellation message; align it with the British spelling
-// ("Cancelled") used everywhere else in the CLI. Runs once before any prompt.
+// ("Cancelled") used everywhere else in the CLI.
 updateSettings({ messages: { cancel: 'Cancelled' } });
 
 const main = defineCommand({
