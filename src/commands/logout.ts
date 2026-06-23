@@ -4,11 +4,12 @@
  */
 import { defineCommand } from 'citty';
 
-import { ENVIRONMENTS } from '../config/environments';
-import { CliAuthGateway } from '../gateways/cli-auth-gateway';
-import { logger } from '../utils/cli';
-import { clearConfig, getConfigPath, readConfig } from '../utils/config-store';
-import { colors, symbols } from '../utils/styling';
+import { ENVIRONMENTS } from '../config/environments.js';
+import { CliAuthGateway } from '../gateways/cli-auth-gateway.js';
+import { logger } from '../utils/cli.js';
+import { clearConfig, getConfigPath, readConfig } from '../utils/config-store.js';
+import { colors } from '../utils/styling.js';
+import { ui } from '../utils/ui.js';
 
 export const logoutCommand = defineCommand({
   meta: {
@@ -18,7 +19,7 @@ export const logoutCommand = defineCommand({
   async run() {
     const config = readConfig();
     if (!config?.session) {
-      logger.log(`${symbols.info} No active session found (${colors.dim(getConfigPath())}).`);
+      logger.log(ui.info(`No active session found (${colors.dim(getConfigPath())}).`));
       clearConfig();
       return;
     }
@@ -26,7 +27,7 @@ export const logoutCommand = defineCommand({
     const { anonKey } = ENVIRONMENTS[config.env].supabase;
     await CliAuthGateway.signOut(config.supabase_url, anonKey, config.session);
     clearConfig();
-    logger.log(`${symbols.success} Logged out ${colors.dim(`(${config.session.user_email})`)}.`);
+    logger.log(ui.success(`Logged out ${colors.dim(`(${config.session.user_email})`)}`));
   },
 });
 

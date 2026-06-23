@@ -1,4 +1,4 @@
-import { CompatibilityData } from '../utils/compatibility';
+import { CompatibilityData } from '../utils/compatibility.js';
 
 const DEFAULT_MANIFEST_URL = 'https://get.devicecloud.dev/latest.json';
 const MANIFEST_TIMEOUT_MS = 3000;

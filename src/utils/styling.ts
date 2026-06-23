@@ -1,6 +1,6 @@
-import chalk = require('chalk');
+import chalk from 'chalk';
 
-import { findEnvByApiUrl } from '../config/environments';
+import { findEnvByApiUrl } from '../config/environments.js';
 
 /**
  * Centralized styling utilities for CLI output
@@ -9,7 +9,7 @@ import { findEnvByApiUrl } from '../config/environments';
 
 /** Strip ANSI color escape sequences for visible-width calculations. */
 // eslint-disable-next-line no-control-regex -- matches ANSI escape sequences
-const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '');
+export const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '');
 
 /**
  * Status symbols with associated colors
@@ -41,81 +41,77 @@ export const colors = {
 } as const;
 
 /**
- * Dividers for visual separation
+ * Structural glyphs that give the CLI its tree-shaped layout. `section` marks a
+ * top-level heading; `branch` opens the group of detail rows beneath it.
+ * See STYLE_GUIDE.md.
  */
-export const dividers = {
-  heavy: chalk.gray('═'.repeat(80)),
-  light: chalk.gray('─'.repeat(80)),
-  short: chalk.gray('─'.repeat(40)),
+export const glyphs = {
+  branch: '⎿',
+  section: '⏺',
 } as const;
 
 /**
- * Format a status with appropriate symbol and color
- * @param status - The status string to format
- * @returns Formatted status string with color and symbol
+ * The single source of truth mapping a run/test status to its colour and
+ * (already-coloured) symbol. Both {@link formatStatus} and the `ui` status
+ * helpers build on this, so every status reads identically everywhere.
+ * @param status - The status string (case-insensitive)
  */
-export function formatStatus(status: string): string {
-  const statusUpper = status.toUpperCase();
-
-  switch (statusUpper) {
+export function statusPalette(status: string): {
+  color: (s: string) => string;
+  symbol: string;
+} {
+  switch (status.toUpperCase()) {
     case 'PASSED': {
-      return `${symbols.success} ${colors.success(status)}`;
+      return { color: colors.success, symbol: symbols.success };
     }
 
+    case 'ERROR':
     case 'FAILED': {
-      return `${symbols.error} ${colors.error(status)}`;
+      return { color: colors.error, symbol: symbols.error };
     }
 
     case 'RUNNING': {
-      return `${symbols.running} ${colors.info(status)}`;
+      return { color: colors.info, symbol: symbols.running };
     }
 
     case 'PENDING': {
-      return `${symbols.pending} ${colors.warning(status)}`;
+      return { color: colors.warning, symbol: symbols.pending };
     }
 
     case 'QUEUED': {
-      return `${symbols.queued} ${colors.dim(status)}`;
+      return { color: colors.dim, symbol: symbols.queued };
     }
 
     case 'CANCELLED': {
-      return `${symbols.cancelled} ${colors.dim(status)}`;
+      return { color: colors.dim, symbol: symbols.cancelled };
     }
 
     default: {
-      return `${symbols.unknown} ${colors.dim(status)}`;
+      return { color: colors.dim, symbol: symbols.unknown };
     }
   }
 }
 
 /**
- * Format a section header
+ * Format a status as a coloured symbol followed by the lowercased status word,
+ * e.g. `✓ passed`.
+ * @param status - The status string to format
+ * @returns Formatted status string with color and symbol
+ */
+export function formatStatus(status: string): string {
+  const { color, symbol } = statusPalette(status);
+  return `${symbol} ${color(status.toLowerCase())}`;
+}
+
+/**
+ * Format a top-level section header in the tree style: a `⏺` marker followed by
+ * the bold title, preceded by a blank line for separation. Detail rows belong
+ * underneath in a branch group (see the `ui` helpers).
  * @param title - The title of the section
  * @returns Formatted section header
  */
 export function sectionHeader(title: string): string {
-  return `\n${colors.bold(title)}\n${dividers.light}`;
-}
-
-/**
- * Format a key-value pair with optional icon
- * @param icon - Icon to display before the key
- * @param key - The key name
- * @param value - The value to display
- * @returns Formatted key-value string
- */
-export function keyValue(icon: string, key: string, value: string): string {
-  return `${icon} ${colors.dim(key + ':')} ${colors.highlight(value)}`;
-}
-
-/**
- * Format a list item
- * @param text - The text of the list item
- * @param prefix - The prefix character (default: '•')
- * @returns Formatted list item
- */
-export function listItem(text: string, prefix: string = '•'): string {
-  return `${colors.dim(prefix)} ${text}`;
+  return `\n${colors.dim(glyphs.section)} ${colors.bold(title)}`;
 }
 
 /**
@@ -160,24 +156,6 @@ export function formatTestSummary(summary: {
   ];
 
   return parts.join(' │ ');
-}
-
-/**
- * Format a box with content
- * @param content - The content to display in the box
- * @returns Formatted box with borders
- */
-export function box(content: string): string {
-  const lines = content.split('\n');
-  const visibleLen = (s: string): number => stripAnsi(s).length;
-  const maxLength = Math.max(...lines.map((l) => visibleLen(l)));
-  const top = chalk.gray('┌' + '─'.repeat(maxLength + 2) + '┐');
-  const bottom = chalk.gray('└' + '─'.repeat(maxLength + 2) + '┘');
-  const middle = lines
-    .map((line) => chalk.gray('│ ') + line + ' '.repeat(Math.max(0, maxLength - visibleLen(line))) + chalk.gray(' │'))
-    .join('\n');
-
-  return `${top}\n${middle}\n${bottom}`;
 }
 
 /**

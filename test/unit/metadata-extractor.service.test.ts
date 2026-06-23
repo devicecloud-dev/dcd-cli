@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import {
   AndroidMetadataExtractor,
   MetadataExtractorService,
-} from '../../src/services/metadata-extractor.service';
+} from '../../src/services/metadata-extractor.service.js';
 
 const WIKIPEDIA_APK = path.resolve('test/fixtures/wikipedia.apk');
 

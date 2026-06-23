@@ -1,4 +1,4 @@
-import { ux } from './utils/progress';
+import { ux } from './utils/progress.js';
 import { createHash } from 'node:crypto';
 import {
   createReadStream,
@@ -11,16 +11,16 @@ import { access, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import * as StreamZip from 'node-stream-zip';
+import StreamZip from 'node-stream-zip';
 import * as yazl from 'yazl';
 
-import { inferEnvFromApiUrl } from './config/environments';
-import { ApiError, ApiGateway } from './gateways/api-gateway';
-import { SupabaseGateway } from './gateways/supabase-gateway';
-import { MetadataExtractorService } from './services/metadata-extractor.service';
-import { TAppMetadata } from './types';
-import type { AuthContext } from './types/domain/auth.types';
-import { colors, formatId } from './utils/styling';
+import { inferEnvFromApiUrl } from './config/environments.js';
+import { ApiError, ApiGateway } from './gateways/api-gateway.js';
+import { SupabaseGateway } from './gateways/supabase-gateway.js';
+import { MetadataExtractorService } from './services/metadata-extractor.service.js';
+import { TAppMetadata } from './types.js';
+import type { AuthContext } from './types/domain/auth.types.js';
+import { colors, formatId } from './utils/styling.js';
 
 const mimeTypeLookupByExtension: Record<string, string> = {
   apk: 'application/vnd.android.package-archive',
@@ -613,11 +613,14 @@ async function requestUploadPaths(
     if (error instanceof Error) {
       if (error.name === 'NetworkError') {
         throw new Error(
-          `Failed to request upload URL from API.\n\n${error.message}`
+          `Failed to request upload URL from API.\n\n${error.message}`,
+          { cause: error }
         );
       }
 
-      throw new Error(`Failed to request upload URL: ${error.message}`);
+      throw new Error(`Failed to request upload URL: ${error.message}`, {
+        cause: error,
+      });
     }
 
     throw error;
@@ -713,12 +716,12 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
   let lastError = backblazeResult.error;
 
   // Always upload to Supabase (re-enabled as always-on alongside Backblaze)
-  let supabaseResult: { error: Error | null; success: boolean } = { error: null, success: false };
   if (debug) {
     console.log('[DEBUG] Uploading to Supabase...');
   }
 
-  supabaseResult = await uploadToSupabase(env, tempPath, source, debug);
+  const supabaseResult: { error: Error | null; success: boolean } =
+    await uploadToSupabase(env, tempPath, source, debug);
   if (!supabaseResult.success && supabaseResult.error) {
     lastError = supabaseResult.error;
   }
@@ -1055,7 +1058,9 @@ async function uploadPartToBackblaze(config: UploadPartConfig): Promise<void> {
         console.error(`[DEBUG] Network error uploading part ${partNumber} - could be DNS, connection, or SSL issue`);
       }
 
-      throw new Error(`Part ${partNumber} upload failed due to network error`);
+      throw new Error(`Part ${partNumber} upload failed due to network error`, {
+        cause: error,
+      });
     }
 
     throw error;

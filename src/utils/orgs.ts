@@ -4,7 +4,7 @@
  */
 import * as p from '@clack/prompts';
 
-import { CliError } from './cli';
+import { CliError } from './cli.js';
 
 export interface OrgListItem {
   id: string;

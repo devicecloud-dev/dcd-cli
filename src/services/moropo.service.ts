@@ -1,11 +1,11 @@
-import { ux } from '../utils/progress';
+import { ux } from '../utils/progress.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import StreamZip = require('node-stream-zip');
+import StreamZip from 'node-stream-zip';
 
 export interface MoropoDownloadOptions {
   apiKey: string;
@@ -101,7 +101,9 @@ export class MoropoService {
       }
 
       this.logDebug(debug, logger, `[DEBUG] Error downloading/extracting Moropo tests: ${error}`);
-      throw new Error(`Failed to download/extract Moropo tests: ${error}`);
+      throw new Error(`Failed to download/extract Moropo tests: ${error}`, {
+        cause: error,
+      });
     }
   }
 

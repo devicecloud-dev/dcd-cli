@@ -20,14 +20,15 @@ import { pipeline } from 'node:stream/promises';
 
 import { defineCommand } from 'citty';
 
-import { VersionService } from '../services/version.service';
+import { VersionService } from '../services/version.service.js';
 import {
   CliError,
   getCliVersion,
   getInstallMethod,
   logger,
-} from '../utils/cli';
-import { colors, symbols } from '../utils/styling';
+} from '../utils/cli.js';
+import { colors } from '../utils/styling.js';
+import { ui } from '../utils/ui.js';
 
 const DEFAULT_DOWNLOAD_BASE = 'https://get.devicecloud.dev';
 
@@ -66,7 +67,7 @@ export const upgradeCommand = defineCommand({
 
     if (!versionService.isOutdated(current, latest)) {
       logger.log(
-        `${symbols.success} Already on the latest version (${colors.highlight(current)}).`,
+        ui.success(`Already on the latest version (${colors.highlight(current)})`),
       );
       return;
     }
@@ -94,9 +95,9 @@ export const upgradeCommand = defineCommand({
     const sumsUrl = `${base}/download/${latest}/SHA256SUMS`;
 
     logger.log(
-      `${symbols.info} Upgrading ${colors.highlight(current)} → ${colors.highlight(latest)}`,
+      ui.info(`Upgrading ${colors.highlight(current)} → ${colors.highlight(latest)}`),
     );
-    logger.log(colors.dim(`  ${binaryUrl}`));
+    logger.log(ui.note(`  ${binaryUrl}`));
 
     const execPath = process.execPath;
     const tmpPath = `${execPath}.new`;
@@ -121,7 +122,7 @@ export const upgradeCommand = defineCommand({
       );
     }
 
-    logger.log(`${symbols.success} Upgraded to ${colors.highlight(latest)}`);
+    logger.log(ui.success(`Upgraded to ${colors.highlight(latest)}`));
   },
 });
 

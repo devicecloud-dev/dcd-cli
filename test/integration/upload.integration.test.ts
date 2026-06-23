@@ -10,7 +10,7 @@ import {
   MOCK_API_URL,
   exec,
   runExpectingFailure,
-} from './helpers';
+} from './helpers.js';
 
 describe('Upload Command Integration Tests', () => {
   const mockApiUrl = MOCK_API_URL;
@@ -122,7 +122,7 @@ describe('Upload Command Integration Tests', () => {
 
       const { stdout } = await exec(command, { timeout: 30_000 });
       expect(stdout).to.include('Upload complete');
-      expect(stdout).to.include('Binary ID');
+      expect(stdout).to.include('binary id');
       expect(stdout).to.include('dcd cloud --app-binary-id');
       // Should not be JSON format
       expect(() => JSON.parse(stdout)).to.throw();

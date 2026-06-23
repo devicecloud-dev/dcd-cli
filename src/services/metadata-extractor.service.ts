@@ -1,9 +1,15 @@
-import { parseBuffer } from 'bplist-parser';
-import { Apk } from 'node-apk';
+import bplistParser from 'bplist-parser';
+import nodeApk from 'node-apk';
 import { readFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
-import * as StreamZip from 'node-stream-zip';
+import StreamZip from 'node-stream-zip';
 import { parse } from 'plist';
+
+// node-apk and bplist-parser are CJS with no `exports` map; Node's named-export
+// detection for CJS (cjs-module-lexer) is version-dependent, so destructure off
+// the default import instead — that interop is guaranteed on every Node version.
+const { Apk } = nodeApk;
+const { parseBuffer } = bplistParser;
 
 export interface TAppMetadata {
   appId: string;
@@ -136,7 +142,7 @@ export class ExpoTarGzMetadataExtractor implements IMetadataExtractor {
   }
 
   async extract(filePath: string): Promise<TAppMetadata> {
-    const { extractTarGz, findAppBundle } = await import('../utils/expo');
+    const { extractTarGz, findAppBundle } = await import('../utils/expo.js');
     const extractDir = await extractTarGz(filePath, false);
     try {
       const appPath = await findAppBundle(extractDir);

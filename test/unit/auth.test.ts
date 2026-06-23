@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { resolveAuth } from '../../src/utils/auth';
+import { resolveAuth } from '../../src/utils/auth.js';
 import {
   clearConfig,
   configFileMode,
@@ -11,7 +11,7 @@ import {
   readConfig,
   resolveApiUrl,
   writeConfig,
-} from '../../src/utils/config-store';
+} from '../../src/utils/config-store.js';
 
 const ORIGINAL_ENV = { ...process.env };
 

@@ -1,10 +1,10 @@
 import { defineCommand } from 'citty';
 
-import { apiFlags } from '../config/flags/api.flags';
-import { ReportDownloadService } from '../services/report-download.service';
-import { resolveAuth } from '../utils/auth';
-import { CliError, logger, validateEnum } from '../utils/cli';
-import { resolveApiUrl } from '../utils/config-store';
+import { apiFlags } from '../config/flags/api.flags.js';
+import { ReportDownloadService } from '../services/report-download.service.js';
+import { resolveAuth } from '../utils/auth.js';
+import { CliError, logger, validateEnum } from '../utils/cli.js';
+import { resolveApiUrl } from '../utils/config-store.js';
 
 const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
 const REPORT_OPTIONS = ['allure', 'html', 'html-detailed', 'junit'] as const;

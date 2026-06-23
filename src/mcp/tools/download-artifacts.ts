@@ -3,9 +3,9 @@ import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { ReportDownloadService } from '../../services/report-download.service';
-import { getContext, logStderr } from '../context';
-import { jsonResult, runTool } from '../helpers';
+import { ReportDownloadService } from '../../services/report-download.service.js';
+import { getContext, logStderr } from '../context.js';
+import { jsonResult, runTool } from '../helpers.js';
 
 /**
  * Download a completed run's artifacts (zip) and/or a formatted report to local

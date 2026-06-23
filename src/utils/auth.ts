@@ -9,19 +9,19 @@
  */
 import { closeSync, openSync, rmSync, statSync } from 'node:fs';
 
-import { ENVIRONMENTS } from '../config/environments';
-import { CliAuthGateway } from '../gateways/cli-auth-gateway';
-import { telemetry } from '../services/telemetry.service';
-import type { AuthContext } from '../types/domain/auth.types';
+import { ENVIRONMENTS } from '../config/environments.js';
+import { CliAuthGateway } from '../gateways/cli-auth-gateway.js';
+import { telemetry } from '../services/telemetry.service.js';
+import type { AuthContext } from '../types/domain/auth.types.js';
 
-import { CliError } from './cli';
+import { CliError } from './cli.js';
 import {
   StoredConfig,
   StoredSession,
   getConfigPath,
   readConfig,
   writeConfig,
-} from './config-store';
+} from './config-store.js';
 
 const REFRESH_SKEW_SECONDS = 60;
 // Refresh lock tuning: a refresh is a single HTTP round-trip, so anything
@@ -91,6 +91,8 @@ export async function resolveAuth(
 
   const auth: AuthContext = {
     mode: 'bearer',
+    accessToken: session.access_token,
+    env: config.env,
     orgId: config.current_org_id,
     userEmail: session.user_email,
     headers: {

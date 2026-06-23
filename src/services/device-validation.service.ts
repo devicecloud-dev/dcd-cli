@@ -1,5 +1,5 @@
-import { EAndroidDevices, EiOSDevices } from '../types/domain/device.types';
-import { CompatibilityData } from '../utils/compatibility';
+import { EAndroidDevices, EiOSDevices } from '../types/domain/device.types.js';
+import { CompatibilityData } from '../utils/compatibility.js';
 
 export interface DeviceValidationOptions {
   debug?: boolean;

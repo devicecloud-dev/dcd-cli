@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { liveCommand } from '../../src/commands/live';
+import { liveCommand } from '../../src/commands/live.js';
 
 /**
  * Regression coverage for #15: citty invokes a parent command's `run` *after*

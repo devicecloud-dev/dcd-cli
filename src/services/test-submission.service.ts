@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 
-import { compressFilesFromRelativePath } from '../methods';
-import { toPortableRelativePath } from '../utils/paths';
-import { IExecutionPlan } from './execution-plan.service';
+import { compressFilesFromRelativePath } from '../methods.js';
+import { toPortableRelativePath } from '../utils/paths.js';
+import { IExecutionPlan } from './execution-plan.service.js';
 
 export interface TestSubmissionConfig {
   androidApiLevel?: string;
