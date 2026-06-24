@@ -106,6 +106,6 @@ Found a security issue? Please **don't** open a public issue — see
 
 ## License
 
-[MIT](LICENSE) © devicecloud.dev
+[MIT](LICENSE) © Moropo Ltd t/a DeviceCloud
 
 
