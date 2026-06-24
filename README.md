@@ -92,3 +92,20 @@ A [gitleaks](https://github.com/gitleaks/gitleaks) scan runs in two places, both
 - **CI** — the `secret-scan` job scans the full history on every push and pull request, and is the enforced backstop regardless of local setup.
 
 
+## Contributing
+
+Contributions are welcome! Read **[CONTRIBUTING.md](CONTRIBUTING.md)** for local
+setup, our commit/PR conventions (Conventional Commit PR titles, squash-merge),
+and how releases work. All contributors sign our
+[Contributor License Agreement](CLA.md) — the bot prompts you on your first PR —
+and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Found a security issue? Please **don't** open a public issue — see
+[SECURITY.md](SECURITY.md).
+
+
+## License
+
+[MIT](LICENSE) © devicecloud.dev
+
+
