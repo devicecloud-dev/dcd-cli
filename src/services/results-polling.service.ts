@@ -166,6 +166,7 @@ export class ResultsPollingService {
         realtimeEnabled,
         subscription?.isConnected() ?? false,
         nextPollAt,
+        quiet,
       );
       ux.action.status = footer ? `${statusBody}\n${footer}` : statusBody;
     };
@@ -644,12 +645,13 @@ export class ResultsPollingService {
    * Build the live footer shown under the status display: whether realtime
    * updates are connected (for logged-in users) and how long until the next
    * backstop poll. While a fetch is in flight (`nextPollAt` is null) the
-   * countdown reads "refreshing…".
+   * countdown reads "refreshing…". In quiet mode the countdown is omitted.
    */
   private buildStatusFooter(
     realtimeEnabled: boolean,
     realtimeConnected: boolean,
     nextPollAt: null | number,
+    quiet: boolean,
   ): string {
     const parts: string[] = [];
 
@@ -661,11 +663,15 @@ export class ResultsPollingService {
       );
     }
 
-    if (nextPollAt === null) {
-      parts.push(colors.dim('refreshing…'));
-    } else {
-      const secondsLeft = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
-      parts.push(colors.dim(`next refresh in ${secondsLeft}s`));
+    // The countdown to the next backstop poll is noise in quiet mode (geared at
+    // CI), so suppress it there while keeping the realtime indicator.
+    if (!quiet) {
+      if (nextPollAt === null) {
+        parts.push(colors.dim('refreshing…'));
+      } else {
+        const secondsLeft = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
+        parts.push(colors.dim(`next refresh in ${secondsLeft}s`));
+      }
     }
 
     return parts.join(colors.dim('  ·  '));
