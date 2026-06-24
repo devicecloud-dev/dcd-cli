@@ -171,6 +171,14 @@ const startSub = defineCommand({
       throw new CliError('--android-device and --android-api-level must be provided together.');
     }
 
+    logger.log(ui.warn(colors.bold('Live is in beta')));
+    logger.log(
+      ui.branch([
+        'Live device sessions are a beta feature, billed at $0.03/min.',
+        `${colors.dim('Not enrolled?')} Contact support to request access.`,
+      ]),
+    );
+
     logger.log(ui.running(`Starting ${platform} live session…`));
 
     const session = await ApiGateway.startLiveSession(apiUrl, auth, {
