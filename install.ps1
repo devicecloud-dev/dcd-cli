@@ -4,7 +4,8 @@
 #   irm https://get.devicecloud.dev/install.ps1 | iex
 #
 # Env vars:
-#   DCD_VERSION       Pin a specific version (default: latest)
+#   DCD_VERSION       Pin a specific version, e.g. for rollback (default: latest stable)
+#   DCD_BETA          Set to any value to install the latest beta/prerelease (opt-in)
 #   DCD_INSTALL_DIR   Override install location (default: $env:USERPROFILE\.dcd\bin)
 #   DCD_DOWNLOAD_BASE Override the download host (default: https://get.devicecloud.dev)
 
@@ -25,13 +26,39 @@ if ([Environment]::Is64BitOperatingSystem -ne $true) {
 $asset = 'dcd-windows-x64.exe'
 
 # --- resolve version ---
+# Precedence: explicit DCD_VERSION pin > DCD_BETA opt-in > latest stable.
 if ($env:DCD_VERSION) {
     $version = $env:DCD_VERSION
 } else {
-    Write-Host 'Resolving latest version...'
-    $manifest = Invoke-RestMethod -Uri "$DownloadBase/latest.json"
+    if ($env:DCD_BETA) {
+        Write-Host 'Resolving latest beta version...'
+        $manifestUrl = "$DownloadBase/latest.json?channel=beta"
+        $channel = 'beta'
+    } else {
+        Write-Host 'Resolving latest version...'
+        $manifestUrl = "$DownloadBase/latest.json"
+        $channel = 'stable'
+    }
+    try {
+        $manifest = Invoke-RestMethod -Uri $manifestUrl
+    } catch {
+        throw "Could not reach $manifestUrl"
+    }
+    # A null version means the channel has no release yet (HTTP 200), as opposed
+    # to a transient failure (which throws above). Stable is the default and beta
+    # is strictly opt-in, so refuse to silently fall back to a prerelease.
     $version = $manifest.version
-    if (-not $version) { throw "Could not resolve latest version from $DownloadBase/latest.json" }
+    if (-not $version) {
+        if ($channel -eq 'stable') {
+            throw @"
+No stable dcd release is available yet.
+  Install the latest beta:  `$env:DCD_BETA=1; irm '$DownloadBase/install.ps1' | iex
+  Or pin a version:         `$env:DCD_VERSION='5.0.0-beta.1'; irm '$DownloadBase/install.ps1' | iex
+"@
+        } else {
+            throw "No beta release is available yet from $manifestUrl"
+        }
+    }
 }
 
 $url     = "$DownloadBase/download/$version/$asset"
