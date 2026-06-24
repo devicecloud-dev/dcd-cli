@@ -30,10 +30,17 @@ permissions:
 jobs:
   cla:
     runs-on: ubuntu-latest
+    # Empty until the PERSONAL_ACCESS_TOKEN secret is configured (see SETUP above).
+    # While empty, the action step below is skipped so this check passes (green)
+    # instead of failing on every PR with "Branch cla-signatures not found". It
+    # auto-activates once the secret + cla-signatures branch exist.
+    env:
+      HAS_CLA_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN != '' }}
     # Only act on the signature comment or on PR events (not every comment).
     if: (github.event.issue.pull_request && contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')) || github.event_name == 'pull_request_target'
     steps:
       - uses: contributor-assistant/github-action@v2.6.1
+        if: env.HAS_CLA_TOKEN == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -44,6 +51,6 @@ jobs:
           # PR target branches the CLA applies to.
           allowlist: dependabot[bot],renovate[bot],*[bot]
           # Customise the bot's prompts if desired:
-          custom-notsigned-prompt: "Thanks for your contribution! Please sign our Contributor License Agreement before we can merge. Comment the line below to sign:"
+          custom-notsigned-prcomment: "Thanks for your contribution! Please sign our Contributor License Agreement before we can merge. Comment the line below to sign:"
           custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
-          custom-allsigned-prompt: "All contributors have signed the CLA. ✍️ ✅"
+          custom-allsigned-prcomment: "All contributors have signed the CLA. ✍️ ✅"
