@@ -44,7 +44,7 @@ jobs:
     # Only act on the signature comment or on PR events (not every comment).
     if: (github.event.issue.pull_request && contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')) || github.event_name == 'pull_request_target'
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         if: env.HAS_APP == 'true'
         with:
