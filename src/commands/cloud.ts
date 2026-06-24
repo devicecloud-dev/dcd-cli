@@ -461,6 +461,21 @@ export const cloudCommand = defineCommand({
         logger: (m: string) => out(m),
       });
 
+      // iOS 16 deprecation notice (soft warning during the grace period;
+      // removed on 23 August 2026). Only fires on an explicit --ios-version 16 —
+      // when omitted the API defaults to iOS 17, so no false warning.
+      const DEPRECATED_IOS_VERSIONS = ['16'];
+      if (iOSVersion && DEPRECATED_IOS_VERSIONS.includes(iOSVersion)) {
+        warnOut(ui.warn(colors.bold('iOS 16 is deprecated')));
+        warnOut(
+          ui.branch([
+            'iOS 16 will be removed on 23 August 2026; after that, tests targeting it will fail.',
+            'Switch to iOS 17 or newer — iPhone 14 also supports 17 and 18.',
+            `${colors.dim('See:')} ${colors.url('https://docs.devicecloud.dev/getting-started/devices-configuration')}`,
+          ]),
+        );
+      }
+
       deviceValidationService.validateAndroidDevice(
         androidApiLevel,
         androidDevice,
