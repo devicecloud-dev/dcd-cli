@@ -12,10 +12,11 @@ on:
 
 jobs:
   claude-review:
-    # The review needs CLAUDE_CODE_OAUTH_TOKEN, which is NOT exposed to PRs that
-    # run without secrets — Dependabot PRs and PRs from forks. Skip them so the
-    # check doesn't fail with an empty token; same-repo PRs only.
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    # Skip PRs we shouldn't (or can't) review:
+    #  - Dependabot / forks: no CLAUDE_CODE_OAUTH_TOKEN, so the action would fail.
+    #  - release-please release PRs: just version bumps + changelog — nothing to
+    #    review, and it must never block a release.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
