@@ -59,6 +59,11 @@ jobs:
           path-to-signatures: "signatures/version1/cla.json"
           path-to-document: "https://github.com/devicecloud-dev/dcd-cli/blob/dev/CLA.md"
           branch: "cla-signatures"
+          # Do NOT lock the PR on merge (the action's default is true). release-please
+          # comments on its release PR *after* merge; a locked conversation makes that
+          # comment fail and takes down the whole Release job (npm publish + binaries
+          # never run). Keeping this false is load-bearing for the release pipeline.
+          lock-pullrequest-aftermerge: false
           # Internal maintainers (covered by employment/CCLA) + bots skip the prompt.
           allowlist: riglar,finalerock44,dependabot[bot],renovate[bot],*[bot]
           # Customise the bot's prompts if desired:
