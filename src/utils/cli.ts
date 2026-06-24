@@ -12,9 +12,19 @@ import { telemetry } from '../services/telemetry.service.js';
 
 import { symbols } from './styling.js';
 
-// Resolve version at runtime — read the file rather than importing it, so
-// package.json never gets pulled into the tsc program / dist rootDir.
+// Resolve version at runtime. The bun-compiled binary can't read package.json
+// off disk (it isn't bundled next to the embedded module), so the build stamps
+// the version in via `bun --define __DCD_CLI_VERSION__` (see
+// scripts/build-binaries.mjs). Prefer that constant; on the npm/tsx path the
+// identifier was never defined, so `typeof` is 'undefined' (no ReferenceError)
+// and we fall back to reading package.json.
 export function getCliVersion(): string {
+  if (
+    typeof __DCD_CLI_VERSION__ === 'string' &&
+    __DCD_CLI_VERSION__.length > 0
+  ) {
+    return __DCD_CLI_VERSION__;
+  }
   try {
     const pkg = JSON.parse(
       readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
@@ -114,8 +124,7 @@ export function validateEnum<T extends string>(
 /**
  * Coerce a flag value (possibly a single string, array, or undefined) into a
  * flat string array. Comma-separated values inside each entry are split out.
- * Used for repeatable flags like --include-tags, --env, --metadata where citty
- * surfaces a string (single use) or string[] (repeated).
+ * Pair with {@link collectRepeatedFlag} for repeatable flags.
  */
 export function coerceArray(
   value: string | string[] | undefined,
@@ -125,6 +134,40 @@ export function coerceArray(
   const arr = Array.isArray(value) ? value : [value];
   if (!split) return arr;
   return arr.flatMap((v) => v.split(','));
+}
+
+/**
+ * Collect every occurrence of a repeatable flag from raw argv, in order.
+ *
+ * citty 0.2.2 delegates to Node's `parseArgs`, which — without `multiple: true`
+ * (unsupported by citty's ArgsDef) — keeps only the LAST value of a repeated
+ * `type: 'string'` flag. So `-e A=1 -e B=2` collapses to just `B=2`. We recover
+ * all occurrences by scanning rawArgs ourselves (same approach as
+ * `recoverFlagValue` in commands/live.ts).
+ *
+ * `names` lists every spelling of one logical flag, e.g. ['--env', '-e'].
+ * Handles both `--flag value` (consuming the next token, so values starting
+ * with `-` survive) and `--flag=value`. Feed the result through
+ * {@link coerceArray} for comma-splitting where appropriate.
+ */
+export function collectRepeatedFlag(
+  rawArgs: string[],
+  names: string[],
+): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    const arg = rawArgs[i];
+    const eqName = names.find((n) => arg.startsWith(`${n}=`));
+    if (eqName) {
+      out.push(arg.slice(eqName.length + 1));
+      continue;
+    }
+    if (names.includes(arg) && i + 1 < rawArgs.length) {
+      out.push(rawArgs[i + 1]);
+      i++; // consume the value so a leading-dash value isn't re-read as a flag
+    }
+  }
+  return out;
 }
 
 /**

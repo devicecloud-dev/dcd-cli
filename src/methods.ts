@@ -924,8 +924,9 @@ async function uploadToBackblaze(
         console.error(`[DEBUG] Backblaze upload failed with status ${response.status}: ${errorText}`);
       }
 
-      // Don't throw - we don't want Backblaze failures to block the primary upload
-      console.warn(`Warning: Backblaze upload failed with status ${response.status}`);
+      // Don't throw and don't warn — Backblaze is the primary attempt and the
+      // Supabase fallback usually recovers. A user-facing error is raised only
+      // if every strategy fails (see validateUploadResults).
       return false;
     }
 
@@ -950,13 +951,10 @@ async function uploadToBackblaze(
       if (debug) {
         console.error('[DEBUG] Network error detected - could be DNS, connection, or SSL issue');
       }
-
-      console.warn('Warning: Backblaze upload failed due to network error');
-    } else {
-      // Don't throw - we don't want Backblaze failures to block the primary upload
-      console.warn(`Warning: Backblaze upload failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    // Don't throw and don't warn — the Supabase fallback usually recovers, and
+    // validateUploadResults raises a user-facing error only if all fail.
     return false;
   }
 }
@@ -1088,11 +1086,9 @@ function logBackblazeUploadError(error: unknown, debug: boolean): void {
     }
   }
 
-  if (error instanceof Error && error.message.includes('network error')) {
-    console.warn('Warning: Backblaze large file upload failed due to network error');
-  } else {
-    console.warn(`Warning: Backblaze large file upload failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  // No user-facing warning: Backblaze is the primary attempt and the Supabase
+  // fallback usually recovers; validateUploadResults raises the only
+  // user-facing error, and only when every strategy fails.
 }
 
 /**

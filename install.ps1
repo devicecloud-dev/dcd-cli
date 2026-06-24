@@ -75,7 +75,15 @@ try {
     Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
 
     # --- verify checksum ---
-    $sums = (Invoke-WebRequest -Uri $sumsUrl -UseBasicParsing).Content
+    # GitHub serves SHA256SUMS as application/octet-stream, so under
+    # -UseBasicParsing on Windows PowerShell 5.x .Content comes back as a
+    # Byte[] (not a string) and -split would never match. Decode to UTF-8 text.
+    $sumsResp = Invoke-WebRequest -Uri $sumsUrl -UseBasicParsing
+    $sums = if ($sumsResp.Content -is [byte[]]) {
+        [System.Text.Encoding]::UTF8.GetString($sumsResp.Content)
+    } else {
+        [string]$sumsResp.Content
+    }
     $expected = ($sums -split "`n" |
         Where-Object { $_ -match "^([a-f0-9]{64})\s+$([regex]::Escape($asset))\s*$" } |
         ForEach-Object { $matches[1] } |
@@ -83,7 +91,7 @@ try {
     if (-not $expected) { throw "SHA256SUMS has no entry for $asset" }
     $actual = (Get-FileHash -Path $tmp -Algorithm SHA256).Hash.ToLower()
     if ($expected -ne $actual) {
-        throw "Checksum mismatch for $asset: expected $expected, got $actual"
+        throw "Checksum mismatch for ${asset}: expected $expected, got $actual"
     }
 
     # --- install ---

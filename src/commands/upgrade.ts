@@ -57,14 +57,24 @@ export const upgradeCommand = defineCommand({
 
     const current = getCliVersion();
     const versionService = new VersionService();
-    const latest = await versionService.checkLatestCliVersion();
+    const result = await versionService.checkLatestCliVersion(current);
 
-    if (!latest) {
+    if (!result.ok) {
       throw new CliError(
-        'Could not reach the update manifest. Check your network connection and try again.',
+        `Could not reach the update manifest (${result.error}). Check your network connection and try again.`,
       );
     }
 
+    // Reachable, but nothing published on this channel yet (e.g. a stable
+    // install while only betas exist). Not an error — just nothing to do.
+    if (result.version === null) {
+      logger.log(
+        ui.info(`No newer release available on the ${result.channel} channel.`),
+      );
+      return;
+    }
+
+    const latest = result.version;
     if (!versionService.isOutdated(current, latest)) {
       logger.log(
         ui.success(`Already on the latest version (${colors.highlight(current)})`),
@@ -85,8 +95,11 @@ export const upgradeCommand = defineCommand({
     if (process.platform === 'win32') {
       // Windows can't replace a running .exe; defer to a re-run of the installer.
       const base = process.env.DCD_DOWNLOAD_BASE ?? DEFAULT_DOWNLOAD_BASE;
+      // Prerelease users need the beta channel opt-in or the installer resolves
+      // the (currently non-existent) stable release.
+      const betaHint = result.channel === 'beta' ? '$env:DCD_BETA=1; ' : '';
       throw new CliError(
-        `Automatic upgrade on Windows is not yet supported. Re-run the installer:\n  irm ${base}/install.ps1 | iex`,
+        `Automatic upgrade on Windows is not yet supported. Re-run the installer:\n  ${betaHint}irm ${base}/install.ps1 | iex`,
       );
     }
 

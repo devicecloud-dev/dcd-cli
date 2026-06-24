@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 
 import { apiFlags } from '../config/flags/api.flags.js';
+import { resolveFrontendUrl } from '../config/environments.js';
 import { ApiGateway } from '../gateways/api-gateway.js';
 import { formatDurationSeconds } from '../methods.js';
 import { resolveAuth } from '../utils/auth.js';
@@ -248,8 +249,14 @@ async function statusMain({
       if (status.createdAt) {
         fields.push(['created', formatDateTime(status.createdAt)]);
       }
-      if (status.consoleUrl) {
-        fields.push(['console', formatUrl(status.consoleUrl)]);
+      // Prefer a console link built from the env the CLI is pointed at (the
+      // API-supplied consoleUrl is hardcoded to prod, so it misdirects
+      // dev/staging users); fall back to the API value if we have no uploadId.
+      const consoleUrl = status.uploadId
+        ? `${resolveFrontendUrl(apiUrl)}/results?upload=${status.uploadId}`
+        : status.consoleUrl;
+      if (consoleUrl) {
+        fields.push(['console', formatUrl(consoleUrl)]);
       }
 
       logger.log(ui.section('Upload Status'));

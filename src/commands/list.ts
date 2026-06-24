@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 
 import { apiFlags } from '../config/flags/api.flags.js';
+import { resolveFrontendUrl } from '../config/environments.js';
 import { ApiGateway } from '../gateways/api-gateway.js';
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger, parseIntFlag } from '../utils/cli.js';
@@ -41,8 +42,12 @@ function detectShellExpansion(name: string): void {
   }
 }
 
-function displayResults(response: ListResponse): void {
+function displayResults(response: ListResponse, apiUrl: string): void {
   const { uploads, total, limit, offset } = response;
+  // Build console links from the env the CLI is pointed at, rather than the
+  // API-supplied consoleUrl (which is hardcoded to prod) — so dev/staging users
+  // get links that actually resolve.
+  const frontendUrl = resolveFrontendUrl(apiUrl);
 
   if (uploads.length === 0) {
     logger.log(ui.info('No uploads found matching your criteria.'));
@@ -70,7 +75,7 @@ function displayResults(response: ListResponse): void {
         ...ui.fields([
           ['id', formatId(upload.id)],
           ['created', formattedDate],
-          ['console', formatUrl(upload.consoleUrl)],
+          ['console', formatUrl(`${frontendUrl}/results?upload=${upload.id}`)],
         ]),
       ]),
     );
@@ -169,7 +174,7 @@ export const listCommand = defineCommand({
           return;
         }
 
-        displayResults(response);
+        displayResults(response, apiUrl);
       } catch (error) {
         throw new CliError(
           `Failed to list uploads: ${(error as Error).message}`,
