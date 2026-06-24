@@ -4,6 +4,58 @@ const DEFAULT_MANIFEST_URL = 'https://get.devicecloud.dev/latest.json';
 const MANIFEST_TIMEOUT_MS = 3000;
 
 /**
+ * Compare two semantic versions per SemVer 2.0.0 precedence rules.
+ * Returns a negative number if `a < b`, positive if `a > b`, and 0 if equal.
+ *
+ * Implements the prerelease rules that the previous naive comparator dropped:
+ *   - A version WITH a prerelease has lower precedence than the same version
+ *     without one ("1.0.0-beta" < "1.0.0").
+ *   - Prerelease identifiers are compared dot-separated, left to right:
+ *     numeric identifiers compare numerically, alphanumeric ones compare
+ *     lexically (ASCII), and numeric always sorts below alphanumeric. A longer
+ *     set of identifiers wins when all preceding ones are equal.
+ */
+function compareSemver(a: string, b: string): number {
+  const split = (v: string): { release: number[]; pre: string[] } => {
+    const [core, ...preParts] = v.trim().replace(/^v/, '').split('-');
+    const nums = core.split('.').map((n) => Number(n) || 0);
+    const pre = preParts.join('-');
+    return {
+      release: [nums[0] || 0, nums[1] || 0, nums[2] || 0],
+      pre: pre ? pre.split('.') : [],
+    };
+  };
+
+  const left = split(a);
+  const right = split(b);
+
+  for (let i = 0; i < 3; i++) {
+    if (left.release[i] !== right.release[i]) {
+      return left.release[i] - right.release[i];
+    }
+  }
+
+  // Equal release: a version with no prerelease outranks one that has it.
+  if (left.pre.length === 0 && right.pre.length === 0) return 0;
+  if (left.pre.length === 0) return 1;
+  if (right.pre.length === 0) return -1;
+
+  const len = Math.min(left.pre.length, right.pre.length);
+  for (let i = 0; i < len; i++) {
+    const lp = left.pre[i];
+    const rp = right.pre[i];
+    if (lp === rp) continue;
+    const ln = /^\d+$/.test(lp);
+    const rn = /^\d+$/.test(rp);
+    if (ln && rn) return Number(lp) - Number(rp);
+    if (ln) return -1; // numeric identifiers sort below alphanumeric
+    if (rn) return 1;
+    return lp < rp ? -1 : 1;
+  }
+  return left.pre.length - right.pre.length;
+}
+
+/**
  * Service for handling version validation and checking
  */
 export class VersionService {
@@ -29,28 +81,15 @@ export class VersionService {
   }
 
   /**
-   * Compare two semantic version strings
-   * @param current - Current version
-   * @param latest - Latest version
-   * @returns true if current is older than latest
+   * Compare two semantic version strings (SemVer 2.0.0 precedence, including
+   * prerelease tags). Returns true if `current` is strictly older than `latest`.
+   *
+   * Prerelease handling matters here: a beta-to-beta bump such as
+   * "5.0.0-beta.0" -> "5.0.0-beta.1" shares the same major.minor.patch, so we
+   * must compare the prerelease identifiers to detect that an upgrade exists.
    */
   isOutdated(current: string, latest: string): boolean {
-    // Strip any prerelease suffix ("1.2.3-beta.1" -> "1.2.3") and default
-    // missing segments to 0 so short/prerelease versions still compare.
-    const parts = (version: string): number[] => {
-      const nums = version.split('-')[0].split('.').map(Number);
-      return [nums[0] || 0, nums[1] || 0, nums[2] || 0];
-    };
-
-    const currentParts = parts(current);
-    const latestParts = parts(latest);
-
-    for (let i = 0; i < 3; i++) {
-      if (currentParts[i] < latestParts[i]) return true;
-      if (currentParts[i] > latestParts[i]) return false;
-    }
-
-    return false;
+    return compareSemver(current, latest) < 0;
   }
 
   /**
