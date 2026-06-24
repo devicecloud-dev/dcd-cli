@@ -1,0 +1,16 @@
+# Code owners for dcd-cli.
+# Listed owners are requested for review automatically and — when the branch
+# ruleset has "Require review from Code Owners" enabled — must approve before a
+# PR can merge.
+#
+# NOTE: replace @devicecloud-dev/cli-maintainers with the real maintainer team
+# slug (or individual @handles) before enabling Code Owner review in the ruleset.
+
+* @devicecloud-dev/cli-maintainers
+
+# Release pipeline and CI are sensitive — keep them owned by maintainers.
+/.github/        @devicecloud-dev/cli-maintainers
+/release-please-config.json          @devicecloud-dev/cli-maintainers
+/release-please-config-beta.json     @devicecloud-dev/cli-maintainers
+/.release-please-manifest.json       @devicecloud-dev/cli-maintainers
+/.release-please-manifest-beta.json  @devicecloud-dev/cli-maintainers

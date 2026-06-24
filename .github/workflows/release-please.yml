@@ -22,15 +22,28 @@ jobs:
   release-please-prod:
     if: github.ref_name == 'production'
     runs-on: ubuntu-latest
+    # Empty until the release GitHub App secrets are configured. We use an App
+    # token (not GITHUB_TOKEN) so the Release PR triggers CI / PR-title / CLA
+    # checks — PRs opened by GITHUB_TOKEN do not, which would deadlock branch
+    # protection. Falls back to GITHUB_TOKEN (today's behaviour) until the App
+    # is set up, so this is safe to merge before then.
+    env:
+      RELEASE_PLEASE_APP_ID: ${{ secrets.RELEASE_PLEASE_APP_ID }}
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        if: env.RELEASE_PLEASE_APP_ID != ''
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           target-branch: production
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
@@ -38,15 +51,25 @@ jobs:
   release-please-beta:
     if: github.ref_name == 'dev'
     runs-on: ubuntu-latest
+    # See release-please-prod above for why this uses an App token with a
+    # GITHUB_TOKEN fallback.
+    env:
+      RELEASE_PLEASE_APP_ID: ${{ secrets.RELEASE_PLEASE_APP_ID }}
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        if: env.RELEASE_PLEASE_APP_ID != ''
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           target-branch: dev
           config-file: release-please-config-beta.json
           manifest-file: .release-please-manifest-beta.json

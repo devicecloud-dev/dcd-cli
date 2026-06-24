@@ -2,9 +2,11 @@ name: CLI CI
 
 on:
   push:
-    branches: [ dev ]
+    branches: [ dev, production ]
   pull_request:
-    branches: [ dev ]
+    # `production` is included so the dev→production promotion PR is also gated
+    # by lint/typecheck/build (and is required by the production ruleset).
+    branches: [ dev, production ]
   workflow_dispatch:
 
 permissions:

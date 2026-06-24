@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & help
+    url: https://discord.gg/gm3mJwcNw8
+    about: For usage questions and general help, ask in our Discord rather than opening an issue.
+  - name: Documentation
+    url: https://docs.devicecloud.dev
+    about: Check the docs for installation, usage, and command reference.
+  - name: Report a security vulnerability
+    url: https://github.com/devicecloud-dev/dcd-cli/blob/dev/SECURITY.md
+    about: Do not file security issues publicly — email security@devicecloud.dev (see our Security Policy).

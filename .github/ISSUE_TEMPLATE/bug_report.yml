@@ -1,0 +1,63 @@
+name: Bug report
+description: Report a problem with the dcd CLI or dcd-mcp server
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please fill in the details below.
+
+        ⚠️ **Do not report security vulnerabilities here** — see our
+        [Security Policy](https://github.com/devicecloud-dev/dcd-cli/blob/dev/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact `dcd` command(s) you ran and what followed. Redact any API keys.
+      placeholder: |
+        1. Run `dcd cloud --apiKey *** app.apk flows/`
+        2. ...
+        3. See error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: CLI version
+      description: Output of `dcd --version`.
+      placeholder: "e.g. 5.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other (note in description)
+    validations:
+      required: true
+  - type: input
+    id: install
+    attributes:
+      label: How did you install dcd?
+      placeholder: "binary (curl/irm), npm global, npx, …"
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      description: Relevant output. Re-run with more detail if you can. This is automatically formatted as code.
+      render: shell
+    validations:
+      required: false
