@@ -1,5 +1,28 @@
 # Changelog
 
+## [5.0.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.1...v5.0.0-beta.2) (2026-06-24)
+
+
+### Features
+
+* **cloud:** drop legacy Maestro removed-versions block; soft-warn on deprecated 1.39.5/1.41.0 ([62c7672](https://github.com/devicecloud-dev/dcd-cli/commit/62c767295cb99339cbc3326c6bf319caf637d649))
+* **cloud:** Maestro deprecation — drop legacy hard-block, soft-warn 1.39.5/1.41.0 ([ee995e7](https://github.com/devicecloud-dev/dcd-cli/commit/ee995e7ebefb7ddfd3678bea27adf4751a39e879))
+* **cloud:** warn on deprecated iOS 16 (removal 2026-08-23) ([d794695](https://github.com/devicecloud-dev/dcd-cli/commit/d794695529c9dce938d16199e336d6698e21bff9))
+* **cloud:** warn on deprecated iOS 16 (removal 2026-08-23) ([ea62f72](https://github.com/devicecloud-dev/dcd-cli/commit/ea62f724653b3e1173036c4abe66aa4e110c0a0e))
+
+
+### Bug Fixes
+
+* **ci:** keep dependabot and fork PRs green ([#46](https://github.com/devicecloud-dev/dcd-cli/issues/46)) ([dc87257](https://github.com/devicecloud-dev/dcd-cli/commit/dc872572846fbe0d9760902cda3380edee1ef2ff))
+* **installer:** make beta opt-in, add stable/beta channels ([ec16bcc](https://github.com/devicecloud-dev/dcd-cli/commit/ec16bccd044f892f7fd1997aac977c77aa14376d))
+* **installer:** make beta opt-in, default to stable channel ([88c3532](https://github.com/devicecloud-dev/dcd-cli/commit/88c3532f8a3c6de7210c2d66d819838ea4c99fad))
+* suppress refresh countdown in quiet mode ([10eade4](https://github.com/devicecloud-dev/dcd-cli/commit/10eade42c80f42df05b165e3f83e1190aeabfd80))
+* suppress refresh countdown in quiet mode ([d543981](https://github.com/devicecloud-dev/dcd-cli/commit/d543981b0e2dc274d664bf378da4154a77a6d2e8))
+* **upgrade:** compare prerelease versions per SemVer ([f77841f](https://github.com/devicecloud-dev/dcd-cli/commit/f77841fae397e3b8d88b7ba6876b98f65026f089))
+* **upgrade:** compare prerelease versions per SemVer ([6c533e7](https://github.com/devicecloud-dev/dcd-cli/commit/6c533e7ae9e55b64e5ffe63a9c9a6934e9250938))
+* v5 release blockers — installer, binary version, repeated flags, upgrade, CI output ([d780e55](https://github.com/devicecloud-dev/dcd-cli/commit/d780e55093b314fe9855890db145188e2735beb3))
+* v5 release blockers — installer, binary version, repeated flags,… ([#51](https://github.com/devicecloud-dev/dcd-cli/issues/51)) ([d780e55](https://github.com/devicecloud-dev/dcd-cli/commit/d780e55093b314fe9855890db145188e2735beb3))
+
 ## [5.0.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.0...v5.0.0-beta.1) (2026-06-23)
 
 
