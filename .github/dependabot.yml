@@ -28,7 +28,8 @@ updates:
     commit-message:
       prefix: ci
     groups:
+      # One PR per week for ALL action bumps (including majors). Actions are
+      # low-risk and quick to eyeball together; no need for a PR each.
       actions:
-        update-types:
-          - minor
-          - patch
+        patterns:
+          - "*"
