@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout (full history)
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
       with:
         # Full history so gitleaks scans every commit, not just the tip.
         fetch-depth: 0
@@ -45,13 +45,13 @@ jobs:
 
     steps:
     - name: Checkout CLI
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
       with:
         path: cli
 
     - name: Checkout dcd (mock-api)
       if: env.HAS_PRIVATE_ACCESS == 'true'
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
       with:
         repository: moropo-com/dcd
         path: dcd
