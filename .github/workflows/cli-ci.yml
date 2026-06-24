@@ -40,8 +40,12 @@ jobs:
     # SSH deploy key. GitHub does NOT expose secrets to pull_request workflows
     # triggered from forks, so that checkout (and the integration tests that need
     # it) can only run for same-repo events. Fork PRs still run lint/typecheck/build.
+    #
+    # Dependabot PRs branch from this repo (so the fork check passes) but ALSO run
+    # without secrets — treat them like forks and skip the private checkout, or
+    # the mock-api clone fails with an empty DCD_SSH_DEPLOY_KEY.
     env:
-      HAS_PRIVATE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      HAS_PRIVATE_ACCESS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
 
     steps:
     - name: Checkout CLI
