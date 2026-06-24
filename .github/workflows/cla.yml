@@ -59,8 +59,8 @@ jobs:
           path-to-signatures: "signatures/version1/cla.json"
           path-to-document: "https://github.com/devicecloud-dev/dcd-cli/blob/dev/CLA.md"
           branch: "cla-signatures"
-          # PR target branches the CLA applies to.
-          allowlist: dependabot[bot],renovate[bot],*[bot]
+          # Internal maintainers (covered by employment/CCLA) + bots skip the prompt.
+          allowlist: riglar,finalerock44,dependabot[bot],renovate[bot],*[bot]
           # Customise the bot's prompts if desired:
           custom-notsigned-prcomment: "Thanks for your contribution! Please sign our Contributor License Agreement before we can merge. Comment the line below to sign:"
           custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
