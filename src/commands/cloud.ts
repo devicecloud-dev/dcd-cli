@@ -1,5 +1,6 @@
 /* eslint-disable complexity */
 import { defineCommand } from 'citty';
+import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
 import { flags as allFlags } from '../constants.js';
@@ -36,6 +37,7 @@ import { isCI } from '../utils/ci.js';
 import {
   CliError,
   coerceArray,
+  collectRepeatedFlag,
   getCliVersion,
   getUpgradeCommand,
   logger,
@@ -109,7 +111,7 @@ export const cloudCommand = defineCommand({
     },
   },
   // eslint-disable-next-line complexity
-  async run({ args }) {
+  async run({ args, rawArgs }) {
     const cliVersion = getCliVersion();
     const deviceValidationService = new DeviceValidationService();
     const moropoService = new MoropoService();
@@ -119,12 +121,16 @@ export const cloudCommand = defineCommand({
     const versionService = new VersionService();
 
     const versionCheck = async () => {
-      const latestVersion = await versionService.checkLatestCliVersion();
-      if (latestVersion && versionService.isOutdated(cliVersion, latestVersion)) {
+      const result = await versionService.checkLatestCliVersion(cliVersion);
+      if (
+        result.ok &&
+        result.version &&
+        versionService.isOutdated(cliVersion, result.version)
+      ) {
         out(ui.warn(colors.bold('Update available')));
         out(
           ui.branch([
-            `A new version of the DeviceCloud CLI is available: ${colors.highlight(latestVersion)}`,
+            `A new version of the DeviceCloud CLI is available: ${colors.highlight(result.version)}`,
             `${colors.dim('Run:')} ${colors.info(getUpgradeCommand())}`,
           ]),
         );
@@ -165,18 +171,23 @@ export const cloudCommand = defineCommand({
         'download-artifacts',
       );
       const dryRun = Boolean(args['dry-run']);
-      const env = coerceArray(args.env as string | string[] | undefined, false);
+      // Repeatable flags are collected from rawArgs: citty/parseArgs only keeps
+      // the last occurrence, so reading args.* directly drops earlier values.
+      const env = coerceArray(
+        collectRepeatedFlag(rawArgs, ['--env', '-e']),
+        false,
+      );
       const excludeFlows = coerceArray(
-        args['exclude-flows'] as string | string[] | undefined,
+        collectRepeatedFlag(rawArgs, ['--exclude-flows']),
       );
       const excludeTags = coerceArray(
-        args['exclude-tags'] as string | string[] | undefined,
+        collectRepeatedFlag(rawArgs, ['--exclude-tags']),
       );
       let flows = args.flows as string | undefined;
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
       const includeTags = coerceArray(
-        args['include-tags'] as string | string[] | undefined,
+        collectRepeatedFlag(rawArgs, ['--include-tags']),
       );
       const iOSDevice = validateEnum(
         args['ios-device'] as string | undefined,
@@ -204,7 +215,7 @@ export const cloudCommand = defineCommand({
       const jsonFileName = args['json-file-name'] as string | undefined;
       const maestroVersion = args['maestro-version'] as string | undefined;
       const metadata = coerceArray(
-        args.metadata as string | string[] | undefined,
+        collectRepeatedFlag(rawArgs, ['--metadata', '-m']),
         false,
       );
       const mitmHost = args.mitmHost as string | undefined;
@@ -437,6 +448,14 @@ export const cloudCommand = defineCommand({
             out(`[DEBUG] Found .app bundle at: ${finalAppFile}`);
           }
         }
+
+        // Validate the resolved local app file early — dry-run otherwise skips
+        // the upload that would surface a missing file, so a typo'd path would
+        // pass a dry-run and only fail on the real run. (URL/.tar.gz inputs are
+        // already resolved to existing temp paths by this point.)
+        if (!existsSync(finalAppFile)) {
+          throw new CliError(`App file does not exist: ${finalAppFile}`);
+        }
       }
 
       if (debug) {
@@ -619,13 +638,26 @@ export const cloudCommand = defineCommand({
       ]);
       // Only log canonical flag keys (skip citty-populated alias duplicates like apiURL/apiUrl).
       const canonicalFlagKeys = new Set(Object.keys(allFlags));
+      // Repeatable flags are recovered from rawArgs (args.* only holds the last
+      // occurrence), so echo the fully-collected values rather than args.*.
+      const repeatableDisplay: Record<string, string[]> = {
+        env,
+        metadata,
+        'include-tags': includeTags,
+        'exclude-tags': excludeTags,
+        'exclude-flows': excludeFlows,
+      };
       for (const [k, v] of Object.entries(args)) {
         if (!canonicalFlagKeys.has(k)) continue;
+        if (k in repeatableDisplay) continue;
         if (v === undefined || v === null || v === false) continue;
         const asString = String(v);
         if (asString.length > 0 && !sensitiveFlags.has(k)) {
           flagLogs.push(`${k}: ${asString}`);
         }
+      }
+      for (const [k, values] of Object.entries(repeatableDisplay)) {
+        if (values.length > 0) flagLogs.push(`${k}: ${values.join(', ')}`);
       }
 
       const overridesEntries = Object.entries(flowOverrides);

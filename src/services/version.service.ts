@@ -3,6 +3,18 @@ import { CompatibilityData } from '../utils/compatibility.js';
 const DEFAULT_MANIFEST_URL = 'https://get.devicecloud.dev/latest.json';
 const MANIFEST_TIMEOUT_MS = 3000;
 
+export type ReleaseChannel = 'beta' | 'stable';
+
+/**
+ * Outcome of a release-manifest lookup. `ok: true` means the manifest was
+ * reachable — `version` is the published version on the channel, or `null` when
+ * nothing is published there yet. `ok: false` means the lookup itself failed
+ * (network/timeout/non-2xx).
+ */
+export type LatestVersionResult =
+  | { ok: true; channel: ReleaseChannel; version: null | string }
+  | { ok: false; error: string };
+
 /**
  * Compare two semantic versions per SemVer 2.0.0 precedence rules.
  * Returns a negative number if `a < b`, positive if `a > b`, and 0 if equal.
@@ -62,19 +74,42 @@ export class VersionService {
   /**
    * Fetch the latest published CLI version from the release manifest.
    * Works for both npm- and binary-installed users (no `npm` shell-out).
-   * Silently returns null on any failure — this check is informational only.
+   *
+   * The result is discriminated so callers can tell "reachable, but no release
+   * on this channel yet" (`ok: true, version: null`) apart from an actual
+   * network/manifest failure (`ok: false`) — the old single-`null` return
+   * conflated the two and produced a misleading "check your network" error
+   * during the beta. Prerelease installs (current version contains `-`) query
+   * the opt-in beta channel; everyone else gets the stable channel.
    */
-  async checkLatestCliVersion(): Promise<null | string> {
-    const url = process.env.DCD_MANIFEST_URL ?? DEFAULT_MANIFEST_URL;
+  async checkLatestCliVersion(
+    currentVersion?: string,
+  ): Promise<LatestVersionResult> {
+    const channel: ReleaseChannel =
+      currentVersion?.includes('-') ? 'beta' : 'stable';
+    const base = process.env.DCD_MANIFEST_URL ?? DEFAULT_MANIFEST_URL;
+    const url =
+      channel === 'beta'
+        ? `${base}${base.includes('?') ? '&' : '?'}channel=beta`
+        : base;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), MANIFEST_TIMEOUT_MS);
     try {
       const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        return { ok: false, error: `manifest responded with HTTP ${res.status}` };
+      }
       const data = (await res.json()) as { version?: unknown };
-      return typeof data.version === 'string' ? data.version : null;
-    } catch {
-      return null;
+      return {
+        ok: true,
+        channel,
+        version: typeof data.version === 'string' ? data.version : null,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
     } finally {
       clearTimeout(timer);
     }

@@ -9,6 +9,7 @@ import { formatDurationSeconds } from '../methods.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { paths } from '../types/generated/schema.types.js';
 import { checkInternetConnectivity } from '../utils/connectivity.js';
+import { isCI } from '../utils/ci.js';
 import { ux } from '../utils/progress.js';
 import { colors, formatTestSummary, statusPalette, table } from '../utils/styling.js';
 import { type Field, ui } from '../utils/ui.js';
@@ -160,8 +161,16 @@ export class ResultsPollingService {
     let realtimeEnabled = false;
     let statusBody = '';
     let nextPollAt: null | number = null;
+    // The animated footer/countdown only makes sense on a TTY. In CI/pipes it
+    // would flood logs (a fresh line per frame), so we drop it and let the
+    // progress adapter print one line per distinct status change instead.
+    const interactive = !json && !isCI();
     const renderStatus = () => {
       if (json) return;
+      if (!interactive) {
+        ux.action.status = statusBody;
+        return;
+      }
       const footer = this.buildStatusFooter(
         realtimeEnabled,
         subscription?.isConnected() ?? false,
@@ -201,8 +210,11 @@ export class ResultsPollingService {
 
     // Tick the live footer once a second so the countdown actually counts down
     // (the spinner's own frames don't recompute our message). Unref'd so it
-    // never keeps the process alive on its own.
-    const ticker: NodeJS.Timeout | null = json ? null : setInterval(renderStatus, 1000);
+    // never keeps the process alive on its own. Only on an interactive TTY —
+    // a 1s ticker in CI would reprint the status every second.
+    const ticker: NodeJS.Timeout | null = interactive
+      ? setInterval(renderStatus, 1000)
+      : null;
     ticker?.unref?.();
 
     try {
