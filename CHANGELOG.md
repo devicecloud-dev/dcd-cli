@@ -1,5 +1,17 @@
 # Changelog
 
+## [5.0.0-beta.3](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.2...v5.0.0-beta.3) (2026-06-25)
+
+
+### Features
+
+* **live:** add a beta warning to `dcd live start` ([#54](https://github.com/devicecloud-dev/dcd-cli/issues/54)) ([a02584f](https://github.com/devicecloud-dev/dcd-cli/commit/a02584fe574fd687539d0be424c658c743aaae8a))
+
+
+### Bug Fixes
+
+* stop CLA locking release PRs (breaks release pipeline) ([#52](https://github.com/devicecloud-dev/dcd-cli/issues/52)) ([bd60298](https://github.com/devicecloud-dev/dcd-cli/commit/bd6029847b9eccfe9078ae21b40ad548e4ef8985))
+
 ## [5.0.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.1...v5.0.0-beta.2) (2026-06-24)
 
 
