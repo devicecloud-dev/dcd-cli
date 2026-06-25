@@ -5,7 +5,8 @@
 #   curl -fsSL https://get.devicecloud.dev/install.sh | sh
 #
 # Env vars:
-#   DCD_VERSION       Pin a specific version (default: latest)
+#   DCD_VERSION       Pin a specific version, e.g. for rollback (default: latest stable)
+#   DCD_BETA          Set to any value to install the latest beta/prerelease (opt-in)
 #   DCD_INSTALL_DIR   Override install location (default: $HOME/.dcd/bin)
 #   DCD_DOWNLOAD_BASE Override the download host (default: https://get.devicecloud.dev)
 #
@@ -21,6 +22,17 @@ err() {
 
 info() {
   printf '%s\n' "$1"
+}
+
+# Stable is the default channel and beta is strictly opt-in, so when no stable
+# release exists yet (only prereleases published) we refuse to silently install a
+# beta and instead point the user at the two explicit opt-ins. $DOWNLOAD_BASE is
+# echoed so a custom host shows the right command.
+no_stable_release_err() {
+  printf 'error: No stable dcd release is available yet.\n' >&2
+  printf '  Install the latest beta:  curl -fsSL %s/install.sh | DCD_BETA=1 sh\n' "$DOWNLOAD_BASE" >&2
+  printf '  Or pin a version:         curl -fsSL %s/install.sh | DCD_VERSION=5.0.0-beta.1 sh\n' "$DOWNLOAD_BASE" >&2
+  exit 1
 }
 
 # Find a dcd on PATH other than the one we just installed — usually a leftover
@@ -121,17 +133,40 @@ main() {
   asset="dcd-${os_id}-${arch_id}"
 
   # --- resolve version ---
+  # Precedence: explicit DCD_VERSION pin > DCD_BETA opt-in > latest stable.
   if [ -n "${DCD_VERSION:-}" ]; then
     version="$DCD_VERSION"
   else
-    info "Resolving latest version..."
-    # /latest.json returns { "version": "5.1.0", ... }
+    if [ -n "${DCD_BETA:-}" ]; then
+      channel=beta
+      manifest_url="$DOWNLOAD_BASE/latest.json?channel=beta"
+      info "Resolving latest beta version..."
+    else
+      channel=stable
+      manifest_url="$DOWNLOAD_BASE/latest.json"
+      info "Resolving latest version..."
+    fi
+
+    # Fetch the manifest separately from parsing so we can tell a transient
+    # network/proxy failure (curl -f returns non-zero → empty $manifest) apart
+    # from a channel that simply has no release yet (HTTP 200 with
+    # "version": null → $manifest non-empty but $version empty).
+    manifest=$(curl -fsSL "$manifest_url") || manifest=""
+    [ -z "$manifest" ] && err "Could not reach $manifest_url"
+    # /latest.json returns { "version": "5.1.0", ... }; a null version is unquoted
+    # and so won't match this quoted-string pattern.
     version=$(
-      curl -fsSL "$DOWNLOAD_BASE/latest.json" \
+      printf '%s' "$manifest" \
         | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
         | head -n1
     )
-    [ -z "$version" ] && err "Could not resolve latest version from $DOWNLOAD_BASE/latest.json"
+    if [ -z "$version" ]; then
+      if [ "$channel" = stable ]; then
+        no_stable_release_err
+      else
+        err "No beta release is available yet from $manifest_url"
+      fi
+    fi
   fi
 
   url="$DOWNLOAD_BASE/download/${version}/${asset}"

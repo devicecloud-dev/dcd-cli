@@ -12,12 +12,11 @@ on:
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
+    # Skip PRs we shouldn't (or can't) review:
+    #  - Dependabot / forks: no CLAUDE_CODE_OAUTH_TOKEN, so the action would fail.
+    #  - release-please release PRs: just version bumps + changelog — nothing to
+    #    review, and it must never block a release.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -30,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 

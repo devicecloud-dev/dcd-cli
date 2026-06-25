@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # npm / pnpm dependencies.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: dev
+    open-pull-requests-limit: 10
+    commit-message:
+      # Conventional Commit prefix so the squashed PR title matches our PR-title
+      # lint and release-please picks dependency bumps into the changelog.
+      prefix: deps
+      prefix-development: chore
+    groups:
+      # Collapse the noise: one PR for all non-major updates.
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # GitHub Actions used by our workflows.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    target-branch: dev
+    commit-message:
+      prefix: ci
+    groups:
+      # One PR per week for ALL action bumps (including majors). Actions are
+      # low-risk and quick to eyeball together; no need for a PR each.
+      actions:
+        patterns:
+          - "*"

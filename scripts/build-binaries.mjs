@@ -23,6 +23,13 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = join(repoRoot, 'dist-bin');
 
+// The compiled binary can't read package.json off disk (it isn't bundled), so
+// stamp the version in at compile time via `bun --define`. getCliVersion()
+// prefers this constant and falls back to reading package.json on the npm path.
+const { version } = JSON.parse(
+  readFileSync(join(repoRoot, 'package.json'), 'utf8'),
+);
+
 // Each entry maps a Bun cross-compile target to the GitHub Release asset name.
 // outName excludes `.exe` because Bun appends it automatically for windows targets.
 const targets = [
@@ -41,7 +48,19 @@ for (const { target, outName, asset } of targets) {
   console.log(`→ ${target}`);
   execFileSync(
     'bun',
-    ['build', '--compile', `--target=${target}`, 'src/index.ts', '--outfile', out],
+    [
+      'build',
+      '--compile',
+      `--target=${target}`,
+      // bun wants the space-separated `--define KEY=value` form (the colon form
+      // `--define:KEY=value` silently no-ops). JSON.stringify supplies the
+      // surrounding quotes bun expects for a string-literal replacement.
+      '--define',
+      `__DCD_CLI_VERSION__=${JSON.stringify(version)}`,
+      'src/index.ts',
+      '--outfile',
+      out,
+    ],
     { cwd: repoRoot, stdio: 'inherit' },
   );
   const produced = join(outDir, asset);

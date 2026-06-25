@@ -9,6 +9,7 @@ import { formatDurationSeconds } from '../methods.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { paths } from '../types/generated/schema.types.js';
 import { checkInternetConnectivity } from '../utils/connectivity.js';
+import { isCI } from '../utils/ci.js';
 import { ux } from '../utils/progress.js';
 import { colors, formatTestSummary, statusPalette, table } from '../utils/styling.js';
 import { type Field, ui } from '../utils/ui.js';
@@ -160,12 +161,21 @@ export class ResultsPollingService {
     let realtimeEnabled = false;
     let statusBody = '';
     let nextPollAt: null | number = null;
+    // The animated footer/countdown only makes sense on a TTY. In CI/pipes it
+    // would flood logs (a fresh line per frame), so we drop it and let the
+    // progress adapter print one line per distinct status change instead.
+    const interactive = !json && !isCI();
     const renderStatus = () => {
       if (json) return;
+      if (!interactive) {
+        ux.action.status = statusBody;
+        return;
+      }
       const footer = this.buildStatusFooter(
         realtimeEnabled,
         subscription?.isConnected() ?? false,
         nextPollAt,
+        quiet,
       );
       ux.action.status = footer ? `${statusBody}\n${footer}` : statusBody;
     };
@@ -200,8 +210,11 @@ export class ResultsPollingService {
 
     // Tick the live footer once a second so the countdown actually counts down
     // (the spinner's own frames don't recompute our message). Unref'd so it
-    // never keeps the process alive on its own.
-    const ticker: NodeJS.Timeout | null = json ? null : setInterval(renderStatus, 1000);
+    // never keeps the process alive on its own. Only on an interactive TTY —
+    // a 1s ticker in CI would reprint the status every second.
+    const ticker: NodeJS.Timeout | null = interactive
+      ? setInterval(renderStatus, 1000)
+      : null;
     ticker?.unref?.();
 
     try {
@@ -644,12 +657,13 @@ export class ResultsPollingService {
    * Build the live footer shown under the status display: whether realtime
    * updates are connected (for logged-in users) and how long until the next
    * backstop poll. While a fetch is in flight (`nextPollAt` is null) the
-   * countdown reads "refreshing…".
+   * countdown reads "refreshing…". In quiet mode the countdown is omitted.
    */
   private buildStatusFooter(
     realtimeEnabled: boolean,
     realtimeConnected: boolean,
     nextPollAt: null | number,
+    quiet: boolean,
   ): string {
     const parts: string[] = [];
 
@@ -661,11 +675,15 @@ export class ResultsPollingService {
       );
     }
 
-    if (nextPollAt === null) {
-      parts.push(colors.dim('refreshing…'));
-    } else {
-      const secondsLeft = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
-      parts.push(colors.dim(`next refresh in ${secondsLeft}s`));
+    // The countdown to the next backstop poll is noise in quiet mode (geared at
+    // CI), so suppress it there while keeping the realtime indicator.
+    if (!quiet) {
+      if (nextPollAt === null) {
+        parts.push(colors.dim('refreshing…'));
+      } else {
+        const secondsLeft = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
+        parts.push(colors.dim(`next refresh in ${secondsLeft}s`));
+      }
     }
 
     return parts.join(colors.dim('  ·  '));

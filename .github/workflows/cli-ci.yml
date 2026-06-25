@@ -2,9 +2,11 @@ name: CLI CI
 
 on:
   push:
-    branches: [ dev ]
+    branches: [ dev, production ]
   pull_request:
-    branches: [ dev ]
+    # `production` is included so the dev→production promotion PR is also gated
+    # by lint/typecheck/build (and is required by the production ruleset).
+    branches: [ dev, production ]
   workflow_dispatch:
 
 permissions:
@@ -15,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout (full history)
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
       with:
         # Full history so gitleaks scans every commit, not just the tip.
         fetch-depth: 0
@@ -38,18 +40,22 @@ jobs:
     # SSH deploy key. GitHub does NOT expose secrets to pull_request workflows
     # triggered from forks, so that checkout (and the integration tests that need
     # it) can only run for same-repo events. Fork PRs still run lint/typecheck/build.
+    #
+    # Dependabot PRs branch from this repo (so the fork check passes) but ALSO run
+    # without secrets — treat them like forks and skip the private checkout, or
+    # the mock-api clone fails with an empty DCD_SSH_DEPLOY_KEY.
     env:
-      HAS_PRIVATE_ACCESS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      HAS_PRIVATE_ACCESS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
 
     steps:
     - name: Checkout CLI
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
       with:
         path: cli
 
     - name: Checkout dcd (mock-api)
       if: env.HAS_PRIVATE_ACCESS == 'true'
-      uses: actions/checkout@v5
+      uses: actions/checkout@v7
       with:
         repository: moropo-com/dcd
         path: dcd
@@ -62,13 +68,13 @@ jobs:
           /api/swagger.json
 
     - name: Setup pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       with:
         version: 10
         run_install: false
 
     - name: Setup Node.js
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v6
       with:
         node-version: '22'
         cache: 'pnpm'
