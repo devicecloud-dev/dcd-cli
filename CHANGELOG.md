@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.0.0-beta.4](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.3...v5.0.0-beta.4) (2026-06-26)
+
+
+### Features
+
+* render DB-driven notices and forward CLI/CI identity ([#58](https://github.com/devicecloud-dev/dcd-cli/issues/58)) ([10dfdbf](https://github.com/devicecloud-dev/dcd-cli/commit/10dfdbf9a5d0ebf12568e90a1fad623213175368))
+
 ## [5.0.0-beta.3](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.2...v5.0.0-beta.3) (2026-06-25)
 
 
