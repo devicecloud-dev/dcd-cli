@@ -1,5 +1,17 @@
 # Changelog
 
+## [5.0.1-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.4...v5.0.1-beta.1) (2026-06-26)
+
+
+### Bug Fixes
+
+* notices render polish ([#60](https://github.com/devicecloud-dev/dcd-cli/issues/60)) ([c99f040](https://github.com/devicecloud-dev/dcd-cli/commit/c99f040baaf069de948c8c982b0dbbeb43218783))
+
+
+### Miscellaneous
+
+* release 5.0.1-beta.1 ([#62](https://github.com/devicecloud-dev/dcd-cli/issues/62)) ([5adec18](https://github.com/devicecloud-dev/dcd-cli/commit/5adec1855f523ee2396377d44416d09df0ef49e5))
+
 ## [5.0.0-beta.4](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.3...v5.0.0-beta.4) (2026-06-26)
 
 
