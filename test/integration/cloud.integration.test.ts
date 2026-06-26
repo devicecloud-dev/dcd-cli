@@ -208,7 +208,7 @@ appId: com.example.app
     };
 
     it('should support custom Maestro versions', async () => {
-      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --maestro-version 1.39.5 --name test-maestro-version --async`;
+      const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --maestro-version 2.2.0 --name test-maestro-version --async`;
 
       const { stdout } = await exec(command, { timeout: 15_000 });
       expectAsyncSubmission(stdout);
