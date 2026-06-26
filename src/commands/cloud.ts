@@ -491,7 +491,7 @@ export const cloudCommand = defineCommand({
           ci_provider: ciContext.provider,
           ci_wrapper_version: ciContext.wrapperVersion,
         },
-        { out, warnOut },
+        { out },
       );
 
       deviceValidationService.validateAndroidDevice(

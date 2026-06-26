@@ -1,5 +1,5 @@
 import { ui } from '../utils/ui.js';
-import { colors } from '../utils/styling.js';
+import { colors, symbols } from '../utils/styling.js';
 import { compareSemver } from './version.service.js';
 
 export type NoticeLevel = 'deprecation' | 'warn' | 'info' | 'marketing';
@@ -88,8 +88,13 @@ export function matchesRules(
 }
 
 export interface RenderNoticesOptions {
+  /**
+   * Emit a line of human output. Notices route through the same gated `out` as
+   * the rest of the CLI (suppressed under `--json`); we don't use the `warn`
+   * channel because its logger prepends its own `⚠`, which would double up with
+   * the symbol the `ui.*` helpers already add.
+   */
   out: (message: string) => void;
-  warnOut: (message: string) => void;
 }
 
 /** Render a single notice with styling appropriate to its level. */
@@ -101,9 +106,13 @@ function renderNotice(notice: Notice, opts: RenderNoticesOptions): void {
 
   switch (notice.level) {
     case 'deprecation':
+      // Red ⚠ so a deprecation reads as more serious than a plain (yellow) warn.
+      opts.out(`${colors.error('⚠')} ${colors.bold(notice.title)}`);
+      opts.out(ui.branch(rows));
+      break;
     case 'warn':
-      opts.warnOut(ui.warn(colors.bold(notice.title)));
-      opts.warnOut(ui.branch(rows));
+      opts.out(`${symbols.warning} ${colors.bold(notice.title)}`);
+      opts.out(ui.branch(rows));
       break;
     case 'marketing':
       opts.out(ui.section(notice.title));
@@ -120,8 +129,8 @@ function renderNotice(notice: Notice, opts: RenderNoticesOptions): void {
 /**
  * Filter notices by their local-context `match` gate and render those that pass.
  * Returns the visible notices so a `--json` caller can include them in its
- * payload instead of printing. When `--json` is active, callers pass no-op
- * out/warnOut so nothing is printed but the list is still returned.
+ * payload instead of printing. `opts.out` is the caller's `--json`-gated
+ * emitter, so under `--json` nothing prints but the list is still returned.
  */
 export function renderNotices(
   notices: Notice[] | undefined,
