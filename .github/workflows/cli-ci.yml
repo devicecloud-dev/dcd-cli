@@ -36,7 +36,7 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
 
-    # The mock-api lives in the private moropo-com/dcd repo, checked out via an
+    # The mock-api lives in the private devicecloud-dev/dcd repo, checked out via an
     # SSH deploy key. GitHub does NOT expose secrets to pull_request workflows
     # triggered from forks, so that checkout (and the integration tests that need
     # it) can only run for same-repo events. Fork PRs still run lint/typecheck/build.
@@ -57,7 +57,7 @@ jobs:
       if: env.HAS_PRIVATE_ACCESS == 'true'
       uses: actions/checkout@v7
       with:
-        repository: moropo-com/dcd
+        repository: devicecloud-dev/dcd
         path: dcd
         ssh-key: ${{ secrets.DCD_SSH_DEPLOY_KEY }}
         # api/swagger.json is a file, which cone-mode sparse checkout rejects
@@ -106,7 +106,7 @@ jobs:
 
     - name: Skip integration tests (fork PR — no mock-api access)
       if: env.HAS_PRIVATE_ACCESS != 'true'
-      run: echo "::notice::Integration tests skipped — the mock-api (private moropo-com/dcd) is not accessible from fork PRs. Lint, typecheck, and build still ran."
+      run: echo "::notice::Integration tests skipped — the mock-api (private devicecloud-dev/dcd) is not accessible from fork PRs. Lint, typecheck, and build still ran."
 
     - name: Build CLI
       working-directory: ./cli
