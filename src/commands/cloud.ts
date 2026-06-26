@@ -378,20 +378,6 @@ export const cloudCommand = defineCommand({
         },
       );
 
-      // Soft deprecation notice for Maestro versions slated for removal on
-      // 26 June 2026. Non-fatal — these still run during the grace period.
-      const DEPRECATED_MAESTRO_VERSIONS = ['1.39.5', '1.41.0'];
-      if (DEPRECATED_MAESTRO_VERSIONS.includes(resolvedMaestroVersion)) {
-        warnOut(ui.warn(colors.bold(`Maestro ${resolvedMaestroVersion} is deprecated`)));
-        warnOut(
-          ui.branch([
-            `Maestro ${resolvedMaestroVersion} will be removed on 26 June 2026; after that, tests pinned to it will fail.`,
-            'Upgrade to Maestro 2.6.0 or above.',
-            `${colors.dim('See:')} ${colors.url('https://docs.devicecloud.dev/configuration/maestro-versions')}`,
-          ]),
-        );
-      }
-
       if (retry !== undefined && retry > 2) {
         out(
           ui.warn(
