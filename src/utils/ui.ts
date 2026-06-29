@@ -70,6 +70,11 @@ export const ui = {
     });
   },
 
+  /** `⚠ message` in red — a deprecation; reads as more serious than a (yellow) {@link warn}. */
+  deprecation(message: string): string {
+    return `${symbols.deprecation} ${message}`;
+  },
+
   /** `ℹ message` — neutral, standalone information. */
   info(message: string): string {
     return `${symbols.info} ${message}`;
