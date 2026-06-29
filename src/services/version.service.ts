@@ -27,7 +27,7 @@ export type LatestVersionResult =
  *     lexically (ASCII), and numeric always sorts below alphanumeric. A longer
  *     set of identifiers wins when all preceding ones are equal.
  */
-function compareSemver(a: string, b: string): number {
+export function compareSemver(a: string, b: string): number {
   const split = (v: string): { release: number[]; pre: string[] } => {
     const [core, ...preParts] = v.trim().replace(/^v/, '').split('-');
     const nums = core.split('.').map((n) => Number(n) || 0);

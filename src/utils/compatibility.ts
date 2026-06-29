@@ -1,4 +1,5 @@
 import type { AuthContext } from '../types/domain/auth.types.js';
+import type { Notice } from '../services/notices.service.js';
 
 export interface CompatibilityData {
   android: Record<string, string[]>;
@@ -9,13 +10,38 @@ export interface CompatibilityData {
     latestVersion: string;
     supportedVersions: string[];
   };
+  /** Active CLI notices, piggybacked onto the compatibility response by the API. */
+  notices?: Notice[];
+}
+
+/** Identity the CLI forwards so the API can target notices by version / CI. */
+export interface ClientContext {
+  cliVersion?: string;
+  ciProvider?: string | null;
+  ciWrapperVersion?: string | null;
 }
 
 let cachedCompatibilityData: CompatibilityData | null = null;
 
-export async function fetchCompatibilityData(apiUrl: string, auth: AuthContext): Promise<CompatibilityData> {
+export async function fetchCompatibilityData(
+  apiUrl: string,
+  auth: AuthContext,
+  clientContext?: ClientContext,
+): Promise<CompatibilityData> {
   if (cachedCompatibilityData) {
     return cachedCompatibilityData;
+  }
+
+  // Forward CLI / CI identity so the API can version-filter and target notices.
+  const noticeHeaders: Record<string, string> = {};
+  if (clientContext?.cliVersion) {
+    noticeHeaders['x-dcd-cli-version'] = clientContext.cliVersion;
+  }
+  if (clientContext?.ciProvider) {
+    noticeHeaders['x-dcd-ci-provider'] = clientContext.ciProvider;
+  }
+  if (clientContext?.ciWrapperVersion) {
+    noticeHeaders['x-dcd-ci-wrapper-version'] = clientContext.ciWrapperVersion;
   }
 
   try {
@@ -23,6 +49,7 @@ export async function fetchCompatibilityData(apiUrl: string, auth: AuthContext):
       headers: {
         'Content-Type': 'application/json',
         ...auth.headers,
+        ...noticeHeaders,
       },
       method: 'GET',
     });
