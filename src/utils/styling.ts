@@ -16,6 +16,7 @@ export const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '
  */
 export const symbols = {
   cancelled: chalk.gray('⊘'),
+  deprecation: chalk.red('⚠'),
   error: chalk.red('✗'),
   info: chalk.blue('ℹ'),
   pending: chalk.yellow('⏸'),
