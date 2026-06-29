@@ -1,5 +1,5 @@
 import { ui } from '../utils/ui.js';
-import { colors, symbols } from '../utils/styling.js';
+import { colors } from '../utils/styling.js';
 import { compareSemver } from './version.service.js';
 
 export type NoticeLevel = 'deprecation' | 'warn' | 'info' | 'marketing';
@@ -106,12 +106,11 @@ function renderNotice(notice: Notice, opts: RenderNoticesOptions): void {
 
   switch (notice.level) {
     case 'deprecation':
-      // Red ⚠ so a deprecation reads as more serious than a plain (yellow) warn.
-      opts.out(`${colors.error('⚠')} ${colors.bold(notice.title)}`);
+      opts.out(ui.deprecation(colors.bold(notice.title)));
       opts.out(ui.branch(rows));
       break;
     case 'warn':
-      opts.out(`${symbols.warning} ${colors.bold(notice.title)}`);
+      opts.out(ui.warn(colors.bold(notice.title)));
       opts.out(ui.branch(rows));
       break;
     case 'marketing':
