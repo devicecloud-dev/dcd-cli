@@ -188,20 +188,14 @@ describe('Upload Command Integration Tests', () => {
       expect(stdout).to.include('skipping upload');
     });
 
-    it('should attempt a real upload when the SHA check is bypassed', async () => {
+    it('should perform a real upload when the SHA check is bypassed', async () => {
       const command = `${CLI} upload ${androidAppFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ignore-sha-check --json`;
 
-      // Bypassing dedup makes the CLI upload to the storage URLs from the
-      // mock's example response, which point at real (unwritable) hosts —
-      // so this deterministically fails after attempting every upload path.
-      // It still verifies --ignore-sha-check skips the dedup short-circuit.
-      const { code, stdout } = await runExpectingFailure(command, {
-        timeout: 60_000,
-      });
-      expect(code).to.equal(1);
-      const result = JSON.parse(stdout);
-      expect(result).to.have.property('status', 'FAILED');
-      expect(result.error).to.include('All uploads failed');
+      // --ignore-sha-check skips the dedup short-circuit and performs a real
+      // upload. The mock returns a valid `uploads/` staging path, so the TUS
+      // fallback upload succeeds and the command returns the new binary id.
+      const { stdout } = await exec(command, { timeout: 60_000 });
+      expectUploadJson(stdout);
     });
   });
 });

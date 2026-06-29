@@ -5,11 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - `pnpm dcd <args>` — run the CLI from source via `tsx`.
-- `pnpm build` — clean, compile TypeScript to `dist/`, and `chmod +x dist/index.js` so the published binary is directly executable.
+- `pnpm build` — clean, compile TypeScript to `dist/`, and `chmod +x dist/index.js dist/mcp/index.js` so both published binaries are directly executable.
+- `pnpm build:binaries` — `scripts/build-binaries.mjs` produces the bun-compiled, self-contained `dcd-<platform>-<arch>` binaries published to GitHub Releases (the install `dcd upgrade` self-updates). The platform/arch keys must stay in sync with `ASSET_BY_PLATFORM` in `src/commands/upgrade.ts`.
 - `pnpm lint` — ESLint over `src/` and `test/`.
-- `pnpm typecheck` — `tsc --noEmit` over `src/` and `test/` (strict mode; `pnpm build` only compiles `src/`).
-- `pnpm test` — runs `scripts/test-runner.mjs`: builds the CLI, boots a mock API, then runs all `test/**/*.test.ts` via mocha + ts-node. The mock API lives in the **sibling `dcd/` repo** (`../dcd/mock-api`). Override its location with `MOCK_API_DIR=/path/to/mock-api`.
-- Run a single test: `pnpm mocha test/integration/cloud.integration.test.ts --timeout 60000` (picks up `.mocharc.json` which wires tsx; requires the mock API already running on its expected port).
+- `pnpm typecheck` — `tsc --noEmit -p tsconfig.test.json` over `src/` and `test/` (strict mode; `pnpm build` only compiles `src/`). Requires Node `>=22`.
+- `pnpm test` — runs `scripts/test-runner.mjs`: builds the CLI, boots the mock API, then runs all `test/**/*.test.ts` via mocha. TypeScript is loaded by **tsx** (`.mocharc.json`'s `node-option: ["import=tsx"]`), *not* ts-node — Mocha 11 imports specs as ESM, which bypasses the `require: ts-node/register` hook. The mock API lives in the **sibling `dcd/` repo** (`../dcd/mock-api`, started via `npm run start:auth` on port 3001). Override its location with `MOCK_API_DIR=/path/to/mock-api`. The runner isolates `DCD_CONFIG_DIR` to a temp dir so tests never touch your real `dcd login` session.
+- Tests split into `test/unit/*` (pure, no backend) and `test/integration/*` (drive the built CLI against the mock API). Run a single test: `pnpm mocha test/integration/cloud.integration.test.ts --timeout 60000` (picks up `.mocharc.json` which wires tsx; integration specs require the mock API already running on port 3001).
 
 ## Entry point
 
@@ -19,7 +20,7 @@ The package ships a **second bin, `dcd-mcp`** (`bin.dcd-mcp` → `dist/mcp/index
 
 ## Architecture
 
-Top-level `defineCommand` in `src/index.ts` wires ten subcommands (`cloud`, `upload`, `list`, `status`, `artifacts`, `live`, plus the auth-related `login`, `logout`, `whoami`, `switch-org`). `cloud` is the primary command and replicates `maestro cloud`.
+Top-level `defineCommand` in `src/index.ts` wires eleven subcommands (`cloud`, `upload`, `list`, `status`, `artifacts`, `live`, `upgrade`, plus the auth-related `login`, `logout`, `whoami`, `switch-org`). `cloud` is the primary command and replicates `maestro cloud`; `upgrade` self-updates the standalone bun binary (no-op for npm installs, which it redirects to `npm install -g`). Note `src/index.ts` deliberately **reimplements** citty's `runMain` rather than calling it — see the Telemetry section for why.
 
 **Flag composition.** Flag definitions are split by domain in `src/config/flags/*.flags.ts` (api, binary, device, environment, execution, github, output) and re-exported as a single `flags` object from `src/constants.ts`. Commands that need the full cloud surface spread `...flags` into their citty `args`; subset commands import individual flag groups.
 
@@ -45,3 +46,29 @@ Top-level `defineCommand` in `src/index.ts` wires ten subcommands (`cloud`, `upl
 **Telemetry.** `src/services/telemetry.service.ts` ships lifecycle (`command started` / `command completed` / `command failed`) and error events to the dcd API's `/cli/logs` proxy → Axiom `cli-dev` / `cli-prod`. Wired in at three points: `src/index.ts` replicates citty's `runMain` (which would otherwise swallow errors and exit 1) to record start/success/failure and honor `CliError.exitCode`; `src/utils/auth.ts` calls `telemetry.configure({ auth })` from `resolveAuth` so the token never has to be re-derived; `src/utils/cli.ts` `logger.error` calls `telemetry.flushSync()` (which shells out to `curl` because `process.exit` bypasses `beforeExit`) before exiting. Unauthenticated invocations (`--help`, `--version`, `dcd login` pre-success) buffer in memory and drop on exit — by design, since there's no identity to attach. Opt out per-invocation with `DCD_TELEMETRY_DISABLED=1`.
 
 **MCP server.** `src/mcp/` is a third front-end onto the same service layer (a sibling to `src/commands/`), shipped as the `dcd-mcp` bin over stdio transport (`@modelcontextprotocol/sdk`, `zod` schemas). `index.ts` boots the server; `server.ts` registers tools; `context.ts` resolves auth + API URL **lazily and once** (so `tools/list` works unauthenticated and auth errors surface as tool errors, not a boot crash) via the same `resolveAuth`/`resolveApiUrl` as the CLI — `DEVICE_CLOUD_API_KEY` env or stored `dcd login` session, with `DCD_API_URL` to override. **Critical invariant: stdout is the JSON-RPC channel** — tools must never call the `src/commands/*` layer or `utils/cli` `logger` (both write to stdout / can `process.exit`); they call services/gateways directly with `logStderr` and return data via `helpers.ts` `jsonResult`/`errorResult`. The `runTool` wrapper records `mcp tool …` telemetry and converts thrown errors to `isError` results. Tools: `dcd_list_devices`, `dcd_list_runs`, `dcd_get_status`, `dcd_download_artifacts` (read-only), and `dcd_run_cloud_test` (billable — gated out by `--read-only` / `DCD_MCP_READONLY=1`, annotated destructive, async-by-default). `dcd_run_cloud_test` reuses `computeCommonRoot`/`buildTestMetadataMap` from `src/services/flow-paths.ts` (extracted from `cloud.ts` so both build identical server-side paths). Registry manifest: `server.json` at repo root.
+
+## Contributing
+
+Full guide in `CONTRIBUTING.md`; the operationally important parts (the ones that gate a merge or affect a release):
+
+- **Branch off `dev`** (the default branch) and open PRs **against `dev`**. `production` is the maintainer-only stable track — never target it directly.
+- PRs are **squash-merged**, so the **PR title becomes the commit** and must be a [Conventional Commit](https://www.conventionalcommits.org). The title — not the branch commits — is what release-please reads to compute the next version, so it matters even though individual commits are squashed away. A `PR Title` CI check enforces it.
+- Type → bump (pre-1.0, so `feat` and breaking `!` both bump **minor**): `feat` minor; `fix`/`perf`/`deps`/`revert`/`refactor` patch; `docs`/`chore`/`test`/`ci`/`build`/`style` are hidden and bump nothing. Allowed scopes are free-form.
+- **Never hand-edit `package.json` version, `CHANGELOG.md`, or the `.release-please-manifest*.json` files** — release-please owns all of them. `src/types/generated/schema.types.ts` is likewise generated (openapi-typescript).
+- A first-time contributor must sign the CLA (the CLA Assistant bot comments on the first PR); the CLA check must be green to merge.
+- **CI (`.github/workflows/cli-ci.yml`) runs on every PR** including forks: gitleaks secret scan, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm audit --audit-level moderate`. The **integration tests need the private `devicecloud-dev/dcd` mock-api** (cloned via the `DCD_SSH_DEPLOY_KEY` secret), and GitHub withholds secrets from fork and Dependabot PRs — so `pnpm test` is **skipped there** and a maintainer runs the full suite before merge. gitleaks also runs as a pre-commit hook (allowlist in `.gitleaks.toml`); without the binary installed the hook self-skips and CI is the backstop.
+
+## Releases
+
+Fully automated by [release-please](https://github.com/googleapis/release-please) — no manual version bumping. `.github/workflows/release-please.yml` drives **two parallel tracks off two separate config+manifest pairs**:
+
+| Push to | Track | Config / manifest | Version | npm tag |
+| --- | --- | --- | --- | --- |
+| `dev` | **beta** (prerelease) | `release-please-config-beta.json` / `.release-please-manifest-beta.json` | `X.Y.Z-beta.N` | `beta` |
+| `production` | **stable** | `release-please-config.json` / `.release-please-manifest.json` | `X.Y.Z` | `latest` |
+
+The two manifests track their versions **independently** (e.g. beta `5.0.0-beta.3` while stable is `5.0.0`). On each qualifying push release-please opens/updates a **Release PR** on that branch; merging the Release PR creates the git tag + GitHub Release, and the same workflow run **chains** (as `needs:` jobs, because a `GITHUB_TOKEN`-created release won't fire `release: published`) into:
+1. `npm-publish.yml` — publishes to npm. Guards: a prod publish may only run from `production` and its version must **not** carry `-beta`; a beta version **must** carry `-beta`.
+2. `release-binaries.yml` — bun-compiles the standalone binaries (`node scripts/build-binaries.mjs`) and uploads them to the GitHub Release. `get.devicecloud.dev` serves them by reading the GitHub Releases API at runtime, so there's no separate manifest to deploy.
+
+**Promoting beta → stable** is a maintainer merging `dev` into `production` via a PR (also gated by `cli-ci.yml`) — that push to `production` is what triggers the stable Release PR. The current `release/promote-v5` branch is exactly such a promotion. Releases prefer an automation GitHub App token (`BOT_APP_ID`) so the Release PR triggers the CI / PR-title / CLA checks that branch protection requires, falling back to `GITHUB_TOKEN` until the App secrets are configured.

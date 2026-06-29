@@ -40,3 +40,39 @@ export function isCI(): boolean {
 
   return !process.stdout.isTTY;
 }
+
+/** Which DCD CI integration (if any) is wrapping this CLI invocation, and its version. */
+export interface CiContext {
+  /** e.g. 'github' | 'bitrise' | 'bitbucket' | 'eas' | 'gitlab' | 'circleci'. */
+  provider: string | null;
+  /** The wrapper's own version, if it forwarded one (DCD_CI_WRAPPER_VERSION). */
+  wrapperVersion: string | null;
+}
+
+/** Infer the CI provider from the env vars each platform sets natively. */
+function inferProvider(): string | null {
+  const env = process.env;
+  if (env.GITHUB_ACTIONS) return 'github';
+  if (env.BITRISE_IO || env.BITRISE_BUILD_NUMBER) return 'bitrise';
+  if (env.BITBUCKET_BUILD_NUMBER) return 'bitbucket';
+  if (env.EAS_BUILD || env.EAS_BUILD_RUNNER || env.EAS_BUILD_ID) return 'eas';
+  if (env.GITLAB_CI) return 'gitlab';
+  if (env.CIRCLECI) return 'circleci';
+  return null;
+}
+
+/**
+ * Resolve the CI integration context the CLI forwards to the notices API so
+ * notices can target a specific integration/version (e.g. "Bitbucket Pipe <
+ * 1.1.0"). The DCD CI wrappers set `DCD_CI_PROVIDER` / `DCD_CI_WRAPPER_VERSION`
+ * explicitly (preferred — carries the wrapper version); otherwise the provider
+ * is inferred from native env vars and the version is unknown.
+ */
+export function detectCiContext(): CiContext {
+  const forwardedProvider = process.env.DCD_CI_PROVIDER?.trim();
+  const forwardedVersion = process.env.DCD_CI_WRAPPER_VERSION?.trim();
+  return {
+    provider: forwardedProvider || inferProvider(),
+    wrapperVersion: forwardedVersion || null,
+  };
+}
