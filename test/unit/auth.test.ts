@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { resolveAuth } from '../../src/utils/auth.js';
+import { SessionRefreshError } from '../../src/gateways/cli-auth-gateway.js';
+import { dropStoredSession, resolveAuth } from '../../src/utils/auth.js';
 import {
   clearConfig,
   configFileMode,
@@ -178,6 +179,48 @@ describe('resolveAuth precedence', () => {
       }
       expect(caught).to.not.equal(null);
       expect(caught!.message).to.match(/api key|DEVICE_CLOUD_API_KEY|dcd login/i);
+    });
+  });
+
+  it('surfaces definitive vs transient refresh failures via SessionRefreshError', () => {
+    const dead = new SessionRefreshError('Invalid Refresh Token: Already Used', true);
+    const blip = new SessionRefreshError('fetch failed', false);
+    expect(dead.definitive).to.equal(true);
+    expect(blip.definitive).to.equal(false);
+    expect(dead).to.be.instanceOf(Error);
+  });
+
+  it('dropStoredSession removes only the session, keeping env/org fields', async () => {
+    await withTempConfigDir(() => {
+      writeConfig({
+        version: 1,
+        env: 'dev',
+        api_url: 'https://api.dev.devicecloud.dev',
+        supabase_url: 'https://lbmsowehtjwnqlurpemb.supabase.co',
+        session: {
+          access_token: 'a',
+          refresh_token: 'consumed-by-another-client',
+          expires_at: Math.floor(Date.now() / 1000) - 60,
+          user_email: 'u@example.com',
+          user_id: 'u1',
+        },
+        current_org_id: '42',
+        current_org_name: 'Acme',
+      });
+
+      dropStoredSession();
+
+      const after = readConfig();
+      expect(after).to.not.equal(null);
+      expect(after!.session).to.equal(undefined);
+      expect(after!.env).to.equal('dev');
+      expect(after!.api_url).to.equal('https://api.dev.devicecloud.dev');
+      expect(after!.current_org_id).to.equal('42');
+      expect(after!.current_org_name).to.equal('Acme');
+
+      // Idempotent when there's no session to drop.
+      dropStoredSession();
+      expect(readConfig()!.session).to.equal(undefined);
     });
   });
 

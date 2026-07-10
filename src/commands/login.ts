@@ -10,8 +10,11 @@
  *  2. CLI opens <frontend>/cli-login?state=...&code_challenge=... in the browser.
  *  3. User signs in (OTP or SSO) and explicitly authorizes the handoff on
  *     the frontend.
- *  4. Frontend POSTs {state, code_challenge, session...} to the dcd api at
- *     POST /cli-login/handoff. The api stores a short-TTL row keyed by state.
+ *  4. Frontend POSTs {state, code_challenge, access_token} to the dcd api at
+ *     POST /cli-login/handoff — the access token is proof of identity only.
+ *     The api verifies it, mints a *dedicated* Supabase session for the CLI
+ *     (its own refresh-token family, so browser token rotation can't
+ *     invalidate it), and stores it in a short-TTL row keyed by state.
  *  5. Meanwhile, the CLI polls POST /cli-login/claim with {state, code_verifier}.
  *     Once the api has the row, it verifies sha256(verifier) === challenge,
  *     deletes the row, and returns the session.
@@ -81,20 +84,32 @@ export const loginCommand = defineCommand({
 
     // If there's an existing stored session, make the user confirm before we
     // overwrite it. Silent clobber is fine for power users but surprising if
-    // someone runs `dcd login` by mistake while already authenticated.
+    // someone runs `dcd login` by mistake while already authenticated. An
+    // already-expired session gets no confirm: the user is here because a
+    // command told them to re-login, and "Already logged in… keep session?"
+    // would dead-end them on a session that no longer works.
     const existing = readConfig();
     if (existing?.session) {
-      const currentOrg = existing.current_org_name ?? existing.current_org_id;
-      const ok = await p.confirm({
-        message:
-          `Already logged in as ${existing.session.user_email}` +
-          (currentOrg ? ` (org ${currentOrg})` : '') +
-          `. Sign out and log in again?`,
-        initialValue: false,
-      });
-      if (p.isCancel(ok) || !ok) {
-        logger.log(ui.info('Keeping existing session.'));
-        return;
+      const now = Math.floor(Date.now() / 1000);
+      if (existing.session.expires_at <= now) {
+        logger.log(
+          ui.info(
+            `Your session for ${existing.session.user_email} has expired — signing in again.`,
+          ),
+        );
+      } else {
+        const currentOrg = existing.current_org_name ?? existing.current_org_id;
+        const ok = await p.confirm({
+          message:
+            `Already logged in as ${existing.session.user_email}` +
+            (currentOrg ? ` (org ${currentOrg})` : '') +
+            `. Sign out and log in again?`,
+          initialValue: true,
+        });
+        if (p.isCancel(ok) || !ok) {
+          logger.log(ui.info('Keeping existing session.'));
+          return;
+        }
       }
     }
 
