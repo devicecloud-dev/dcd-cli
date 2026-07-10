@@ -591,10 +591,11 @@ export const ApiGateway = {
   /**
    * Dry-run cost + cell-count estimate for a (possibly device-matrix)
    * submission. Runs the same resolve → validate → fan-out → price core as the
-   * submit path server-side, without persisting. Returns null when the API
-   * predates this endpoint (404) so the caller can proceed without a preview;
-   * a 400 (an invalid config) surfaces as a normal API error so the CLI can
-   * fail fast before uploading the flow zip.
+   * submit path server-side, without persisting. The preview is best-effort:
+   * an API that predates this endpoint 404s (route undefined) or 405s (route
+   * matched a sibling path, no POST) — in either case return null so the caller
+   * proceeds without a preview. A 400 (an invalid config) still surfaces as a
+   * normal API error so the CLI can fail fast before uploading the flow zip.
    */
   async estimateMatrix(baseUrl: string, auth: AuthContext, body: Record<string, unknown>) {
     try {
@@ -606,7 +607,7 @@ export const ApiGateway = {
         },
         method: 'POST',
       });
-      if (res.status === 404) {
+      if (res.status === 404 || res.status === 405) {
         return null;
       }
       if (!res.ok) {
