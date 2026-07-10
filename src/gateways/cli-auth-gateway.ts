@@ -3,11 +3,27 @@
  * and sign-out (best-effort revocation on the Supabase side).
  *
  * Does not talk to the dcd API — the dcd-side session exchange lives in the
- * login command's loopback flow, where the frontend POSTs ciphertext back.
+ * login command's PKCE rendezvous flow (see src/commands/login.ts).
  */
-import { createClient } from '@supabase/supabase-js';
+import { createClient, isAuthApiError } from '@supabase/supabase-js';
 
 import type { StoredSession } from '../utils/config-store.js';
+
+/**
+ * Thrown when a session refresh fails. `definitive` distinguishes "Supabase
+ * rejected this refresh token" (revoked, already used, malformed — re-login
+ * is the only fix) from transient failures (network, GoTrue 5xx) where the
+ * stored session may still be good on the next attempt.
+ */
+export class SessionRefreshError extends Error {
+  constructor(
+    message: string,
+    readonly definitive: boolean,
+  ) {
+    super(message);
+    this.name = 'SessionRefreshError';
+  }
+}
 
 export interface RefreshedSession {
   access_token: string;
@@ -35,9 +51,17 @@ export const CliAuthGateway = {
       refresh_token: session.refresh_token,
     });
     if (error || !data.session || !data.user) {
-      throw new Error(
+      // 4xx from GoTrue means the token itself was rejected; anything else
+      // (fetch failure, 5xx) could succeed on retry with the same token.
+      const definitive =
+        error != null &&
+        isAuthApiError(error) &&
+        error.status >= 400 &&
+        error.status < 500;
+      throw new SessionRefreshError(
         `Failed to refresh session: ${error?.message ?? 'no session returned'}. ` +
           `Run \`dcd login\` again.`,
+        definitive,
       );
     }
     const s = data.session;

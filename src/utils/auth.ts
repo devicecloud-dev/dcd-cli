@@ -10,7 +10,10 @@
 import { closeSync, openSync, rmSync, statSync } from 'node:fs';
 
 import { ENVIRONMENTS } from '../config/environments.js';
-import { CliAuthGateway } from '../gateways/cli-auth-gateway.js';
+import {
+  CliAuthGateway,
+  SessionRefreshError,
+} from '../gateways/cli-auth-gateway.js';
 import { telemetry } from '../services/telemetry.service.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 
@@ -124,11 +127,19 @@ async function refreshSessionWithLock(
     }
 
     const { anonKey } = ENVIRONMENTS[current.env].supabase;
-    const refreshed = await CliAuthGateway.refresh(
-      current.supabase_url,
-      anonKey,
-      session,
-    );
+    let refreshed;
+    try {
+      refreshed = await CliAuthGateway.refresh(
+        current.supabase_url,
+        anonKey,
+        session,
+      );
+    } catch (error) {
+      if (error instanceof SessionRefreshError && error.definitive) {
+        dropStoredSession();
+      }
+      throw error;
+    }
     // Re-read again and merge only `session` so a concurrent `switch-org`
     // write (org fields) isn't reverted by our pre-refresh snapshot.
     const merged: StoredConfig = { ...(readConfig() ?? current), session: refreshed };
@@ -137,6 +148,20 @@ async function refreshSessionWithLock(
   } finally {
     try { rmSync(lockPath, { force: true }); } catch { /* best effort */ }
   }
+}
+
+/**
+ * Remove only the (definitively dead) session from the stored config, keeping
+ * env/api_url/org so a re-login lands back in the same environment. With the
+ * dead session gone, subsequent commands report "Not authenticated" instead
+ * of failing the same refresh, and `dcd login` skips its "already logged in"
+ * confirm. Exported for tests.
+ */
+export function dropStoredSession(): void {
+  const config = readConfig();
+  if (!config?.session) return;
+  delete config.session;
+  writeConfig(config);
 }
 
 async function acquireRefreshLock(lockPath: string): Promise<void> {
