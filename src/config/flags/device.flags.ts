@@ -42,6 +42,14 @@ export const deviceFlags = {
     type: 'string',
     description: `[iOS only] iOS version to run your flow against (options: ${iosVersions})`,
   },
+  'ios-config': {
+    type: 'string',
+    description: `[iOS only] Device-matrix cell as <device>:<version>, e.g. iphone-16:18. Repeatable — every flow runs once per cell (no cross-product). Cannot be combined with --android-config.`,
+  },
+  'android-config': {
+    type: 'string',
+    description: `[Android only] Device-matrix cell as <device>:<apiLevel> (append :play for Google Play), e.g. pixel-7:34 or pixel-7:34:play. Repeatable — every flow runs once per cell (no cross-product). Cannot be combined with --ios-config.`,
+  },
   orientation: {
     type: 'string',
     description:

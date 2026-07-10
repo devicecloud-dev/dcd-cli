@@ -20,6 +20,7 @@ import {
 import { MoropoService } from '../services/moropo.service.js';
 import { ReportDownloadService } from '../services/report-download.service.js';
 import {
+  deviceFromResultRow,
   ResultsPollingService,
   RunFailedError,
 } from '../services/results-polling.service.js';
@@ -31,8 +32,10 @@ import {
   EAndroidDevices,
   EiOSDevices,
   EiOSVersions,
+  isIosMatrixConfig,
 } from '../types/domain/device.types.js';
 import { resolveAuth } from '../utils/auth.js';
+import { matrixIsIos, parseDeviceMatrix } from '../utils/device-matrix.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -211,6 +214,10 @@ export const cloudCommand = defineCommand({
         'android-device',
       );
       const androidNoSnapshot = Boolean(args['android-no-snapshot']);
+      // Repeatable device-matrix flags: one validated cell each, no cross-product.
+      const iosConfigFlags = collectRepeatedFlag(rawArgs, ['--ios-config']);
+      const androidConfigFlags = collectRepeatedFlag(rawArgs, ['--android-config']);
+      const deviceMatrix = parseDeviceMatrix(iosConfigFlags, androidConfigFlags);
       const json = Boolean(args.json);
       const jsonFileFlag = Boolean(args['json-file']);
       const jsonFileName = args['json-file-name'] as string | undefined;
@@ -502,6 +509,28 @@ export const cloudCommand = defineCommand({
         { debug, logger: (m: string) => out(m) },
       );
 
+      // Validate every device-matrix cell up front — each on its own, against
+      // the same compatibility matrix — so an unsupported cell fails fast,
+      // naming it, before anything is uploaded.
+      for (const cfg of deviceMatrix) {
+        if (isIosMatrixConfig(cfg)) {
+          deviceValidationService.validateiOSDevice(
+            cfg.iOSVersion,
+            cfg.iOSDevice,
+            compatibilityData,
+            { debug, logger: (m: string) => out(m) },
+          );
+        } else {
+          deviceValidationService.validateAndroidDevice(
+            cfg.androidApiLevel,
+            cfg.androidDevice,
+            cfg.googlePlay ?? googlePlay,
+            compatibilityData,
+            { debug, logger: (m: string) => out(m) },
+          );
+        }
+      }
+
       if (maestroChromeOnboarding && !androidApiLevel && !androidDevice) {
         warnOut(
           'The --maestro-chrome-onboarding flag only applies to Android tests and will be ignored for iOS tests.',
@@ -639,6 +668,8 @@ export const cloudCommand = defineCommand({
         'include-tags': includeTags,
         'exclude-tags': excludeTags,
         'exclude-flows': excludeFlows,
+        'ios-config': iosConfigFlags,
+        'android-config': androidConfigFlags,
       };
       for (const [k, v] of Object.entries(args)) {
         if (!canonicalFlagKeys.has(k)) continue;
@@ -762,6 +793,7 @@ export const cloudCommand = defineCommand({
         continueOnFailure,
         debug,
         deviceLocale,
+        deviceMatrix,
         env,
         executionPlan,
         flowFile,
@@ -783,6 +815,49 @@ export const cloudCommand = defineCommand({
         maestroChromeOnboarding,
         disableAnimations,
       });
+
+      // Device-matrix cost preview: the server prices the exact fan-out (quote
+      // == charge) so the user sees the cell count and estimated cost before the
+      // flow zip is uploaded. An unsupported cell fails fast here. Skipped when
+      // there is no matrix, and tolerant of older APIs that lack the endpoint.
+      if (deviceMatrix.length > 0) {
+        const estimate = await ApiGateway.estimateMatrix(apiUrl, auth, fields);
+        if (estimate) {
+          const osPrefix = matrixIsIos(deviceMatrix) ? 'iOS' : 'API';
+          const rows = ui.fields([
+            ['cells', colors.highlight(String(estimate.cellCount))],
+            ['est. cost', colors.highlight(`$${estimate.totalCost.toFixed(2)}`)],
+          ]);
+          for (const col of estimate.columns) {
+            const label = [
+              col.deviceName,
+              col.osVersion && `${osPrefix} ${col.osVersion}`,
+              col.googlePlay && 'Play',
+            ]
+              .filter(Boolean)
+              .join(' · ');
+            rows.push(
+              ...ui.fields([
+                [
+                  label,
+                  colors.dim(
+                    `${col.flowCount} flow${col.flowCount === 1 ? '' : 's'} · $${col.cost.toFixed(2)}`,
+                  ),
+                ],
+              ]),
+            );
+          }
+          if (estimate.excludedFlows.length > 0) {
+            rows.push(
+              colors.dim(
+                `${estimate.excludedFlows.length} flow${estimate.excludedFlows.length === 1 ? '' : 's'} target their own device (excluded from the matrix)`,
+              ),
+            );
+          }
+          out(ui.section('Device matrix'));
+          out(ui.branch(rows));
+        }
+      }
 
       // New path: upload the zip directly to storage, then submit a JSON test
       // referencing it. Older API deployments lack these endpoints — a real API
@@ -865,6 +940,7 @@ export const cloudCommand = defineCommand({
           consoleUrl: url,
           status: 'PENDING',
           tests: results.map((r) => ({
+            device: deviceFromResultRow(r),
             fileName: r.test_file_name,
             flowName:
               testMetadataMap[r.test_file_name]?.flowName ||
