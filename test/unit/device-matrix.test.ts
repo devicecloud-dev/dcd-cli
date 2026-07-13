@@ -2,6 +2,7 @@ import { expect } from 'chai';
 
 import { CliError } from '../../src/utils/cli.js';
 import {
+  assertMatrixSupported,
   matrixIsIos,
   parseDeviceMatrix,
 } from '../../src/utils/device-matrix.js';
@@ -57,5 +58,38 @@ describe('parseDeviceMatrix', () => {
       CliError,
       /pixel-7:34:store/,
     );
+  });
+});
+
+/**
+ * An API that predates the matrix silently STRIPS the unknown deviceMatrix
+ * field (its ValidationPipe is whitelist:true / forbidNonWhitelisted:false) and
+ * runs every flow on one default device, exiting 0. Submitting into that is the
+ * worst outcome the feature can produce, so it must be refused, not tolerated.
+ */
+describe('assertMatrixSupported', () => {
+  const matrix = [{ iOSDevice: 'iphone-16', iOSVersion: '18' }];
+
+  it('throws when a matrix was requested but the API has no estimate endpoint', () => {
+    expect(() => assertMatrixSupported(matrix, null)).to.throw(
+      CliError,
+      /does not support device matrices/i,
+    );
+  });
+
+  it('explains that submitting anyway would silently run a single device', () => {
+    expect(() => assertMatrixSupported(matrix, null)).to.throw(
+      /silently run every flow on a single default device/i,
+    );
+  });
+
+  it('passes when the API returned an estimate', () => {
+    expect(() =>
+      assertMatrixSupported(matrix, { cellCount: 2, totalCost: 0.16 }),
+    ).to.not.throw();
+  });
+
+  it('is a no-op when no matrix was requested (legacy single-device runs)', () => {
+    expect(() => assertMatrixSupported([], null)).to.not.throw();
   });
 });
