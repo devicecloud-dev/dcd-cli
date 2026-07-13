@@ -5,8 +5,8 @@ import {
 import { CliError } from './cli.js';
 
 /**
- * Parse repeated `--ios-config <device>:<version>` and
- * `--android-config <device>:<apiLevel>[:play]` flags into an explicit device
+ * Parse repeated `--ios-device-matrix <device>:<version>` and
+ * `--android-device-matrix <device>:<apiLevel>[:play]` flags into an explicit device
  * matrix. Each entry is one validated cell — there is NO cross-product, because
  * the compatibility matrix is ragged and a cross-product would invent cells the
  * user never asked for.
@@ -22,7 +22,7 @@ export function parseDeviceMatrix(
 ): DeviceMatrixConfig[] {
   if (iosConfigs.length > 0 && androidConfigs.length > 0) {
     throw new CliError(
-      'A device matrix cannot mix platforms: use either --ios-config or --android-config, not both. One upload runs one binary.',
+      'A device matrix cannot mix platforms: use either --ios-device-matrix or --android-device-matrix, not both. One upload runs one binary.',
     );
   }
 
@@ -32,7 +32,7 @@ export function parseDeviceMatrix(
     const parts = raw.split(':');
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
       throw new CliError(
-        `Invalid --ios-config "${raw}". Expected <device>:<version>, e.g. iphone-16:18.`,
+        `Invalid --ios-device-matrix "${raw}". Expected <device>:<version>, e.g. iphone-16:18.`,
       );
     }
     configs.push({ iOSDevice: parts[0], iOSVersion: parts[1] });
@@ -49,7 +49,7 @@ export function parseDeviceMatrix(
       (parts.length === 3 && parts[2] !== 'play')
     ) {
       throw new CliError(
-        `Invalid --android-config "${raw}". Expected <device>:<apiLevel> or <device>:<apiLevel>:play, e.g. pixel-7:34 or pixel-7:34:play.`,
+        `Invalid --android-device-matrix "${raw}". Expected <device>:<apiLevel> or <device>:<apiLevel>:play, e.g. pixel-7:34 or pixel-7:34:play.`,
       );
     }
     configs.push({
