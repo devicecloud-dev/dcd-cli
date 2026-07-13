@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.2.0-beta.3](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0-beta.2...v5.2.0-beta.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* **cloud:** refuse a device matrix on an API that cannot honour it ([#80](https://github.com/devicecloud-dev/dcd-cli/issues/80)) ([5560158](https://github.com/devicecloud-dev/dcd-cli/commit/5560158389440735354be963098a2704a8610040))
+
 ## [5.2.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0-beta.1...v5.2.0-beta.2) (2026-07-13)
 
 
