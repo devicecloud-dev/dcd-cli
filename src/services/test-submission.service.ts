@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 
 import { compressFilesFromRelativePath } from '../methods.js';
+import { DeviceMatrixConfig } from '../types/domain/device.types.js';
 import { toPortableRelativePath } from '../utils/paths.js';
 import { IExecutionPlan } from './execution-plan.service.js';
 
@@ -15,6 +16,7 @@ export interface TestSubmissionConfig {
   continueOnFailure?: boolean;
   debug?: boolean;
   deviceLocale?: string;
+  deviceMatrix?: DeviceMatrixConfig[];
   disableAnimations?: boolean;
   env?: string[];
   executionPlan: IExecutionPlan;
@@ -85,6 +87,7 @@ export class TestSubmissionService {
       maestroChromeOnboarding,
       raw,
       disableAnimations,
+      deviceMatrix,
       debug = false,
       logger,
     } = config;
@@ -183,7 +186,23 @@ export class TestSubmissionService {
     // Note: googlePlay is now included in configPayload below instead of as a separate field
     // to work around a FormData parsing issue in the API
 
-    const targetPlatform = iOSDevice || iOSVersion ? 'ios' : 'android';
+    // Explicit device matrix (one upload, N cells). Only sent when present, so
+    // single-device submissions stay byte-identical.
+    if (deviceMatrix && deviceMatrix.length > 0) {
+      fields.deviceMatrix = JSON.stringify(deviceMatrix);
+    }
+
+    // Platform used only to pick which workspace-config disableAnimations flag
+    // applies. A device matrix is single-platform; its first cell decides. Fall
+    // back to the scalar iOS flags for single-device submissions.
+    const matrixPlatform =
+      deviceMatrix && deviceMatrix.length > 0
+        ? 'iOSDevice' in deviceMatrix[0]
+          ? 'ios'
+          : 'android'
+        : undefined;
+    const targetPlatform =
+      matrixPlatform ?? (iOSDevice || iOSVersion ? 'ios' : 'android');
     const configYamlDisableAnimations =
       targetPlatform === 'ios'
         ? Boolean(workspaceConfig?.platform?.ios?.disableAnimations)

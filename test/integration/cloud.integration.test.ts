@@ -163,6 +163,32 @@ appId: com.example.app
     });
   });
 
+  // #1105 device matrix: repeated --ios-device-matrix / --android-device-matrix cells.
+  describe('device matrix', () => {
+    it('accepts a repeated --ios-device-matrix matrix and still yields one upload', async () => {
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device-matrix iphone-16:18 --ios-device-matrix iphone-16-pro:26 --async --json`;
+
+      const { stdout } = await exec(command, { timeout: 30_000 });
+      // Still one upload with one uploadId — the matrix is a property of the
+      // upload, not N uploads.
+      expectAsyncRunJson(stdout);
+    });
+
+    it('rejects mixing --ios-device-matrix and --android-device-matrix before any upload', async () => {
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device-matrix iphone-16:18 --android-device-matrix pixel-7:34`;
+
+      const { output } = await runExpectingFailure(command);
+      expect(output.toLowerCase()).to.include('cannot mix platforms');
+    });
+
+    it('rejects a malformed --ios-device-matrix, naming the value', async () => {
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device-matrix iphone-16`;
+
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('iphone-16');
+    });
+  });
+
   describe('device configuration options', () => {
     // Async non-JSON runs always reach submission against the mock API.
     // `.include` keeps these robust to incidental extra lines (e.g. the
