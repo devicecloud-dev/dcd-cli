@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.2.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0-beta.1...v5.2.0-beta.2) (2026-07-13)
+
+
+### Code Refactoring
+
+* **cloud:** rename --ios-config/--android-config to --ios-device-matrix/--android-device-matrix ([#77](https://github.com/devicecloud-dev/dcd-cli/issues/77)) ([fc3ea3f](https://github.com/devicecloud-dev/dcd-cli/commit/fc3ea3f9fa41f51a640827dbe845deca7b355924))
+
 ## [5.2.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.1-beta.1...v5.2.0-beta.1) (2026-07-13)
 
 
