@@ -35,7 +35,11 @@ import {
   isIosMatrixConfig,
 } from '../types/domain/device.types.js';
 import { resolveAuth } from '../utils/auth.js';
-import { matrixIsIos, parseDeviceMatrix } from '../utils/device-matrix.js';
+import {
+  matrixIsIos,
+  parseDeviceMatrix,
+  rejectRenamedMatrixFlags,
+} from '../utils/device-matrix.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -215,9 +219,12 @@ export const cloudCommand = defineCommand({
       );
       const androidNoSnapshot = Boolean(args['android-no-snapshot']);
       // Repeatable device-matrix flags: one validated cell each, no cross-product.
-      const iosConfigFlags = collectRepeatedFlag(rawArgs, ['--ios-config']);
-      const androidConfigFlags = collectRepeatedFlag(rawArgs, ['--android-config']);
-      const deviceMatrix = parseDeviceMatrix(iosConfigFlags, androidConfigFlags);
+      // Reject the pre-rename names first — citty would otherwise drop them
+      // silently and run a single device while the user expected a matrix.
+      rejectRenamedMatrixFlags(rawArgs);
+      const iosMatrixFlags = collectRepeatedFlag(rawArgs, ['--ios-device-matrix']);
+      const androidMatrixFlags = collectRepeatedFlag(rawArgs, ['--android-device-matrix']);
+      const deviceMatrix = parseDeviceMatrix(iosMatrixFlags, androidMatrixFlags);
       const json = Boolean(args.json);
       const jsonFileFlag = Boolean(args['json-file']);
       const jsonFileName = args['json-file-name'] as string | undefined;
@@ -668,8 +675,8 @@ export const cloudCommand = defineCommand({
         'include-tags': includeTags,
         'exclude-tags': excludeTags,
         'exclude-flows': excludeFlows,
-        'ios-config': iosConfigFlags,
-        'android-config': androidConfigFlags,
+        'ios-device-matrix': iosMatrixFlags,
+        'android-device-matrix': androidMatrixFlags,
       };
       for (const [k, v] of Object.entries(args)) {
         if (!canonicalFlagKeys.has(k)) continue;
