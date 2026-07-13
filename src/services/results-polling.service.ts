@@ -47,10 +47,46 @@ export interface TestMetadata {
   tags: string[];
 }
 
+/**
+ * The device a result ran on. Additive: single-device runs are unchanged, and
+ * a device matrix disambiguates two `tests[]` entries that share a `name` (the
+ * same flow on two devices) by their device.
+ */
+export interface TestDevice {
+  googlePlay?: boolean;
+  name?: string;
+  osVersion?: string;
+}
+
+/**
+ * Structured device for a result row. Prefers the friendly deviceName/osVersion
+ * the per-flow targeting / matrix fan-out stamps onto each result's config
+ * (#1097), falling back to the raw simulator_name for older rows. Returns
+ * undefined when neither is present, so single-device runs that predate the
+ * field simply omit `device`. Shared by the sync polling path and the async
+ * (--async --json) path so both emit an identical device shape.
+ */
+export function deviceFromResultRow(r: {
+  config?: unknown;
+  simulator_name?: string | null;
+}): TestDevice | undefined {
+  const config = (r.config ?? {}) as { deviceName?: string; osVersion?: string };
+  const sim = r.simulator_name ?? undefined;
+  const name = config.deviceName ?? sim;
+  if (!name && !config.osVersion) return undefined;
+  return {
+    name,
+    osVersion: config.osVersion,
+    googlePlay: sim ? /(_PLAY|-play)$/.test(sim) : undefined,
+  };
+}
+
 export interface PollingResult {
   consoleUrl: string;
   status: 'FAILED' | 'PASSED';
   tests: Array<{
+    /** Device this result ran on (present when the API reports it). */
+    device?: TestDevice;
     durationSeconds: null | number;
     failReason?: string;
     /** File path of the test (same as name, for clarity) */
@@ -311,6 +347,12 @@ export class ResultsPollingService {
         ? 'PASSED'
         : 'FAILED',
       tests: resultsWithoutEarlierTries.map((r) => ({
+        // r carries config/simulator_name at runtime; the committed generated
+        // types lag the API (regenerated wholesale from dev's swagger), so read
+        // them through the helper's structural type.
+        device: deviceFromResultRow(
+          r as { config?: unknown; simulator_name?: string | null },
+        ),
         durationSeconds: r.duration_seconds ?? null,
         failReason:
           r.status === 'FAILED' ? r.fail_reason || 'No reason provided' : undefined,

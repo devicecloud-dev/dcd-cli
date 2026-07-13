@@ -588,6 +588,52 @@ export const ApiGateway = {
     }
   },
 
+  /**
+   * Dry-run cost + cell-count estimate for a (possibly device-matrix)
+   * submission. Runs the same resolve → validate → fan-out → price core as the
+   * submit path server-side, without persisting. The preview is best-effort:
+   * an API that predates this endpoint 404s (route undefined) or 405s (route
+   * matched a sibling path, no POST) — in either case return null so the caller
+   * proceeds without a preview. A 400 (an invalid config) still surfaces as a
+   * normal API error so the CLI can fail fast before uploading the flow zip.
+   */
+  async estimateMatrix(baseUrl: string, auth: AuthContext, body: Record<string, unknown>) {
+    try {
+      const res = await fetch(`${baseUrl}/uploads/estimateMatrix`, {
+        body: JSON.stringify(body),
+        headers: {
+          'content-type': 'application/json',
+          ...auth.headers,
+        },
+        method: 'POST',
+      });
+      if (res.status === 404 || res.status === 405) {
+        return null;
+      }
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to estimate device matrix');
+      }
+      return await parseJsonResponse<{
+        cellCount: number;
+        totalCost: number;
+        excludedFlows: string[];
+        columns: Array<{
+          deviceName: string;
+          osVersion: string;
+          googlePlay: boolean;
+          flowCount: number;
+          cost: number;
+        }>;
+      }>(res, 'Failed to estimate device matrix');
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, `${baseUrl}/uploads/estimateMatrix`);
+      }
+
+      throw error;
+    }
+  },
+
 
   /**
    * Generic report download method that handles both junit and allure reports

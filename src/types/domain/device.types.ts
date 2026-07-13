@@ -40,3 +40,17 @@ export enum EAndroidApiLevels {
   'thirtyTwo' = '32',
   'twentyNine' = '29',
 }
+
+/**
+ * One explicit device-matrix cell. iOS entries carry {iOSDevice, iOSVersion};
+ * Android entries carry {androidDevice, androidApiLevel} plus an optional Play
+ * channel. Sent to the API as the `deviceMatrix` array; every non-targeted flow
+ * runs once per cell. There is no cross-product — each entry is one cell.
+ */
+export type DeviceMatrixConfig =
+  | { iOSDevice: string; iOSVersion: string }
+  | { androidApiLevel: string; androidDevice: string; googlePlay?: boolean };
+
+export const isIosMatrixConfig = (
+  c: DeviceMatrixConfig,
+): c is { iOSDevice: string; iOSVersion: string } => 'iOSDevice' in c;
