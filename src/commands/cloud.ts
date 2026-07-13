@@ -35,7 +35,11 @@ import {
   isIosMatrixConfig,
 } from '../types/domain/device.types.js';
 import { resolveAuth } from '../utils/auth.js';
-import { matrixIsIos, parseDeviceMatrix } from '../utils/device-matrix.js';
+import {
+  assertMatrixSupported,
+  matrixIsIos,
+  parseDeviceMatrix,
+} from '../utils/device-matrix.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -822,6 +826,10 @@ export const cloudCommand = defineCommand({
       // there is no matrix, and tolerant of older APIs that lack the endpoint.
       if (deviceMatrix.length > 0) {
         const estimate = await ApiGateway.estimateMatrix(apiUrl, auth, fields);
+        // A null estimate means the API predates the matrix (404/405). It would
+        // silently strip deviceMatrix and run one device — refuse rather than
+        // hand back a green single-device run the user reads as a matrix.
+        assertMatrixSupported(deviceMatrix, estimate);
         if (estimate) {
           const osPrefix = matrixIsIos(deviceMatrix) ? 'iOS' : 'API';
           const rows = ui.fields([
