@@ -35,11 +35,7 @@ import {
   isIosMatrixConfig,
 } from '../types/domain/device.types.js';
 import { resolveAuth } from '../utils/auth.js';
-import {
-  matrixIsIos,
-  parseDeviceMatrix,
-  rejectRenamedMatrixFlags,
-} from '../utils/device-matrix.js';
+import { matrixIsIos, parseDeviceMatrix } from '../utils/device-matrix.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -219,9 +215,6 @@ export const cloudCommand = defineCommand({
       );
       const androidNoSnapshot = Boolean(args['android-no-snapshot']);
       // Repeatable device-matrix flags: one validated cell each, no cross-product.
-      // Reject the pre-rename names first — citty would otherwise drop them
-      // silently and run a single device while the user expected a matrix.
-      rejectRenamedMatrixFlags(rawArgs);
       const iosMatrixFlags = collectRepeatedFlag(rawArgs, ['--ios-device-matrix']);
       const androidMatrixFlags = collectRepeatedFlag(rawArgs, ['--android-device-matrix']);
       const deviceMatrix = parseDeviceMatrix(iosMatrixFlags, androidMatrixFlags);

@@ -5,34 +5,6 @@ import {
 import { CliError } from './cli.js';
 
 /**
- * Flags renamed during the 5.2 beta line (--ios-config -> --ios-device-matrix).
- *
- * citty silently ignores unknown flags, so without this guard an old
- * `--ios-config` would simply be dropped: the run would go ahead on a single
- * default device while the user believed they had tested a whole matrix. That
- * is exactly the "you think you tested it" failure the device matrix exists to
- * prevent, so fail loudly and name the replacement.
- */
-const RENAMED_FLAGS: Record<string, string> = {
-  '--android-config': '--android-device-matrix',
-  '--ios-config': '--ios-device-matrix',
-};
-
-/** @throws CliError naming the replacement if a removed flag is still used. */
-export function rejectRenamedMatrixFlags(rawArgs: string[]): void {
-  for (const [removed, replacement] of Object.entries(RENAMED_FLAGS)) {
-    const used = rawArgs.some(
-      (arg) => arg === removed || arg.startsWith(`${removed}=`),
-    );
-    if (used) {
-      throw new CliError(
-        `${removed} was renamed to ${replacement}. Use ${replacement} <device>:<version> (repeat it once per device).`,
-      );
-    }
-  }
-}
-
-/**
  * Parse repeated `--ios-device-matrix <device>:<version>` and
  * `--android-device-matrix <device>:<apiLevel>[:play]` flags into an explicit device
  * matrix. Each entry is one validated cell — there is NO cross-product, because
