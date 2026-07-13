@@ -1,5 +1,32 @@
 # Changelog
 
+## [5.2.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.1-beta.1...v5.2.0-beta.1) (2026-07-13)
+
+
+### Features
+
+* **cloud:** device matrix via repeated --ios-config/--android-config… ([#75](https://github.com/devicecloud-dev/dcd-cli/issues/75)) ([b78a1dc](https://github.com/devicecloud-dev/dcd-cli/commit/b78a1dc92f61428e6c42a914c0779886d3713e79))
+
+
+### Bug Fixes
+
+* recover cleanly when the stored session is dead ([#72](https://github.com/devicecloud-dev/dcd-cli/issues/72)) ([7fd7748](https://github.com/devicecloud-dev/dcd-cli/commit/7fd7748632fdce2a0f417ee9af73243de5d4b1a8))
+
+
+### Dependencies
+
+* bump the minor-and-patch group across 1 directory with 9 updates ([#71](https://github.com/devicecloud-dev/dcd-cli/issues/71)) ([cfd9fe2](https://github.com/devicecloud-dev/dcd-cli/commit/cfd9fe23fcee003535f73ab72754eb5aeba5cec5))
+
+
+### Code Refactoring
+
+* route notice rendering through ui (add ui.deprecation) ([#66](https://github.com/devicecloud-dev/dcd-cli/issues/66)) ([1d331b4](https://github.com/devicecloud-dev/dcd-cli/commit/1d331b4e5e1e02cb86615df6e0315a5171e012ec))
+
+
+### Miscellaneous
+
+* release 5.2.0-beta.1 ([#76](https://github.com/devicecloud-dev/dcd-cli/issues/76)) ([bc9c61f](https://github.com/devicecloud-dev/dcd-cli/commit/bc9c61f2fc20074980798ce155d14b0571ddbecb))
+
 ## [5.0.1-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.0.0-beta.4...v5.0.1-beta.1) (2026-06-26)
 
 
