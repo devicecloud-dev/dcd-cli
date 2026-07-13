@@ -163,6 +163,32 @@ appId: com.example.app
     });
   });
 
+  // #1105 device matrix: repeated --ios-config / --android-config cells.
+  describe('device matrix', () => {
+    it('accepts a repeated --ios-config matrix and still yields one upload', async () => {
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-config iphone-16:18 --ios-config iphone-16-pro:26 --async --json`;
+
+      const { stdout } = await exec(command, { timeout: 30_000 });
+      // Still one upload with one uploadId — the matrix is a property of the
+      // upload, not N uploads.
+      expectAsyncRunJson(stdout);
+    });
+
+    it('rejects mixing --ios-config and --android-config before any upload', async () => {
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-config iphone-16:18 --android-config pixel-7:34`;
+
+      const { output } = await runExpectingFailure(command);
+      expect(output.toLowerCase()).to.include('cannot mix platforms');
+    });
+
+    it('rejects a malformed --ios-config, naming the value', async () => {
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-config iphone-16`;
+
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('iphone-16');
+    });
+  });
+
   describe('device configuration options', () => {
     // Async non-JSON runs always reach submission against the mock API.
     // `.include` keeps these robust to incidental extra lines (e.g. the

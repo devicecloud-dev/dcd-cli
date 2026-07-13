@@ -7,14 +7,53 @@
  * assert the success path unconditionally: a dead or missing mock API must
  * fail the suite, never soften it.
  */
-import { exec as execCallback } from 'node:child_process';
+import { execFile as execFileCallback } from 'node:child_process';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 
-export const exec = promisify(execCallback);
+const execFileAsync = promisify(execFileCallback);
 
 /** Absolute path to the built CLI so tests can run with any cwd. */
 export const CLI = path.resolve('dist/index.js');
+
+export interface ExecResult {
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * Split a `${CLI} …` command line into argv, honouring single/double quotes so
+ * a quoted multi-word value stays one token. These test commands contain no
+ * other shell metacharacters, so this is exact for our use.
+ */
+function tokenize(command: string): string[] {
+  const tokens: string[] = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(command)) !== null) {
+    tokens.push(match[1] ?? match[2] ?? match[3]);
+  }
+  return tokens;
+}
+
+/**
+ * Run a test command **without a shell**. Every integration command is
+ * `${CLI} <args…>` — an absolute script path plus arguments — so we tokenise it
+ * and invoke the current Node binary directly with the script and args as argv
+ * (`execFile`, never `exec`). Passing an argument list instead of a shell string
+ * is CodeQL's recommended fix for `js/shell-command-injection-from-environment`:
+ * with no shell there is nothing for the (uncontrolled, but trusted) absolute
+ * paths to inject into. Signature-compatible with the previous
+ * `promisify(child_process.exec)` so no call site changes.
+ */
+export async function exec(
+  command: string,
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number } = {},
+): Promise<ExecResult> {
+  const argv = tokenize(command);
+  const { stdout, stderr } = await execFileAsync(process.execPath, argv, opts);
+  return { stdout: String(stdout), stderr: String(stderr) };
+}
 
 export const MOCK_API_URL = process.env.MOCK_API_URL ?? 'http://localhost:3001';
 
