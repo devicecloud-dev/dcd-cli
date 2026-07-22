@@ -220,19 +220,37 @@ export const ApiGateway = {
     artifactsPath: string = './artifacts.zip',
   ) {
     try {
-      const res = await fetch(`${baseUrl}/results/${uploadId}/download`, {
-        body: JSON.stringify({ results }),
+      // Ask for signed-URL delivery (dcd#1124): a current API responds with
+      // JSON `{ url }` pointing at object storage so the bundle bypasses the
+      // API; an older API ignores the extra field and streams the ZIP
+      // inline. The content-type distinguishes the two.
+      let res = await fetch(`${baseUrl}/results/${uploadId}/download`, {
+        body: JSON.stringify({ results, delivery: 'url' }),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
         },
         method: 'POST',
       });
+      if (res.status === 501) {
+        // The API understands url delivery but its object storage isn't
+        // configured — fall back to inline streaming.
+        res = await fetch(`${baseUrl}/results/${uploadId}/download`, {
+          body: JSON.stringify({ results }),
+          headers: {
+            'content-type': 'application/json',
+            ...auth.headers,
+          },
+          method: 'POST',
+        });
+      }
+
       if (!res.ok) {
         await this.handleApiError(res, 'Failed to download artifacts');
       }
 
-      await this.streamResponseToFile(res, artifactsPath, 'Failed to download artifacts');
+      const download = await this.followSignedUrlDelivery(res, 'Failed to download artifacts');
+      await this.streamResponseToFile(download, artifactsPath, 'Failed to download artifacts');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/results/${uploadId}/download`);
@@ -240,6 +258,26 @@ export const ApiGateway = {
 
       throw error;
     }
+  },
+
+  /**
+   * Resolves a download response that may be signed-URL delivery: a JSON
+   * body `{ url }` is followed (pre-signed, so no auth headers) and the
+   * storage response returned; any other content-type is the file itself.
+   */
+  async followSignedUrlDelivery(res: Response, errorPrefix: string): Promise<Response> {
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      return res;
+    }
+
+    const { url } = await parseJsonResponse<{ url: string }>(res, errorPrefix);
+    const download = await fetch(url);
+    if (!download.ok) {
+      throw new Error(`${errorPrefix}: signed URL responded with ${download.status}`);
+    }
+
+    return download;
   },
 
   async finaliseUpload(config: {
@@ -678,13 +716,25 @@ export const ApiGateway = {
     const url = `${baseUrl}${endpoint}`;
 
     try {
-      // Make the download request
-      const res = await fetch(url, {
+      // The HTML report ZIP supports signed-URL delivery (dcd#1124); older
+      // APIs ignore the query param and stream inline. Other report types
+      // are small and stay inline.
+      let res = await fetch(reportType === 'html' ? `${url}?delivery=url` : url, {
         headers: {
           ...auth.headers,
         },
         method: 'GET',
       });
+      if (reportType === 'html' && res.status === 501) {
+        // The API understands url delivery but its object storage isn't
+        // configured — fall back to inline streaming.
+        res = await fetch(url, {
+          headers: {
+            ...auth.headers,
+          },
+          method: 'GET',
+        });
+      }
 
       if (!res.ok) {
         const errorText = await res.text();
@@ -695,7 +745,9 @@ export const ApiGateway = {
         throw new Error(`${errorPrefix}: ${res.status} ${errorText}`);
       }
 
-      await this.streamResponseToFile(res, finalReportPath, errorPrefix);
+      const download =
+        reportType === 'html' ? await this.followSignedUrlDelivery(res, errorPrefix) : res;
+      await this.streamResponseToFile(download, finalReportPath, errorPrefix);
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, url);

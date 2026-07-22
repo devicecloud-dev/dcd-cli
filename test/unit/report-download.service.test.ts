@@ -67,6 +67,48 @@ function restoreFetch() {
   captured = null;
 }
 
+/**
+ * Replace global.fetch with a mock that serves the given responses in call
+ * order (the last one repeats) and records every request. Used for the
+ * signed-URL delivery flows, which make more than one request.
+ * @param responses Status/body/content-type per sequential call
+ * @returns The list of captured requests, appended to live
+ */
+function mockFetchSequence(
+  responses: Array<{ body: string; contentType?: string; status: number }>,
+): CapturedRequest[] {
+  const encoder = new TextEncoder();
+  const calls: CapturedRequest[] = [];
+  (global as any).fetch = async (
+    input: URL | string,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    calls.push({
+      body: init?.body ? String(init.body) : null,
+      headers: Object.fromEntries(
+        Object.entries((init?.headers as Record<string, string>) ?? {}),
+      ),
+      method: (init?.method ?? 'GET').toUpperCase(),
+      url: input.toString(),
+    });
+
+    const next = responses[Math.min(calls.length - 1, responses.length - 1)];
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(next.body));
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: next.contentType ? { 'content-type': next.contentType } : {},
+      status: next.status,
+    });
+  };
+
+  return calls;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -124,7 +166,7 @@ describe('ReportDownloadService', () => {
       expect(captured!.method).to.equal('POST');
       expect(captured!.headers['x-app-api-key']).to.equal('test-key');
       expect(captured!.headers['content-type']).to.equal('application/json');
-      expect(JSON.parse(captured!.body!)).to.deep.equal({ results: 'FAILED' });
+      expect(JSON.parse(captured!.body!)).to.deep.equal({ delivery: 'url', results: 'FAILED' });
     });
 
     it('calls POST /results/{uploadId}/download with body results: ALL', async () => {
@@ -137,7 +179,7 @@ describe('ReportDownloadService', () => {
         downloadType: 'ALL',
       });
 
-      expect(JSON.parse(captured!.body!)).to.deep.equal({ results: 'ALL' });
+      expect(JSON.parse(captured!.body!)).to.deep.equal({ delivery: 'url', results: 'ALL' });
     });
 
     it('writes the response body to the specified file path', async () => {
@@ -200,6 +242,48 @@ describe('ReportDownloadService', () => {
 
       expect(logs.join(' ')).to.include(outPath);
     });
+
+    it('follows signed-URL delivery when the API responds with JSON', async () => {
+      const outPath = path.join(tempDir, 'signed-url.zip');
+      const calls = mockFetchSequence([
+        {
+          body: JSON.stringify({ url: 'https://storage.example.com/bundle.zip?sig=abc' }),
+          contentType: 'application/json',
+          status: 200,
+        },
+        { body: 'zip-from-storage', status: 200 },
+      ]);
+
+      await service.downloadArtifacts({
+        ...BASE,
+        artifactsPath: outPath,
+        downloadType: 'ALL',
+      });
+
+      expect(calls).to.have.length(2);
+      expect(calls[1].url).to.equal('https://storage.example.com/bundle.zip?sig=abc');
+      // The URL is pre-signed — auth headers must not leak to storage.
+      expect(calls[1].headers).to.not.have.property('x-app-api-key');
+      expect(fs.readFileSync(outPath, 'utf8')).to.equal('zip-from-storage');
+    });
+
+    it('falls back to inline delivery when the API returns 501', async () => {
+      const outPath = path.join(tempDir, 'fallback.zip');
+      const calls = mockFetchSequence([
+        { body: JSON.stringify({ message: 'unavailable' }), contentType: 'application/json', status: 501 },
+        { body: 'inline-zip', status: 200 },
+      ]);
+
+      await service.downloadArtifacts({
+        ...BASE,
+        artifactsPath: outPath,
+        downloadType: 'FAILED',
+      });
+
+      expect(calls).to.have.length(2);
+      expect(JSON.parse(calls[1].body!)).to.deep.equal({ results: 'FAILED' });
+      expect(fs.readFileSync(outPath, 'utf8')).to.equal('inline-zip');
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -257,7 +341,7 @@ describe('ReportDownloadService', () => {
       });
 
       expect(captured!.url).to.equal(
-        'https://api.example.com/results/upload-xyz-456/html-report',
+        'https://api.example.com/results/upload-xyz-456/html-report?delivery=url',
       );
     });
 
