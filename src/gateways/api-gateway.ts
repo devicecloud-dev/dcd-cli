@@ -245,7 +245,15 @@ export const ApiGateway = {
       return false;
     }
 
-    await this.streamResponseToFile(zipRes, destinationPath, operation);
+    // A mid-stream failure (dropped/truncated connection) or a null body on an
+    // otherwise-OK response throws here — fall back to the inline path rather
+    // than let it escape past the caller's fallback. The inline path re-opens
+    // the destination with flags: 'w', truncating any partial file left behind.
+    try {
+      await this.streamResponseToFile(zipRes, destinationPath, operation);
+    } catch {
+      return false;
+    }
     return true;
   },
 
