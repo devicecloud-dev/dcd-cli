@@ -12,7 +12,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  encryptEnv,
   encryptFileToPath,
+  encryptFlowBuffer,
   generateDek,
   resolveKekPublicKey,
   wrapDek,
@@ -187,5 +189,53 @@ describe('binary envelope encryption (#1138)', () => {
     expect(dev!.keyRaw.toString('base64')).to.equal(
       'RgcToF/OJpcQI9koYvSvtj/WLaebfcN4v5GJoqtr/00=',
     );
+  });
+});
+
+describe('flow + env envelope encryption (#1151, #1152)', () => {
+  afterEach(() => {
+    delete process.env.DCD_BINARY_KEK_PUBLIC;
+  });
+
+  it('encryptFlowBuffer produces a container the platform decrypts to the original zip', () => {
+    const { privRaw, pubRaw } = rawX25519();
+    process.env.DCD_BINARY_KEK_PUBLIC = `2:${pubRaw.toString('base64')}`;
+    const kek = resolveKekPublicKey('https://api.dev.devicecloud.dev')!;
+
+    const zip = randomBytes(5000);
+    const { ciphertext, enc } = encryptFlowBuffer(zip, kek);
+
+    expect(enc.v).to.equal(1);
+    expect(enc.kek).to.equal(2);
+    expect(ciphertext.subarray(0, 4).toString('ascii')).to.equal('DCDE');
+    const dek = refUnwrapDek(enc.wrapped_key, privRaw);
+    expect(refDecryptContainer(ciphertext, dek).equals(zip)).to.equal(true);
+  });
+
+  it('encryptEnv produces an inline envelope the platform decrypts back to the map', () => {
+    const { privRaw, pubRaw } = rawX25519();
+    process.env.DCD_BINARY_KEK_PUBLIC = `1:${pubRaw.toString('base64')}`;
+    const kek = resolveKekPublicKey('https://api.dev.devicecloud.dev')!;
+
+    const env = { API_TOKEN: 'secret', PASSWORD: 'p@ss word=1', EMPTY: '' };
+    const enc = encryptEnv(env, kek);
+
+    expect(enc.v).to.equal(1);
+    expect(enc.kek).to.equal(1);
+    // API unwraps the DEK from wrapped_key; runner decrypts the inline blob.
+    const dek = refUnwrapDek(enc.wrapped_key, privRaw);
+    const plain = refDecryptContainer(Buffer.from(enc.ciphertext, 'base64'), dek);
+    expect(JSON.parse(plain.toString('utf8'))).to.deep.equal(env);
+  });
+
+  it('gives the flow zip and env their own distinct DEKs', () => {
+    const { pubRaw } = rawX25519();
+    process.env.DCD_BINARY_KEK_PUBLIC = `1:${pubRaw.toString('base64')}`;
+    const kek = resolveKekPublicKey('https://api.dev.devicecloud.dev')!;
+
+    const flow = encryptFlowBuffer(randomBytes(100), kek);
+    const env = encryptEnv({ A: 'b' }, kek);
+    // Independent sealed boxes → the wrapped keys must differ.
+    expect(flow.enc.wrapped_key).to.not.equal(env.wrapped_key);
   });
 });

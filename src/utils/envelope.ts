@@ -35,11 +35,35 @@ const HKDF_INFO = Buffer.from('dcd-binary-dek-wrap-v1', 'ascii');
 // DER prefix that turns a raw 32-byte X25519 public key into an importable SPKI.
 const SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
 
-/** `binaries.metadata.enc` shape written for an encrypted upload. */
+/** `binaries.metadata.enc` / `uploads.metadata.enc` shape (binary + flow zip). */
 export interface BinaryEnvelope {
   v: number;
   kek: number;
   wrapped_key: string;
+}
+
+/**
+ * `results.env.enc` shape (#1152). Same wrapped-DEK fields as a binary, plus the
+ * env ciphertext carried **inline** (the env map is tiny, so a single DCDE
+ * segment rides in-column rather than as a separate uploaded blob).
+ */
+export interface EnvEnvelope extends BinaryEnvelope {
+  /** base64 of a single-segment DCDE container of `JSON.stringify(env)`. */
+  ciphertext: string;
+}
+
+/**
+ * Whether client-side envelope encryption is on. Explicit `flag` (the
+ * `--encrypt` CLI flag) wins; otherwise `DCD_ENCRYPT=1` enables it for binary,
+ * flow, and env, and the legacy `DCD_ENCRYPT_BINARIES=1` is kept as an alias.
+ * When on, the binary, the flow zip, and the env map are each encrypted with
+ * their **own** per-upload DEK (all wrapped under the same per-env KEK).
+ */
+export function isEncryptionEnabled(flag?: boolean): boolean {
+  if (flag !== undefined) return flag;
+  return (
+    process.env.DCD_ENCRYPT === '1' || process.env.DCD_ENCRYPT_BINARIES === '1'
+  );
 }
 
 /** Pinned KEK public key (base64 raw 32-byte X25519) + version, per env. */
@@ -183,6 +207,92 @@ export async function encryptFileToPath(
     await input.close();
     await output.close();
   }
+}
+
+/**
+ * In-memory twin of {@link encryptFileToPath}: encrypt `plaintext` into a DCDE
+ * container Buffer using `dek`. Byte-identical wire format (same 17-byte header,
+ * same per-segment nonce/tag scheme), for payloads already held in memory (flow
+ * zips, the env map). A payload no larger than `chunkSize` is a single segment.
+ */
+export function encryptToContainer(
+  plaintext: Buffer,
+  dek: Buffer,
+  kekVersion: number,
+  chunkSize: number = CHUNK_SIZE,
+): Buffer {
+  if (dek.length !== DEK_LEN) {
+    throw new Error(`DEK must be ${DEK_LEN} bytes`);
+  }
+  const noncePrefix = randomBytes(NONCE_PREFIX_LEN);
+
+  const header = Buffer.alloc(17);
+  MAGIC.copy(header, 0);
+  header.writeUInt8(CONTAINER_VERSION, 4);
+  header.writeUInt8(kekVersion, 5);
+  header.writeUInt32BE(chunkSize, 6);
+  noncePrefix.copy(header, 10);
+
+  const parts: Buffer[] = [header];
+  // size 0 → no segments (matches encryptFileToPath / the API's empty input).
+  let index = 0;
+  let offset = 0;
+  while (offset < plaintext.length) {
+    const end = Math.min(offset + chunkSize, plaintext.length);
+    const isLast = end >= plaintext.length;
+    const cipher = createCipheriv(
+      'aes-256-gcm',
+      dek,
+      segmentNonce(noncePrefix, index, isLast),
+    );
+    const ct = Buffer.concat([
+      cipher.update(plaintext.subarray(offset, end)),
+      cipher.final(),
+    ]);
+    parts.push(ct, cipher.getAuthTag());
+    offset = end;
+    index += 1;
+  }
+  return Buffer.concat(parts);
+}
+
+/**
+ * Encrypt a flow zip buffer with its own per-upload DEK. Returns the ciphertext
+ * (a DCDE container) plus the envelope for `uploads.metadata.enc`. `uploads.sha`
+ * must be recomputed from the returned ciphertext by the caller.
+ */
+export function encryptFlowBuffer(
+  buffer: Buffer,
+  kek: KekPublicKey,
+): { ciphertext: Buffer; enc: BinaryEnvelope } {
+  const dek = generateDek();
+  const enc = wrapDek(dek, kek);
+  const ciphertext = encryptToContainer(buffer, dek, kek.version);
+  return { ciphertext, enc };
+}
+
+/**
+ * Encrypt the `--env KEY=VALUE` map with its own per-submission DEK into the
+ * `results.env.enc` envelope (#1152). The full map is serialized, encrypted as a
+ * single-segment container, and carried inline as base64 `ciphertext`.
+ */
+export function encryptEnv(
+  env: Record<string, string>,
+  kek: KekPublicKey,
+): EnvEnvelope {
+  const dek = generateDek();
+  const { wrapped_key } = wrapDek(dek, kek);
+  const container = encryptToContainer(
+    Buffer.from(JSON.stringify(env), 'utf8'),
+    dek,
+    kek.version,
+  );
+  return {
+    v: CONTAINER_VERSION,
+    kek: kek.version,
+    wrapped_key,
+    ciphertext: container.toString('base64'),
+  };
 }
 
 /** Generate a fresh per-upload DEK. */

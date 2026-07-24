@@ -24,6 +24,7 @@ import {
   type BinaryEnvelope,
   encryptFileToPath,
   generateDek,
+  isEncryptionEnabled,
   resolveKekPublicKey,
   wrapDek,
 } from './utils/envelope.js';
@@ -138,7 +139,8 @@ interface UploadBinaryConfig {
   debug?: boolean;
   /**
    * Encrypt the binary before upload (client-side envelope encryption, #1138).
-   * Defaults to the `DCD_ENCRYPT_BINARIES=1` env var when unset.
+   * Defaults to `DCD_ENCRYPT` / `DCD_ENCRYPT_BINARIES` when unset (see
+   * {@link isEncryptionEnabled}).
    */
   encrypt?: boolean;
   filePath: string;
@@ -148,7 +150,7 @@ interface UploadBinaryConfig {
 
 export const uploadBinary = async (config: UploadBinaryConfig) => {
   const { filePath, apiUrl, auth, ignoreShaCheck = false, log = true, debug = false } = config;
-  const encrypt = config.encrypt ?? process.env.DCD_ENCRYPT_BINARIES === '1';
+  const encrypt = isEncryptionEnabled(config.encrypt);
   if (log) {
     ux.action.start(colors.bold('Checking and uploading binary'), colors.dim('Initializing'), {
       stdout: true,

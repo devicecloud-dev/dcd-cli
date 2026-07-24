@@ -3,6 +3,12 @@ import * as path from 'node:path';
 
 import { compressFilesFromRelativePath } from '../methods.js';
 import { DeviceMatrixConfig } from '../types/domain/device.types.js';
+import {
+  type BinaryEnvelope,
+  encryptEnv,
+  encryptFlowBuffer,
+  resolveKekPublicKey,
+} from '../utils/envelope.js';
 import { toPortableRelativePath } from '../utils/paths.js';
 import { IExecutionPlan } from './execution-plan.service.js';
 
@@ -10,6 +16,7 @@ export interface TestSubmissionConfig {
   androidApiLevel?: string;
   androidDevice?: string;
   androidNoSnapshot?: boolean;
+  apiUrl?: string;
   appBinaryId: string;
   cliVersion: string;
   commonRoot: string;
@@ -18,6 +25,12 @@ export interface TestSubmissionConfig {
   deviceLocale?: string;
   deviceMatrix?: DeviceMatrixConfig[];
   disableAnimations?: boolean;
+  /**
+   * Encrypt the flow zip and env vars before upload (#1151/#1152), each with its
+   * own per-upload DEK wrapped under the environment KEK. Requires `apiUrl` to
+   * resolve the pinned KEK public key.
+   */
+  encrypt?: boolean;
   env?: string[];
   executionPlan: IExecutionPlan;
   flowFile: string;
@@ -60,7 +73,9 @@ export class TestSubmissionService {
     config: TestSubmissionConfig,
   ): Promise<{ buffer: Buffer; fields: Record<string, string>; sha: string }> {
     const {
+      apiUrl,
       appBinaryId,
+      encrypt = false,
       flowFile,
       executionPlan,
       commonRoot,
@@ -144,7 +159,7 @@ export class TestSubmissionService {
 
     this.logDebug(debug, logger, `[DEBUG] Compressing files from path: ${flowFile}`);
 
-    const buffer = await compressFilesFromRelativePath(
+    const plaintextZip = await compressFilesFromRelativePath(
       flowFile?.endsWith('.yaml') || flowFile?.endsWith('.yml')
         ? path.dirname(flowFile)
         : flowFile,
@@ -158,9 +173,45 @@ export class TestSubmissionService {
       commonRoot,
     );
 
-    this.logDebug(debug, logger, `[DEBUG] Compressed file size: ${buffer.length} bytes`);
+    this.logDebug(debug, logger, `[DEBUG] Compressed file size: ${plaintextZip.length} bytes`);
 
-    // Calculate SHA-256 hash of the flow ZIP
+    // Client-side envelope encryption (#1151 flow zip, #1152 env vars). Each
+    // gets its own per-upload DEK wrapped under the environment KEK; the flow
+    // zip becomes a DCDE container and `sha` is the CIPHERTEXT hash (uploads.sha
+    // stays a ciphertext hash, mirroring binaries.sha). `enc` rides `fields`
+    // as a JSON string like every other field, so both the JSON submitFlowTest
+    // body and the legacy multipart form carry it identically.
+    let buffer = plaintextZip;
+    let envObjectToSend: Record<string, unknown> = envObject;
+    let flowEnc: BinaryEnvelope | undefined;
+    if (encrypt) {
+      if (!apiUrl) {
+        throw new Error('Encryption requires apiUrl to resolve the KEK public key');
+      }
+      const kek = resolveKekPublicKey(apiUrl);
+      if (!kek) {
+        throw new Error(
+          'Encryption was requested but no KEK public key is configured for this environment. ' +
+            'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64> or pin one in src/config/environments.ts.',
+        );
+      }
+      const flow = encryptFlowBuffer(plaintextZip, kek);
+      buffer = flow.ciphertext;
+      flowEnc = flow.enc;
+      this.logDebug(
+        debug,
+        logger,
+        `[DEBUG] Encrypting flow zip before upload (KEK v${kek.version}); ciphertext ${buffer.length} bytes`,
+      );
+      // Only encrypt when there are env vars; an empty map has no secret to
+      // protect and stays a plaintext `{}` (no `enc` marker, passes through).
+      if (Object.keys(envObject).length > 0) {
+        envObjectToSend = { enc: encryptEnv(envObject, kek) };
+        this.logDebug(debug, logger, `[DEBUG] Encrypting ${Object.keys(envObject).length} env var(s)`);
+      }
+    }
+
+    // SHA-256 of what actually gets uploaded (ciphertext when encrypted).
     const sha = createHash('sha256').update(buffer).digest('hex');
     this.logDebug(debug, logger, `[DEBUG] Flow ZIP SHA-256: ${sha}`);
 
@@ -182,7 +233,12 @@ export class TestSubmissionService {
     fields.sequentialFlows = JSON.stringify(
       this.normalizePaths(sequentialFlows, commonRoot),
     );
-    fields.env = JSON.stringify(envObject);
+    fields.env = JSON.stringify(envObjectToSend);
+    // Flow-zip envelope for uploads.metadata.enc (#1151). JSON string so both
+    // submission paths carry it like every other field; the API parses it.
+    if (flowEnc) {
+      fields.enc = JSON.stringify(flowEnc);
+    }
     // Note: googlePlay is now included in configPayload below instead of as a separate field
     // to work around a FormData parsing issue in the API
 
