@@ -194,6 +194,7 @@ export const cloudCommand = defineCommand({
       let flows = args.flows as string | undefined;
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
+      const encryptBinary = Boolean(args['encrypt']);
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
       );
@@ -762,6 +763,7 @@ export const cloudCommand = defineCommand({
           auth,
           apiUrl,
           debug,
+          encrypt: encryptBinary,
           filePath: finalAppFile,
           ignoreShaCheck,
           log: !json,

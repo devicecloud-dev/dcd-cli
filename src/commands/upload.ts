@@ -21,6 +21,7 @@ export const uploadCommand = defineCommand({
     ...apiFlags,
     'app-url': binaryFlags['app-url'],
     'ignore-sha-check': binaryFlags['ignore-sha-check'],
+    encrypt: binaryFlags.encrypt,
     debug: outputFlags.debug,
     json: outputFlags.json,
     appFile: {
@@ -42,6 +43,7 @@ export const uploadCommand = defineCommand({
       const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
       const appUrl = args['app-url'] as string | undefined;
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
+      const encryptBinary = Boolean(args['encrypt']);
       const debug = Boolean(args.debug);
       const positional = args.appFile as string | undefined;
 
@@ -88,6 +90,7 @@ export const uploadCommand = defineCommand({
         auth,
         apiUrl,
         debug,
+        encrypt: encryptBinary,
         filePath: resolvedFile,
         ignoreShaCheck,
         log: !json,
