@@ -45,7 +45,7 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
       anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBneWRucGhiaW1ldGluc2dma2JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDc1OTQzNDYsImV4cCI6MjAyMzE3MDM0Nn0.hAYOMFxxwX1exkQkY9xyQJGC_GhGnyogkj2N-kBkMI8',
     },
-    kekPublicKey: null,
+    kekPublicKey: { version: 1, key: 'wtfyWEwK7nJzwI4PD+9RAW8jxIR1u8kMQq2IhsrVnH4=' },
   },
   dev: {
     apiUrl: 'https://api.dev.devicecloud.dev',
@@ -56,7 +56,7 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
       anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxibXNvd2VodGp3bnFsdXJwZW1iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDkyMTg0ODcsImV4cCI6MjAyNDc5NDQ4N30.zeLTMAuZ_WwYvGdeP0kdvL_Zrs-RQee5APPyxmWq7qQ',
     },
-    kekPublicKey: null,
+    kekPublicKey: { version: 1, key: 'RgcToF/OJpcQI9koYvSvtj/WLaebfcN4v5GJoqtr/00=' },
   },
 };
 

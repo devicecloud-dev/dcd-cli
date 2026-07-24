@@ -173,10 +173,19 @@ describe('binary envelope encryption (#1138)', () => {
     );
   });
 
-  it('returns null when no KEK is pinned or overridden', () => {
-    expect(resolveKekPublicKey('https://api.devicecloud.dev')).to.equal(null);
-    expect(resolveKekPublicKey('https://api.dev.devicecloud.dev')).to.equal(
-      null,
+  it('resolves the pinned KEK public key for each environment', () => {
+    const prod = resolveKekPublicKey('https://api.devicecloud.dev');
+    expect(prod).to.not.equal(null);
+    expect(prod!.version).to.equal(1);
+    expect(prod!.keyRaw.toString('base64')).to.equal(
+      'wtfyWEwK7nJzwI4PD+9RAW8jxIR1u8kMQq2IhsrVnH4=',
+    );
+
+    const dev = resolveKekPublicKey('https://api.dev.devicecloud.dev');
+    expect(dev).to.not.equal(null);
+    expect(dev!.version).to.equal(1);
+    expect(dev!.keyRaw.toString('base64')).to.equal(
+      'RgcToF/OJpcQI9koYvSvtj/WLaebfcN4v5GJoqtr/00=',
     );
   });
 });
