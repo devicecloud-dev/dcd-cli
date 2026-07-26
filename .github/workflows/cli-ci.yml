@@ -31,7 +31,16 @@ jobs:
       run: |
         curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
           | tar -xz gitleaks
-        ./gitleaks git . --redact --verbose --no-banner
+        # --log-opts=HEAD scopes the scan to commits reachable from what's
+        # checked out: the whole history of this branch (or of the PR merge
+        # commit, i.e. base + PR commits), but NOT unrelated branches.
+        # `fetch-depth: 0` fetches refs/heads/* — every branch — and gitleaks
+        # otherwise scans all of them, so an open branch that legitimately
+        # commits a high-entropy value plus its own .gitleaks.toml allowlist
+        # would fail every OTHER branch's scan, which is judged against the
+        # allowlist at its own tip. Each branch is still fully scanned by its
+        # own PR, and pushes to dev/production scan their full history.
+        ./gitleaks git . --redact --verbose --no-banner --log-opts=HEAD
 
   lint-and-test:
     runs-on: ubuntu-latest
