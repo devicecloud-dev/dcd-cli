@@ -102,7 +102,7 @@ export const compressFilesFromRelativePath = async (
 };
 
 export const verifyAppZip = async (zipPath: string) => {
-  // eslint-disable-next-line import/namespace, new-cap
+  // eslint-disable-next-line new-cap
   const zip = await new StreamZip.async({
     file: zipPath,
     storeEntries: true,
