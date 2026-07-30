@@ -257,14 +257,32 @@ export const ApiGateway = {
     return true;
   },
 
+  /**
+   * Look for an already-uploaded binary to skip re-uploading.
+   *
+   * Two lookup keys, because encryption changes what is stable (dcd#1168).
+   * Unencrypted uploads pass `sha` (the hash of exactly what gets stored).
+   * Encrypted uploads pass `shaPlain` plus `encrypted: true`: their ciphertext is
+   * freshly keyed on every upload, so its hash never matches, and the plaintext
+   * hash is the only stable key. `sha` is deliberately not sent in that case —
+   * see the caller in methods.ts for why sending it would be unsafe.
+   *
+   * `encrypted` in the response reports whether the *matched* binary is stored
+   * encrypted, so the caller can verify the invariant it asked for instead of
+   * trusting the server to have applied the right predicate.
+   */
   async checkForExistingUpload(
     baseUrl: string,
     auth: AuthContext,
-    sha: string,
+    lookup: { encrypted?: boolean; sha?: string; shaPlain?: string } | string,
   ) {
+    // Historically this took a bare sha string; keep that shape working.
+    const body =
+      typeof lookup === 'string' ? { sha: lookup } : { ...lookup };
+
     try {
       const res = await fetch(`${baseUrl}/uploads/checkForExistingUpload`, {
-        body: JSON.stringify({ sha }),
+        body: JSON.stringify(body),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
@@ -277,7 +295,9 @@ export const ApiGateway = {
       }
 
       return await parseJsonResponse<
-        paths['/uploads/checkForExistingUpload']['post']['responses']['201']['content']['application/json']
+        paths['/uploads/checkForExistingUpload']['post']['responses']['201']['content']['application/json'] & {
+          encrypted?: boolean;
+        }
       >(res, 'Failed to check for existing upload');
     } catch (error) {
       // Handle network-level errors (DNS, connection refused, timeout, etc.)
@@ -342,9 +362,15 @@ export const ApiGateway = {
     metadata: TAppMetadata;
     path: string;
     sha?: string;
+    /**
+     * Hash of the PLAINTEXT, sent only for encrypted uploads (dcd#1168). Stored
+     * as `binaries.sha_plain` so later encrypted uploads of the same input can
+     * dedup; `sha` remains the ciphertext hash.
+     */
+    shaPlain?: string;
     supabaseSuccess: boolean;
   }) {
-    const { baseUrl, auth, id, metadata, path, sha, supabaseSuccess, backblazeSuccess, bytes } = config;
+    const { baseUrl, auth, id, metadata, path, sha, shaPlain, supabaseSuccess, backblazeSuccess, bytes } = config;
     try {
       const res = await fetch(`${baseUrl}/uploads/finaliseUpload`, {
         body: JSON.stringify({
@@ -354,6 +380,7 @@ export const ApiGateway = {
           metadata,
           path, // This is tempPath for TUS uploads
           ...(sha ? { sha } : {}),
+          ...(shaPlain ? { shaPlain } : {}),
           supabaseSuccess,
         }),
         headers: {

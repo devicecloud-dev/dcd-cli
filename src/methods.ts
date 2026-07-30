@@ -173,23 +173,21 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
     // Prepare file for upload
     source = await prepareFileForUpload(filePath, debug, startTime);
 
-    // Encrypt before hashing/upload so the SHA, dedup check, and both uploaders
-    // all operate on ciphertext (binaries.sha = ciphertext hash, per #1138).
-    if (encrypt) {
-      const encrypted = await encryptUploadSource(source, apiUrl, debug);
-      enc = encrypted.enc;
-      encCleanupDir = encrypted.cleanupDir;
-      if (log) {
-        ux.info(colors.dim(`Encrypting binary before upload (KEK v${enc.kek})`));
-      }
-    }
+    // Hash the PLAINTEXT first, before any encryption (dcd#1168). Encryption
+    // uses a fresh random DEK per upload, so the ciphertext hash differs every
+    // time and cannot dedup — the plaintext hash is the only stable key. Doing it
+    // in this order also means a dedup hit skips the encryption work entirely,
+    // not just the upload.
+    const shaPlain = await calculateFileHash(source, debug, log);
 
-    // Calculate SHA hash
-    const sha = await calculateFileHash(source, debug, log);
-
-    // Check for existing upload with same SHA
-    if (!ignoreShaCheck && sha) {
-      const { exists, binaryId } = await checkExistingUpload(apiUrl, auth, sha, debug);
+    // Check for an existing upload before spending anything on encryption.
+    if (!ignoreShaCheck && shaPlain) {
+      const { exists, binaryId } = await checkExistingUpload(
+        apiUrl,
+        auth,
+        encrypt ? { encrypted: true, shaPlain } : { sha: shaPlain },
+        debug,
+      );
 
       if (exists && binaryId) {
         if (log) {
@@ -203,8 +201,35 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
       }
     }
 
+    // Encrypt after the dedup check, so the SHA sent at finalise, and both
+    // uploaders, operate on ciphertext (binaries.sha = ciphertext hash, #1138).
+    if (encrypt) {
+      const encrypted = await encryptUploadSource(source, apiUrl, debug);
+      enc = encrypted.enc;
+      encCleanupDir = encrypted.cleanupDir;
+      if (log) {
+        ux.info(colors.dim(`Encrypting binary before upload (KEK v${enc.kek})`));
+      }
+    }
+
+    // Re-hash once encrypted: what lands in storage is the ciphertext, and every
+    // downstream verifySha hashes the bytes it actually holds (no DEK required).
+    const sha = encrypt ? await calculateFileHash(source, debug, false) : shaPlain;
+
     // Perform the upload
-    const uploadId = await performUpload({ auth, apiUrl, debug, enc, filePath, sha, source, startTime });
+    const uploadId = await performUpload({
+      auth,
+      apiUrl,
+      debug,
+      enc,
+      filePath,
+      sha,
+      // Only encrypted uploads record a plaintext hash; it is what makes the
+      // next encrypted run of this binary dedupable.
+      shaPlain: encrypt ? shaPlain : undefined,
+      source,
+      startTime,
+    });
 
     if (log) {
       ux.action.stop(colors.success('\n✓ Binary uploaded with ID: ') + formatId(uploadId));
@@ -425,30 +450,43 @@ async function calculateFileHash(
 }
 
 /**
- * Checks if an upload with the same SHA already exists
+ * Checks whether a matching binary has already been uploaded.
+ *
+ * `lookup` is `{ sha }` for a plaintext upload, or `{ shaPlain, encrypted: true }`
+ * for an encrypted one (dcd#1168) — see {@link ApiGateway.checkForExistingUpload}.
+ *
+ * When asking as an encrypting client, a hit is only honoured if the server
+ * confirms the matched binary is itself encrypted. Any binary is a *plausible*
+ * match on plaintext hash, including a previously-uploaded plaintext copy of the
+ * same app, and reusing that would hand back an unencrypted binary while the user
+ * had asked for encryption. The server applies the same predicate; this is the
+ * client refusing to depend on that, so an older or misbehaving deployment
+ * degrades into a redundant upload rather than a silent loss of encryption.
+ *
  * @param apiUrl API base URL
  * @param auth AuthContext carrying request headers
- * @param sha SHA-256 hash to check
+ * @param lookup Dedup key — plaintext hash for encrypted uploads, else the sha
  * @param debug Whether debug logging is enabled
  * @returns Promise resolving to object with exists flag and optional binaryId
  */
 async function checkExistingUpload(
   apiUrl: string,
   auth: AuthContext,
-  sha: string,
+  lookup: { encrypted?: boolean; sha?: string; shaPlain?: string },
   debug: boolean,
 ): Promise<{ binaryId?: string; exists: boolean }> {
   try {
     if (debug) {
       console.log('[DEBUG] Checking for existing upload with matching SHA...');
+      console.log(`[DEBUG] Lookup: ${JSON.stringify(lookup)}`);
       console.log(`[DEBUG] Target endpoint: ${apiUrl}/uploads/checkForExistingUpload`);
     }
 
     const shaCheckStartTime = Date.now();
-    const { appBinaryId, exists } = await ApiGateway.checkForExistingUpload(
+    const { appBinaryId, encrypted, exists } = await ApiGateway.checkForExistingUpload(
       apiUrl,
       auth,
-      sha as string,
+      lookup,
     );
 
     if (debug) {
@@ -457,6 +495,16 @@ async function checkExistingUpload(
       if (exists) {
         console.log(`[DEBUG] Existing binary ID: ${appBinaryId}`);
       }
+    }
+
+    if (exists && lookup.encrypted && encrypted !== true) {
+      if (debug) {
+        console.log(
+          '[DEBUG] Ignoring dedup hit: encryption was requested but the matched binary is not encrypted',
+        );
+      }
+
+      return { exists: false };
     }
 
     return { binaryId: appBinaryId, exists };
@@ -493,6 +541,11 @@ interface PerformUploadConfig {
   enc?: BinaryEnvelope;
   filePath: string;
   sha: string | undefined;
+  /**
+   * Hash of the plaintext, set only for encrypted uploads (#1168). Persisted as
+   * `binaries.sha_plain` so the next encrypted upload of this binary can dedup.
+   */
+  shaPlain?: string;
   source: UploadSource;
   startTime: number;
 }
@@ -769,7 +822,7 @@ function validateUploadResults(
  * @returns Promise resolving to upload ID
  */
 async function performUpload(config: PerformUploadConfig): Promise<string> {
-  const { filePath, apiUrl, auth, enc, source, sha, debug, startTime } = config;
+  const { filePath, apiUrl, auth, enc, source, sha, shaPlain, debug, startTime } = config;
 
   // Request upload URL and paths
   const { id, tempPath, finalPath, b2 } = await requestUploadPaths(apiUrl, auth, filePath, source.size, debug);
@@ -832,6 +885,7 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     path: tempPath,
     // sha is undefined when hash calculation failed — omit it explicitly
     ...(sha ? { sha } : {}),
+    ...(shaPlain ? { shaPlain } : {}),
     supabaseSuccess: supabaseResult.success,
   });
 
