@@ -179,6 +179,84 @@ export const ApiGateway = {
     );
   },
 
+  /**
+   * Prefer server-assembled bundle delivery. The API returns a signed manifest
+   * plus a URL to a delivery service that streams the ZIP straight from
+   * storage, so large downloads don't flow through the API itself. The client
+   * just relays the signed `{ manifest, sig }` to that URL — no auth header,
+   * because the manifest is already signed.
+   *
+   * Returns true once the bundle has been streamed to disk. Returns false when
+   * the bundle path is unavailable or anything about it doesn't pan out — a
+   * `501` (deployment doesn't offer it), a non-OK manifest response, a body
+   * that isn't a manifest, or a delivery-service error — so the caller can fall
+   * back to the inline download endpoint. Definitive errors (e.g. not found)
+   * surface through that inline path instead.
+   */
+  async tryBundleDownload(
+    baseUrl: string,
+    auth: AuthContext,
+    manifestEndpoint: string,
+    destinationPath: string,
+    operation: string,
+  ): Promise<boolean> {
+    let manifestRes: Response;
+    try {
+      manifestRes = await fetch(`${baseUrl}${manifestEndpoint}`, {
+        headers: { ...auth.headers },
+        method: 'GET',
+      });
+    } catch {
+      return false;
+    }
+
+    // 501 => this deployment has no bundle delivery; any other non-OK => let
+    // the inline path re-request and surface the real error.
+    if (!manifestRes.ok) {
+      return false;
+    }
+
+    let bundle: {
+      bundleUrl?: string;
+      manifest?: string;
+      sig?: string;
+    };
+    try {
+      bundle = (await manifestRes.json()) as typeof bundle;
+    } catch {
+      return false;
+    }
+    if (!bundle?.bundleUrl || !bundle?.manifest || !bundle?.sig) {
+      return false;
+    }
+
+    let zipRes: Response;
+    try {
+      zipRes = await fetch(bundle.bundleUrl, {
+        body: JSON.stringify({ manifest: bundle.manifest, sig: bundle.sig }),
+        // No auth header: the manifest is signed and is the access token.
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+    } catch {
+      return false;
+    }
+    if (!zipRes.ok) {
+      return false;
+    }
+
+    // A mid-stream failure (dropped/truncated connection) or a null body on an
+    // otherwise-OK response throws here — fall back to the inline path rather
+    // than let it escape past the caller's fallback. The inline path re-opens
+    // the destination with flags: 'w', truncating any partial file left behind.
+    try {
+      await this.streamResponseToFile(zipRes, destinationPath, operation);
+    } catch {
+      return false;
+    }
+    return true;
+  },
+
   async checkForExistingUpload(
     baseUrl: string,
     auth: AuthContext,
@@ -219,6 +297,19 @@ export const ApiGateway = {
     results: 'ALL' | 'FAILED',
     artifactsPath: string = './artifacts.zip',
   ) {
+    // Prefer bundle delivery; fall back to the inline download below.
+    if (
+      await this.tryBundleDownload(
+        baseUrl,
+        auth,
+        `/results/${uploadId}/artifacts-bundle?results=${results}`,
+        artifactsPath,
+        'Failed to download artifacts',
+      )
+    ) {
+      return;
+    }
+
     try {
       const res = await fetch(`${baseUrl}/results/${uploadId}/download`, {
         body: JSON.stringify({ results }),
@@ -676,6 +767,22 @@ export const ApiGateway = {
     const { endpoint, defaultFilename, notFoundMessage, errorPrefix } = config[reportType];
     const finalReportPath = reportPath || path.resolve(process.cwd(), defaultFilename);
     const url = `${baseUrl}${endpoint}`;
+
+    // The HTML report is a ZIP bundle; prefer bundle delivery when available.
+    // (junit is a single small file and allure has its own endpoint — both stay
+    // on the inline path.)
+    if (
+      reportType === 'html' &&
+      (await this.tryBundleDownload(
+        baseUrl,
+        auth,
+        `/results/${uploadId}/report-bundle`,
+        finalReportPath,
+        errorPrefix,
+      ))
+    ) {
+      return;
+    }
 
     try {
       // Make the download request
