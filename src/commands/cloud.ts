@@ -40,6 +40,7 @@ import {
   matrixIsIos,
   parseDeviceMatrix,
 } from '../utils/device-matrix.js';
+import { isEncryptionEnabled } from '../utils/envelope.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -194,6 +195,12 @@ export const cloudCommand = defineCommand({
       let flows = args.flows as string | undefined;
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
+      // Single opt-in for client-side envelope encryption of every sensitive
+      // artifact — the binary (#1138), the flow zip (#1151), and env vars
+      // (#1152). Flag wins; otherwise DCD_ENCRYPT / DCD_ENCRYPT_BINARIES.
+      const encrypt = isEncryptionEnabled(
+        args['encrypt'] ? true : undefined,
+      );
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
       );
@@ -762,6 +769,7 @@ export const cloudCommand = defineCommand({
           auth,
           apiUrl,
           debug,
+          encrypt,
           filePath: finalAppFile,
           ignoreShaCheck,
           log: !json,
@@ -791,6 +799,7 @@ export const cloudCommand = defineCommand({
         androidApiLevel,
         androidDevice,
         androidNoSnapshot,
+        apiUrl,
         appBinaryId: finalBinaryId,
         cliVersion,
         commonRoot,
@@ -798,6 +807,7 @@ export const cloudCommand = defineCommand({
         debug,
         deviceLocale,
         deviceMatrix,
+        encrypt,
         env,
         executionPlan,
         flowFile,
