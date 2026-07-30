@@ -6,11 +6,9 @@
 
 const js = require('@eslint/js');
 const tseslint = require('typescript-eslint');
-// These plugins ship as ESM with a `default` export under CJS interop.
+// This plugin ships as ESM with a `default` export under CJS interop.
 const unicornPlugin =
   require('eslint-plugin-unicorn').default ?? require('eslint-plugin-unicorn');
-const importPlugin =
-  require('eslint-plugin-import').default ?? require('eslint-plugin-import');
 
 module.exports = tseslint.config(
   {
@@ -23,12 +21,15 @@ module.exports = tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // `unicorn` and `import` are only registered so legacy
+    // `unicorn` is only registered so legacy
     // `// eslint-disable-next-line unicorn/...` comments scattered through
-    // the source resolve. We don't enable any rules from them.
+    // the source resolve. We don't enable any rules from it.
+    // `eslint-plugin-import` used to be registered here for the same reason,
+    // but it was dropped: it dragged in minimatch@3 -> brace-expansion@1.x,
+    // which has an unpatched DoS advisory (GHSA-mh99-v99m-4gvg, no 1.x
+    // backport) and failed `pnpm audit`. No rules from it were ever enabled.
     plugins: {
       unicorn: unicornPlugin,
-      import: importPlugin,
     },
     languageOptions: {
       ecmaVersion: 2022,
