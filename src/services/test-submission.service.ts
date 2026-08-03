@@ -41,8 +41,6 @@ export interface TestSubmissionConfig {
   maestroChromeOnboarding?: boolean;
   maestroVersion: string;
   metadata?: string[];
-  mitmHost?: string;
-  mitmPath?: string;
   name?: string;
   orientation?: string;
   raw?: unknown;
@@ -93,8 +91,6 @@ export class TestSubmissionService {
       maestroVersion,
       deviceLocale,
       orientation,
-      mitmHost,
-      mitmPath,
       retry,
       continueOnFailure = true,
       report,
@@ -283,8 +279,6 @@ export class TestSubmissionService {
       deviceLocale,
       googlePlay,
       maestroVersion,
-      mitmHost,
-      mitmPath,
       orientation,
       raw: JSON.stringify(raw),
       report,
