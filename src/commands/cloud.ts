@@ -237,8 +237,6 @@ export const cloudCommand = defineCommand({
         collectRepeatedFlag(rawArgs, ['--metadata', '-m']),
         false,
       );
-      const mitmHost = args.mitmHost as string | undefined;
-      const mitmPath = args.mitmPath as string | undefined;
       const moropoApiKey = args['moropo-v1-api-key'] as string | undefined;
       const name = args.name as string | undefined;
       const orientation = validateEnum(
@@ -284,10 +282,6 @@ export const cloudCommand = defineCommand({
         out(
           '--json-file is true: JSON output will be written to file, forcing --quiet flag for better CI output',
         );
-      }
-
-      if (mitmPath && !mitmHost) {
-        throw new CliError('--mitmPath requires --mitmHost to be set');
       }
 
       if (jsonFileName && !jsonFileFlag) {
@@ -817,8 +811,6 @@ export const cloudCommand = defineCommand({
         logger: (m: string) => out(m),
         maestroVersion: resolvedMaestroVersion,
         metadata: mergedMetadata,
-        mitmHost,
-        mitmPath,
         name,
         orientation,
         raw: [],

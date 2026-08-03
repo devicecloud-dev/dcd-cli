@@ -34,7 +34,7 @@ const sleep = (ms: number) =>
  * `waitTimeoutSeconds`.
  *
  * Mirrors the `dcd cloud` command's submission path but headless: no Expo URL
- * download, mitm, GitHub metadata, or JSON-file output. Use the CLI for those.
+ * download, GitHub metadata, or JSON-file output. Use the CLI for those.
  */
 export function registerRunCloudTest(server: McpServer): void {
   server.registerTool(
