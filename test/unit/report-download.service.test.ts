@@ -303,4 +303,157 @@ describe('ReportDownloadService', () => {
       expect(warnings.join(' ')).to.match(/failed to download allure/i);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // bundle delivery
+  // -------------------------------------------------------------------------
+
+  describe('bundle delivery', () => {
+    const BASE = {
+      auth: TEST_AUTH,
+      apiUrl: 'https://api.example.com',
+      uploadId: 'run-42',
+    };
+
+    let calls: Array<{
+      headers: Record<string, string>;
+      method: string;
+      url: string;
+    }>;
+
+    /**
+     * Route fetch by URL: a `*-bundle` endpoint returns a signed manifest, and
+     * the manifest's `bundleUrl` streams the ZIP. Records every call so the
+     * flow (manifest GET, then bundle POST, no inline call) can be asserted.
+     */
+    function mockBundleFetch(
+      opts: { manifestStatus?: number; zipBody?: string } = {},
+    ) {
+      const { manifestStatus = 200, zipBody = 'bundle-zip' } = opts;
+      const encoder = new TextEncoder();
+      const stream = (s: string) =>
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(s));
+            controller.close();
+          },
+        });
+
+      const impl = async (
+        input: URL | string,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const url = input.toString();
+        calls.push({
+          headers: Object.fromEntries(
+            Object.entries((init?.headers as Record<string, string>) ?? {}),
+          ),
+          method: (init?.method ?? 'GET').toUpperCase(),
+          url,
+        });
+
+        if (url.includes('artifacts-bundle') || url.includes('report-bundle')) {
+          return new Response(
+            stream(
+              JSON.stringify({
+                bundleUrl: 'https://cdn.example.com/bundle',
+                entryCount: 3,
+                filename: 'artifacts-all.zip',
+                manifest: '{"version":1}',
+                sig: 'SIG',
+              }),
+            ),
+            {
+              headers: { 'content-type': 'application/json' },
+              status: manifestStatus,
+            },
+          );
+        }
+        if (url === 'https://cdn.example.com/bundle') {
+          return new Response(stream(zipBody), { status: 200 });
+        }
+        return new Response(stream('inline-zip'), { status: 200 });
+      };
+      globalThis.fetch = impl as typeof fetch;
+    }
+
+    beforeEach(() => {
+      calls = [];
+    });
+
+    it('streams from the bundle URL and skips the inline endpoint', async () => {
+      mockBundleFetch();
+      const outPath = path.join(tempDir, 'bundle.zip');
+
+      await service.downloadArtifacts({
+        ...BASE,
+        artifactsPath: outPath,
+        downloadType: 'ALL',
+      });
+
+      expect(calls[0]).to.include({
+        method: 'GET',
+        url: 'https://api.example.com/results/run-42/artifacts-bundle?results=ALL',
+      });
+      expect(calls[1]).to.include({
+        method: 'POST',
+        url: 'https://cdn.example.com/bundle',
+      });
+      expect(calls.some((c) => c.url.endsWith('/download'))).to.be.false;
+      expect(fs.readFileSync(outPath, 'utf8')).to.equal('bundle-zip');
+    });
+
+    it('does not send the auth header to the (pre-signed) bundle URL', async () => {
+      mockBundleFetch();
+
+      await service.downloadArtifacts({
+        ...BASE,
+        artifactsPath: path.join(tempDir, 'bundle-noauth.zip'),
+        downloadType: 'ALL',
+      });
+
+      const bundlePost = calls.find(
+        (c) => c.url === 'https://cdn.example.com/bundle',
+      );
+      expect(bundlePost).to.not.be.undefined;
+      expect(bundlePost!.headers['x-app-api-key']).to.be.undefined;
+    });
+
+    it('falls back to the inline download when unavailable (501)', async () => {
+      mockBundleFetch({ manifestStatus: 501 });
+      const outPath = path.join(tempDir, 'bundle-fallback.zip');
+
+      await service.downloadArtifacts({
+        ...BASE,
+        artifactsPath: outPath,
+        downloadType: 'ALL',
+      });
+
+      expect(
+        calls.some((c) => c.url.endsWith('/artifacts-bundle?results=ALL')),
+      ).to.be.true;
+      expect(
+        calls.some((c) => c.method === 'POST' && c.url.endsWith('/download')),
+      ).to.be.true;
+      expect(fs.readFileSync(outPath, 'utf8')).to.equal('inline-zip');
+    });
+
+    it('uses bundle delivery for the html report', async () => {
+      mockBundleFetch();
+
+      await service.downloadReports({
+        ...BASE,
+        htmlPath: path.join(tempDir, 'report-bundle.zip'),
+        reportType: 'html',
+      });
+
+      expect(calls[0].url).to.equal(
+        'https://api.example.com/results/run-42/report-bundle',
+      );
+      expect(calls[1]).to.include({
+        method: 'POST',
+        url: 'https://cdn.example.com/bundle',
+      });
+    });
+  });
 });

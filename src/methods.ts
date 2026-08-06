@@ -20,6 +20,14 @@ import { SupabaseGateway } from './gateways/supabase-gateway.js';
 import { MetadataExtractorService } from './services/metadata-extractor.service.js';
 import { TAppMetadata } from './types.js';
 import type { AuthContext } from './types/domain/auth.types.js';
+import {
+  type BinaryEnvelope,
+  encryptFileToPath,
+  generateDek,
+  isEncryptionEnabled,
+  resolveKekPublicKey,
+  wrapDek,
+} from './utils/envelope.js';
 import { colors, formatId } from './utils/styling.js';
 
 const mimeTypeLookupByExtension: Record<string, string> = {
@@ -94,7 +102,7 @@ export const compressFilesFromRelativePath = async (
 };
 
 export const verifyAppZip = async (zipPath: string) => {
-  // eslint-disable-next-line import/namespace, new-cap
+  // eslint-disable-next-line new-cap
   const zip = await new StreamZip.async({
     file: zipPath,
     storeEntries: true,
@@ -129,6 +137,12 @@ interface UploadBinaryConfig {
   auth: AuthContext;
   apiUrl: string;
   debug?: boolean;
+  /**
+   * Encrypt the binary before upload (client-side envelope encryption, #1138).
+   * Defaults to `DCD_ENCRYPT` / `DCD_ENCRYPT_BINARIES` when unset (see
+   * {@link isEncryptionEnabled}).
+   */
+  encrypt?: boolean;
   filePath: string;
   ignoreShaCheck?: boolean;
   log?: boolean;
@@ -136,6 +150,7 @@ interface UploadBinaryConfig {
 
 export const uploadBinary = async (config: UploadBinaryConfig) => {
   const { filePath, apiUrl, auth, ignoreShaCheck = false, log = true, debug = false } = config;
+  const encrypt = isEncryptionEnabled(config.encrypt);
   if (log) {
     ux.action.start(colors.bold('Checking and uploading binary'), colors.dim('Initializing'), {
       stdout: true,
@@ -151,17 +166,28 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
 
   const startTime = Date.now();
   let source: UploadSource | undefined;
+  let encCleanupDir: string | undefined;
+  let enc: BinaryEnvelope | undefined;
 
   try {
     // Prepare file for upload
     source = await prepareFileForUpload(filePath, debug, startTime);
 
-    // Calculate SHA hash
-    const sha = await calculateFileHash(source, debug, log);
+    // Hash the PLAINTEXT first, before any encryption (dcd#1168). Encryption
+    // uses a fresh random DEK per upload, so the ciphertext hash differs every
+    // time and cannot dedup — the plaintext hash is the only stable key. Doing it
+    // in this order also means a dedup hit skips the encryption work entirely,
+    // not just the upload.
+    const shaPlain = await calculateFileHash(source, debug, log);
 
-    // Check for existing upload with same SHA
-    if (!ignoreShaCheck && sha) {
-      const { exists, binaryId } = await checkExistingUpload(apiUrl, auth, sha, debug);
+    // Check for an existing upload before spending anything on encryption.
+    if (!ignoreShaCheck && shaPlain) {
+      const { exists, binaryId } = await checkExistingUpload(
+        apiUrl,
+        auth,
+        encrypt ? { encrypted: true, shaPlain } : { sha: shaPlain },
+        debug,
+      );
 
       if (exists && binaryId) {
         if (log) {
@@ -175,8 +201,35 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
       }
     }
 
+    // Encrypt after the dedup check, so the SHA sent at finalise, and both
+    // uploaders, operate on ciphertext (binaries.sha = ciphertext hash, #1138).
+    if (encrypt) {
+      const encrypted = await encryptUploadSource(source, apiUrl, debug);
+      enc = encrypted.enc;
+      encCleanupDir = encrypted.cleanupDir;
+      if (log) {
+        ux.info(colors.dim(`Encrypting binary before upload (KEK v${enc.kek})`));
+      }
+    }
+
+    // Re-hash once encrypted: what lands in storage is the ciphertext, and every
+    // downstream verifySha hashes the bytes it actually holds (no DEK required).
+    const sha = encrypt ? await calculateFileHash(source, debug, false) : shaPlain;
+
     // Perform the upload
-    const uploadId = await performUpload({ auth, apiUrl, debug, filePath, sha, source, startTime });
+    const uploadId = await performUpload({
+      auth,
+      apiUrl,
+      debug,
+      enc,
+      filePath,
+      sha,
+      // Only encrypted uploads record a plaintext hash; it is what makes the
+      // next encrypted run of this binary dedupable.
+      shaPlain: encrypt ? shaPlain : undefined,
+      source,
+      startTime,
+    });
 
     if (log) {
       ux.action.stop(colors.success('\n✓ Binary uploaded with ID: ') + formatId(uploadId));
@@ -205,8 +258,53 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
     if (source?.cleanupDir) {
       await rm(source.cleanupDir, { recursive: true, force: true }).catch(() => {});
     }
+    if (encCleanupDir) {
+      await rm(encCleanupDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 };
+
+/**
+ * Encrypt the prepared upload source in place (dcd#1138): generate a per-upload
+ * DEK, stream-encrypt `source.diskPath` into a temp ciphertext file, wrap the
+ * DEK with the environment's pinned KEK public key, and repoint `source` at the
+ * ciphertext so the SHA, dedup check, and both uploaders operate on ciphertext.
+ * Returns the envelope metadata (for `binaries.metadata.enc`) plus the temp dir
+ * to clean up. Throws if no KEK is available for the environment.
+ */
+async function encryptUploadSource(
+  source: UploadSource,
+  apiUrl: string,
+  debug: boolean,
+): Promise<{ enc: BinaryEnvelope; cleanupDir: string }> {
+  const kek = resolveKekPublicKey(apiUrl);
+  if (!kek) {
+    throw new Error(
+      'Binary encryption was requested but no KEK public key is configured for this environment. ' +
+        'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64> or pin one in src/config/environments.ts.',
+    );
+  }
+
+  const dek = generateDek();
+  const enc = wrapDek(dek, kek);
+  const cleanupDir = await mkdtemp(path.join(os.tmpdir(), 'dcd-enc-'));
+  const cipherPath = path.join(cleanupDir, 'binary.enc');
+
+  if (debug) {
+    console.log(`[DEBUG] Encrypting binary with KEK v${kek.version} -> ${cipherPath}`);
+  }
+
+  await encryptFileToPath(source.diskPath, cipherPath, dek, kek.version);
+  const { size } = await stat(cipherPath);
+  source.diskPath = cipherPath;
+  source.size = size;
+
+  if (debug) {
+    console.log(`[DEBUG] Ciphertext size: ${(size / 1024 / 1024).toFixed(2)} MB`);
+  }
+
+  return { enc, cleanupDir };
+}
 
 /**
  * Disk-backed description of the binary to upload. Every upload path streams
@@ -352,30 +450,43 @@ async function calculateFileHash(
 }
 
 /**
- * Checks if an upload with the same SHA already exists
+ * Checks whether a matching binary has already been uploaded.
+ *
+ * `lookup` is `{ sha }` for a plaintext upload, or `{ shaPlain, encrypted: true }`
+ * for an encrypted one (dcd#1168) — see {@link ApiGateway.checkForExistingUpload}.
+ *
+ * When asking as an encrypting client, a hit is only honoured if the server
+ * confirms the matched binary is itself encrypted. Any binary is a *plausible*
+ * match on plaintext hash, including a previously-uploaded plaintext copy of the
+ * same app, and reusing that would hand back an unencrypted binary while the user
+ * had asked for encryption. The server applies the same predicate; this is the
+ * client refusing to depend on that, so an older or misbehaving deployment
+ * degrades into a redundant upload rather than a silent loss of encryption.
+ *
  * @param apiUrl API base URL
  * @param auth AuthContext carrying request headers
- * @param sha SHA-256 hash to check
+ * @param lookup Dedup key — plaintext hash for encrypted uploads, else the sha
  * @param debug Whether debug logging is enabled
  * @returns Promise resolving to object with exists flag and optional binaryId
  */
 async function checkExistingUpload(
   apiUrl: string,
   auth: AuthContext,
-  sha: string,
+  lookup: { encrypted?: boolean; sha?: string; shaPlain?: string },
   debug: boolean,
 ): Promise<{ binaryId?: string; exists: boolean }> {
   try {
     if (debug) {
       console.log('[DEBUG] Checking for existing upload with matching SHA...');
+      console.log(`[DEBUG] Lookup: ${JSON.stringify(lookup)}`);
       console.log(`[DEBUG] Target endpoint: ${apiUrl}/uploads/checkForExistingUpload`);
     }
 
     const shaCheckStartTime = Date.now();
-    const { appBinaryId, exists } = await ApiGateway.checkForExistingUpload(
+    const { appBinaryId, encrypted, exists } = await ApiGateway.checkForExistingUpload(
       apiUrl,
       auth,
-      sha as string,
+      lookup,
     );
 
     if (debug) {
@@ -384,6 +495,16 @@ async function checkExistingUpload(
       if (exists) {
         console.log(`[DEBUG] Existing binary ID: ${appBinaryId}`);
       }
+    }
+
+    if (exists && lookup.encrypted && encrypted !== true) {
+      if (debug) {
+        console.log(
+          '[DEBUG] Ignoring dedup hit: encryption was requested but the matched binary is not encrypted',
+        );
+      }
+
+      return { exists: false };
     }
 
     return { binaryId: appBinaryId, exists };
@@ -416,8 +537,15 @@ interface PerformUploadConfig {
   auth: AuthContext;
   apiUrl: string;
   debug: boolean;
+  /** Envelope metadata when the binary was encrypted (#1138); undefined otherwise. */
+  enc?: BinaryEnvelope;
   filePath: string;
   sha: string | undefined;
+  /**
+   * Hash of the plaintext, set only for encrypted uploads (#1168). Persisted as
+   * `binaries.sha_plain` so the next encrypted upload of this binary can dedup.
+   */
+  shaPlain?: string;
   source: UploadSource;
   startTime: number;
 }
@@ -694,13 +822,17 @@ function validateUploadResults(
  * @returns Promise resolving to upload ID
  */
 async function performUpload(config: PerformUploadConfig): Promise<string> {
-  const { filePath, apiUrl, auth, source, sha, debug, startTime } = config;
+  const { filePath, apiUrl, auth, enc, source, sha, shaPlain, debug, startTime } = config;
 
   // Request upload URL and paths
   const { id, tempPath, finalPath, b2 } = await requestUploadPaths(apiUrl, auth, filePath, source.size, debug);
 
-  // Extract app metadata
+  // Extract app metadata from the original (plaintext) file. Attach the
+  // envelope so it lands on binaries.metadata.enc (#1138).
   const metadata = await extractBinaryMetadata(filePath, debug);
+  if (enc) {
+    metadata.enc = enc;
+  }
 
   const env = inferEnvFromApiUrl(apiUrl);
 
@@ -753,6 +885,7 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     path: tempPath,
     // sha is undefined when hash calculation failed — omit it explicitly
     ...(sha ? { sha } : {}),
+    ...(shaPlain ? { shaPlain } : {}),
     supabaseSuccess: supabaseResult.success,
   });
 

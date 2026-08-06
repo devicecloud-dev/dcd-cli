@@ -40,6 +40,7 @@ import {
   matrixIsIos,
   parseDeviceMatrix,
 } from '../utils/device-matrix.js';
+import { isEncryptionEnabled } from '../utils/envelope.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -194,6 +195,12 @@ export const cloudCommand = defineCommand({
       let flows = args.flows as string | undefined;
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
+      // Single opt-in for client-side envelope encryption of every sensitive
+      // artifact — the binary (#1138), the flow zip (#1151), and env vars
+      // (#1152). Flag wins; otherwise DCD_ENCRYPT / DCD_ENCRYPT_BINARIES.
+      const encrypt = isEncryptionEnabled(
+        args['encrypt'] ? true : undefined,
+      );
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
       );
@@ -230,8 +237,6 @@ export const cloudCommand = defineCommand({
         collectRepeatedFlag(rawArgs, ['--metadata', '-m']),
         false,
       );
-      const mitmHost = args.mitmHost as string | undefined;
-      const mitmPath = args.mitmPath as string | undefined;
       const moropoApiKey = args['moropo-v1-api-key'] as string | undefined;
       const name = args.name as string | undefined;
       const orientation = validateEnum(
@@ -277,10 +282,6 @@ export const cloudCommand = defineCommand({
         out(
           '--json-file is true: JSON output will be written to file, forcing --quiet flag for better CI output',
         );
-      }
-
-      if (mitmPath && !mitmHost) {
-        throw new CliError('--mitmPath requires --mitmHost to be set');
       }
 
       if (jsonFileName && !jsonFileFlag) {
@@ -415,7 +416,7 @@ export const cloudCommand = defineCommand({
       if (runnerType === 'm1') {
         out(
           ui.info(
-            'runnerType m1 is experimental and currently supports Android (Pixel 7, API Level 34) only.',
+            'runnerType m1 is experimental and currently supports Android only (all devices, API level 34-36).',
           ),
         );
       }
@@ -423,7 +424,7 @@ export const cloudCommand = defineCommand({
       if (runnerType === 'gpu1') {
         out(
           ui.info(
-            'runnerType gpu1 is Android-only (all devices, API Level 34 or 35), available to all users.',
+            'runnerType gpu1 is Android-only (all devices, API level 34+), available to all users.',
           ),
         );
       }
@@ -762,6 +763,7 @@ export const cloudCommand = defineCommand({
           auth,
           apiUrl,
           debug,
+          encrypt,
           filePath: finalAppFile,
           ignoreShaCheck,
           log: !json,
@@ -791,6 +793,7 @@ export const cloudCommand = defineCommand({
         androidApiLevel,
         androidDevice,
         androidNoSnapshot,
+        apiUrl,
         appBinaryId: finalBinaryId,
         cliVersion,
         commonRoot,
@@ -798,6 +801,7 @@ export const cloudCommand = defineCommand({
         debug,
         deviceLocale,
         deviceMatrix,
+        encrypt,
         env,
         executionPlan,
         flowFile,
@@ -807,8 +811,6 @@ export const cloudCommand = defineCommand({
         logger: (m: string) => out(m),
         maestroVersion: resolvedMaestroVersion,
         metadata: mergedMetadata,
-        mitmHost,
-        mitmPath,
         name,
         orientation,
         raw: [],

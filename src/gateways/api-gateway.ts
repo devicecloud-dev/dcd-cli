@@ -179,14 +179,110 @@ export const ApiGateway = {
     );
   },
 
+  /**
+   * Prefer server-assembled bundle delivery. The API returns a signed manifest
+   * plus a URL to a delivery service that streams the ZIP straight from
+   * storage, so large downloads don't flow through the API itself. The client
+   * just relays the signed `{ manifest, sig }` to that URL — no auth header,
+   * because the manifest is already signed.
+   *
+   * Returns true once the bundle has been streamed to disk. Returns false when
+   * the bundle path is unavailable or anything about it doesn't pan out — a
+   * `501` (deployment doesn't offer it), a non-OK manifest response, a body
+   * that isn't a manifest, or a delivery-service error — so the caller can fall
+   * back to the inline download endpoint. Definitive errors (e.g. not found)
+   * surface through that inline path instead.
+   */
+  async tryBundleDownload(
+    baseUrl: string,
+    auth: AuthContext,
+    manifestEndpoint: string,
+    destinationPath: string,
+    operation: string,
+  ): Promise<boolean> {
+    let manifestRes: Response;
+    try {
+      manifestRes = await fetch(`${baseUrl}${manifestEndpoint}`, {
+        headers: { ...auth.headers },
+        method: 'GET',
+      });
+    } catch {
+      return false;
+    }
+
+    // 501 => this deployment has no bundle delivery; any other non-OK => let
+    // the inline path re-request and surface the real error.
+    if (!manifestRes.ok) {
+      return false;
+    }
+
+    let bundle: {
+      bundleUrl?: string;
+      manifest?: string;
+      sig?: string;
+    };
+    try {
+      bundle = (await manifestRes.json()) as typeof bundle;
+    } catch {
+      return false;
+    }
+    if (!bundle?.bundleUrl || !bundle?.manifest || !bundle?.sig) {
+      return false;
+    }
+
+    let zipRes: Response;
+    try {
+      zipRes = await fetch(bundle.bundleUrl, {
+        body: JSON.stringify({ manifest: bundle.manifest, sig: bundle.sig }),
+        // No auth header: the manifest is signed and is the access token.
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+    } catch {
+      return false;
+    }
+    if (!zipRes.ok) {
+      return false;
+    }
+
+    // A mid-stream failure (dropped/truncated connection) or a null body on an
+    // otherwise-OK response throws here — fall back to the inline path rather
+    // than let it escape past the caller's fallback. The inline path re-opens
+    // the destination with flags: 'w', truncating any partial file left behind.
+    try {
+      await this.streamResponseToFile(zipRes, destinationPath, operation);
+    } catch {
+      return false;
+    }
+    return true;
+  },
+
+  /**
+   * Look for an already-uploaded binary to skip re-uploading.
+   *
+   * Two lookup keys, because encryption changes what is stable (dcd#1168).
+   * Unencrypted uploads pass `sha` (the hash of exactly what gets stored).
+   * Encrypted uploads pass `shaPlain` plus `encrypted: true`: their ciphertext is
+   * freshly keyed on every upload, so its hash never matches, and the plaintext
+   * hash is the only stable key. `sha` is deliberately not sent in that case —
+   * see the caller in methods.ts for why sending it would be unsafe.
+   *
+   * `encrypted` in the response reports whether the *matched* binary is stored
+   * encrypted, so the caller can verify the invariant it asked for instead of
+   * trusting the server to have applied the right predicate.
+   */
   async checkForExistingUpload(
     baseUrl: string,
     auth: AuthContext,
-    sha: string,
+    lookup: { encrypted?: boolean; sha?: string; shaPlain?: string } | string,
   ) {
+    // Historically this took a bare sha string; keep that shape working.
+    const body =
+      typeof lookup === 'string' ? { sha: lookup } : { ...lookup };
+
     try {
       const res = await fetch(`${baseUrl}/uploads/checkForExistingUpload`, {
-        body: JSON.stringify({ sha }),
+        body: JSON.stringify(body),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
@@ -199,7 +295,9 @@ export const ApiGateway = {
       }
 
       return await parseJsonResponse<
-        paths['/uploads/checkForExistingUpload']['post']['responses']['201']['content']['application/json']
+        paths['/uploads/checkForExistingUpload']['post']['responses']['201']['content']['application/json'] & {
+          encrypted?: boolean;
+        }
       >(res, 'Failed to check for existing upload');
     } catch (error) {
       // Handle network-level errors (DNS, connection refused, timeout, etc.)
@@ -219,6 +317,19 @@ export const ApiGateway = {
     results: 'ALL' | 'FAILED',
     artifactsPath: string = './artifacts.zip',
   ) {
+    // Prefer bundle delivery; fall back to the inline download below.
+    if (
+      await this.tryBundleDownload(
+        baseUrl,
+        auth,
+        `/results/${uploadId}/artifacts-bundle?results=${results}`,
+        artifactsPath,
+        'Failed to download artifacts',
+      )
+    ) {
+      return;
+    }
+
     try {
       const res = await fetch(`${baseUrl}/results/${uploadId}/download`, {
         body: JSON.stringify({ results }),
@@ -251,9 +362,15 @@ export const ApiGateway = {
     metadata: TAppMetadata;
     path: string;
     sha?: string;
+    /**
+     * Hash of the PLAINTEXT, sent only for encrypted uploads (dcd#1168). Stored
+     * as `binaries.sha_plain` so later encrypted uploads of the same input can
+     * dedup; `sha` remains the ciphertext hash.
+     */
+    shaPlain?: string;
     supabaseSuccess: boolean;
   }) {
-    const { baseUrl, auth, id, metadata, path, sha, supabaseSuccess, backblazeSuccess, bytes } = config;
+    const { baseUrl, auth, id, metadata, path, sha, shaPlain, supabaseSuccess, backblazeSuccess, bytes } = config;
     try {
       const res = await fetch(`${baseUrl}/uploads/finaliseUpload`, {
         body: JSON.stringify({
@@ -263,6 +380,7 @@ export const ApiGateway = {
           metadata,
           path, // This is tempPath for TUS uploads
           ...(sha ? { sha } : {}),
+          ...(shaPlain ? { shaPlain } : {}),
           supabaseSuccess,
         }),
         headers: {
@@ -676,6 +794,22 @@ export const ApiGateway = {
     const { endpoint, defaultFilename, notFoundMessage, errorPrefix } = config[reportType];
     const finalReportPath = reportPath || path.resolve(process.cwd(), defaultFilename);
     const url = `${baseUrl}${endpoint}`;
+
+    // The HTML report is a ZIP bundle; prefer bundle delivery when available.
+    // (junit is a single small file and allure has its own endpoint — both stay
+    // on the inline path.)
+    if (
+      reportType === 'html' &&
+      (await this.tryBundleDownload(
+        baseUrl,
+        auth,
+        `/results/${uploadId}/report-bundle`,
+        finalReportPath,
+        errorPrefix,
+      ))
+    ) {
+      return;
+    }
 
     try {
       // Make the download request

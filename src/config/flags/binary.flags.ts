@@ -24,4 +24,9 @@ export const binaryFlags = {
     description:
       'Ignore the sha hash check and upload the binary regardless of whether it already exists (not recommended)',
   },
+  encrypt: {
+    type: 'boolean',
+    description:
+      'Encrypt the app binary, flow zip, and env vars before upload (client-side envelope encryption; each gets its own key). The binary is still deduplicated across runs, so an unchanged app is not re-uploaded. Can also be enabled with DCD_ENCRYPT=1.',
+  },
 } as const satisfies ArgsDef;

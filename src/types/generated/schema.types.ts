@@ -70,6 +70,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/uploads/getFlowUploadUrl": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["UploadsController_getFlowUploadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/uploads/flow": {
         parameters: {
             query?: never;
@@ -80,6 +96,55 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["UploadsController_createTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uploads/submitFlowTest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Client-direct flow submission (JSON). The flow zip has already been
+         *     uploaded straight to storage via getFlowUploadUrl, so nothing is buffered
+         *     in API memory here — we just create the uploads row from the stored
+         *     reference and run the shared submission flow.
+         */
+        post: operations["UploadsController_submitFlowTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/uploads/estimateMatrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry-run cost + cell-count estimate for a (possibly device-matrix)
+         *     submission. Runs the exact same resolve → validate → fan-out → price core as
+         *     the submit path (so the quote equals the charge) but never persists and
+         *     never touches credits. Lets the CLI print the cell count and estimated cost,
+         *     and surface validation errors, before uploading the flow ZIP.
+         *
+         *     The dollar estimate is exact for non-Google-Play cells; a Google Play
+         *     column's price is path-dependent until #1100 unifies the parallel and
+         *     sequential Play tiering.
+         */
+        post: operations["UploadsController_estimateMatrix"];
         delete?: never;
         options?: never;
         head?: never;
@@ -166,6 +231,278 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/org/paddle-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_handlePaddleWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/update-name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_updateOrgName"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/invite-team-member": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_inviteTeamMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/accept-invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_acceptInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/revoke-invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_revokeInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/change-team-member-role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_changeTeamMemberRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/remove-team-member": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_removeTeamMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/leave-team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_leaveTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/delete-team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_deleteTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_getAllSubscriptions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/update-overage-limit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_updateOverageLimit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/usage-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_getUsageHistory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/update-gpu-retries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_updateGpuRetries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/update-billing-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_updateBillingEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_getInvoices"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/invoice-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_getInvoiceUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/org/bill-daily-overages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["OrgController_billDailyOverages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/results/{uploadId}": {
         parameters: {
             query?: never;
@@ -192,22 +529,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["ResultsController_getTestRunArtifacts"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/results/notify/{uploadId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["ResultsController_notifyTestRunComplete"];
         delete?: never;
         options?: never;
         head?: never;
@@ -254,6 +575,60 @@ export interface paths {
             cookie?: never;
         };
         get: operations["ResultsController_downloadSingleHtmlReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/results/{uploadId}/artifacts-bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * CDN-Worker bundle manifests (dcd#1137). These return a signed manifest the
+         *     client POSTs to the Worker, which streams the ZIP from B2 — the artifact
+         *     bytes bypass the API. A `501` means the CDN Worker isn't configured on this
+         *     deployment; the client falls back to the inline download endpoints.
+         */
+        get: operations["ResultsController_getArtifactsBundleManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/results/{uploadId}/report-bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ResultsController_getReportBundleManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/results/{resultId}/report-bundle-single": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ResultsController_getSingleReportBundleManifest"];
         put?: never;
         post?: never;
         delete?: never;
@@ -346,39 +721,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/org/paddle-webhook": {
+    "/slack/oauth/start": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["SlackController_oauthStart"];
         put?: never;
-        post: operations["OrgController_handlePaddleWebhook"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/org/update-name": {
+    "/slack": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["SlackController_getConnection"];
         put?: never;
-        post: operations["OrgController_updateOrgName"];
+        post?: never;
+        delete: operations["SlackController_disconnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/slack/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["SlackController_getChannels"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/org/invite-team-member": {
+    "/slack/config": {
         parameters: {
             query?: never;
             header?: never;
@@ -387,14 +778,14 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["OrgController_inviteTeamMember"];
+        post: operations["SlackController_setConfig"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/org/accept-invite": {
+    "/slack/test": {
         parameters: {
             query?: never;
             header?: never;
@@ -403,46 +794,84 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["OrgController_acceptInvite"];
+        post: operations["SlackController_test"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/org/subscriptions": {
+    "/github/oauth/start": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["GithubController_oauthStart"];
         put?: never;
-        post: operations["OrgController_getAllSubscriptions"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/org/update-overage-limit": {
+    "/github": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["GithubController_getConnection"];
         put?: never;
-        post: operations["OrgController_updateOverageLimit"];
+        post?: never;
+        delete: operations["GithubController_disconnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Active notify notices (deprecation/warn/info/marketing) for the calling
+         *     client. Block notices are never returned here — they are enforced
+         *     server-side at submit time. The consumer applies any `match` gating it alone
+         *     can evaluate (e.g. the selected device version).
+         */
+        get: operations["NoticesController_getNotices"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/org/usage-history": {
+    "/api-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ApiKeysController_list"];
+        put?: never;
+        post: operations["ApiKeysController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api-keys/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -451,7 +880,39 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["OrgController_getUsageHistory"];
+        post?: never;
+        delete: operations["ApiKeysController_revoke"];
+        options?: never;
+        head?: never;
+        patch: operations["ApiKeysController_update"];
+        trace?: never;
+    };
+    "/api-keys/{id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ApiKeysController_rotate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ip-addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["NetworkController_getIpAddresses"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -490,6 +951,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/frontend/binary-download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["FrontendController_getBinaryDownloadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/frontend/binaries/{binaryId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["FrontendController_downloadBinary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/frontend/artifact-download-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["FrontendController_getArtifactDownloadUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/frontend/result-detail/{resultId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["FrontendController_getResultDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/frontend/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["FrontendController_ingestLogs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/frontend/logs/anon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["FrontendController_ingestLogsAnonymous"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -522,6 +1079,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/billing/update-subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["BillingController_updateSubscription"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stats/marketing": {
         parameters: {
             query?: never;
@@ -532,6 +1105,361 @@ export interface paths {
         get: operations["StatsController_getMarketingStats"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/flows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["FlowsController_getFlows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/flows/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["FlowsController_getFlowRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["LiveController_createSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/live/{identifier}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["LiveController_getSession"];
+        put?: never;
+        post?: never;
+        delete: operations["LiveController_stopSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/live/{identifier}/exec": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["LiveController_execTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/live/{identifier}/commands/{commandId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["LiveController_getCommandStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/live/{identifier}/keepalive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["LiveController_keepalive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/live/{identifier}/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["LiveController_installBinary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/orgs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["MeController_listOrgs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's active auth sessions (for the Settings "Active sessions" panel). */
+        get: operations["MeController_listSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one of the caller's active auth sessions (per-row "Sign out" in the panel). JWT-authed;
+         *     the service scopes the delete to the caller's own id, so you can only kill your own sessions.
+         *     Throttled since it mutates auth state.
+         */
+        delete: operations["MeController_revokeSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/personal-team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Provision a personal team for the caller — backs the "Create a personal team" button on the
+         *     no-teams empty state (a user who left/was removed from their last org). Throttled.
+         */
+        post: operations["MeController_createPersonalTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/team": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an additional, named team for the caller — backs the "+ New team" org-switcher action.
+         *     Always creates (vs /personal-team which is idempotent). Throttled.
+         */
+        post: operations["MeController_createTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Irreversibly delete the caller's own account. JWT-authed; the body must echo the
+         *     account email as a defence-in-depth confirmation (the UI also type-confirms). Throttled
+         *     hard since it's destructive.
+         */
+        post: operations["MeController_deleteAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cli-login/handoff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["CliLoginController_handoff"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cli-login/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["CliLoginController_claim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cli/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["CliLogsController_ingestLogs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/email-change/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["EmailChangeController_start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/email-change/verify-current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["EmailChangeController_verifyCurrent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/email-change/verify-new": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["EmailChangeController_verifyNew"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/email-change/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["EmailChangeController_cancel"];
         delete?: never;
         options?: never;
         head?: never;
@@ -586,13 +1514,25 @@ export interface components {
             large?: components["schemas"]["B2LargeUpload"];
         };
         IGetBinaryUploadUrlResponse: {
-            /** @description Temporary upload path in uploads/ folder for TUS upload */
+            /**
+             * @description Temporary upload path in uploads/ folder for TUS upload
+             * @example uploads/123e4567-e89b-12d3-a456-426614174000/123e4567-e89b-12d3-a456-426614174000.apk
+             */
             path: string;
-            /** @description Temporary upload path (same as path) */
+            /**
+             * @description Temporary upload path (same as path)
+             * @example uploads/123e4567-e89b-12d3-a456-426614174000/123e4567-e89b-12d3-a456-426614174000.apk
+             */
             tempPath: string;
-            /** @description Final path where file will be moved after upload completes */
+            /**
+             * @description Final path where file will be moved after upload completes
+             * @example 1/binaries/android/123e4567-e89b-12d3-a456-426614174000.apk
+             */
             finalPath: string;
-            /** @description Upload ID */
+            /**
+             * @description Upload ID
+             * @example 123e4567-e89b-12d3-a456-426614174000
+             */
             id: string;
             /** @description Backblaze upload strategy if configured */
             b2?: components["schemas"]["B2UploadStrategy"];
@@ -600,12 +1540,26 @@ export interface components {
             token?: string;
         };
         ICheckForExistingUploadArgs: {
-            /** @description SHA-256 hash of the binary file */
-            sha: string;
+            /** @description SHA-256 hash of the binary file as uploaded. Required unless `encrypted` is true, in which case `shaPlain` is the lookup key (the ciphertext hash is not yet known at dedup time). */
+            sha?: string;
+            /** @description SHA-256 hash of the PLAINTEXT binary. The lookup key when `encrypted` is true (#1168): encrypted uploads wrap under a fresh random DEK, so the ciphertext hash differs on every upload of identical input and cannot dedup. */
+            shaPlain?: string;
+            /**
+             * @description Whether the caller intends to upload an encrypted binary. When true the lookup uses `shaPlain` and only ever matches rows that carry an encryption envelope, so an encrypting client can never be handed back a plaintext binary.
+             * @default false
+             */
+            encrypted: boolean;
         };
         ICheckForExistingUploadResponse: {
             appBinaryId: string;
             exists: boolean;
+            /**
+             * @description Whether the matched binary is stored encrypted (#1168). Lets an encrypting
+             *     client assert the invariant it cares about client-side instead of trusting
+             *     the server to have applied the right predicate — so an older or misbehaving
+             *     deployment cannot quietly hand it a plaintext binary.
+             */
+            encrypted?: boolean;
         };
         IFinaliseUploadArgs: {
             /** @description Unique upload identifier */
@@ -616,6 +1570,8 @@ export interface components {
             metadata?: Record<string, never>;
             /** @description SHA-256 hash of the file - required for new clients */
             sha?: string;
+            /** @description SHA-256 hash of the PLAINTEXT file. Sent only by clients uploading an encrypted binary (#1168), where `sha` is the ciphertext hash; persisted as binaries.sha_plain so later encrypted uploads of the same input can dedup. */
+            shaPlain?: string;
             /**
              * @description Whether the Supabase upload was successful
              * @default true
@@ -651,16 +1607,17 @@ export interface components {
             success: boolean;
             result: Record<string, never>;
         };
+        IGetFlowUploadUrlArgs: {
+            /** @description File size in bytes (optional, for Backblaze upload strategy) */
+            fileSize?: number;
+            /** @description Whether client uses TUS resumable uploads (true for new clients, undefined/false for legacy) */
+            useTus?: boolean;
+        };
         ICreateTestUploadArgs: {
-            /**
-             * Format: binary
-             * @description This file must be a zip file
-             */
-            file: string;
             testFileNames?: string;
             sequentialFlows?: string;
             /** @enum {string} */
-            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36";
+            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
             /** @enum {string} */
             androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
             apiKey?: string;
@@ -673,7 +1630,7 @@ export interface components {
             /** @enum {string} */
             iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
             platform?: string;
-            googlePlay: boolean;
+            googlePlay?: boolean;
             config: string;
             name?: string;
             /** @enum {string} */
@@ -682,25 +1639,117 @@ export interface components {
             workspaceConfig?: string;
             flowMetadata?: string;
             testFileOverrides?: string;
+            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-7","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
+            deviceMatrix?: string;
             /** @description SHA-256 hash of the flow ZIP file */
             sha?: string;
+            /** @description JSON-encoded envelope { v, kek, wrapped_key } when the flow ZIP was client-side encrypted (#1151). Stored as uploads.metadata.enc; the flow zip carries its own per-upload DEK, distinct from the binary. */
+            enc?: string;
+            /** @description Size of the flow ZIP file in bytes */
+            bytes?: number;
+            /**
+             * Format: binary
+             * @description This file must be a zip file
+             */
+            file: string;
+        };
+        ISubmitFlowTestArgs: {
+            testFileNames?: string;
+            sequentialFlows?: string;
+            /** @enum {string} */
+            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
+            /** @enum {string} */
+            androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
+            apiKey?: string;
+            apiUrl?: string;
+            appBinaryId: string;
+            appFile?: string;
+            env: string;
+            /** @enum {string} */
+            iOSVersion?: "16" | "17" | "18" | "26";
+            /** @enum {string} */
+            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
+            platform?: string;
+            googlePlay?: boolean;
+            config: string;
+            name?: string;
+            /** @enum {string} */
+            runnerType?: "m4" | "m1" | "default" | "gpu1" | "cpu1";
+            metadata?: string;
+            workspaceConfig?: string;
+            flowMetadata?: string;
+            testFileOverrides?: string;
+            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-7","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
+            deviceMatrix?: string;
+            /** @description SHA-256 hash of the flow ZIP file */
+            sha?: string;
+            /** @description JSON-encoded envelope { v, kek, wrapped_key } when the flow ZIP was client-side encrypted (#1151). Stored as uploads.metadata.enc; the flow zip carries its own per-upload DEK, distinct from the binary. */
+            enc?: string;
+            /** @description Size of the flow ZIP file in bytes */
+            bytes?: number;
+            /** @description Flow upload identifier returned by getFlowUploadUrl */
+            id: string;
+            /** @description Storage path where the flow zip was uploaded (tempPath for TUS, finalPath for legacy signed URL) */
+            path: string;
+            /**
+             * @description Whether the Supabase upload was successful
+             * @default true
+             */
+            supabaseSuccess: boolean;
+            /**
+             * @description Whether the Backblaze upload was successful
+             * @default false
+             */
+            backblazeSuccess: boolean;
+            /** @description Whether client uses TUS resumable uploads (true for new clients, undefined/false for legacy) */
+            useTus?: boolean;
+        };
+        IFlowTestParams: {
+            testFileNames?: string;
+            sequentialFlows?: string;
+            /** @enum {string} */
+            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
+            /** @enum {string} */
+            androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
+            apiKey?: string;
+            apiUrl?: string;
+            appBinaryId: string;
+            appFile?: string;
+            env: string;
+            /** @enum {string} */
+            iOSVersion?: "16" | "17" | "18" | "26";
+            /** @enum {string} */
+            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
+            platform?: string;
+            googlePlay?: boolean;
+            config: string;
+            name?: string;
+            /** @enum {string} */
+            runnerType?: "m4" | "m1" | "default" | "gpu1" | "cpu1";
+            metadata?: string;
+            workspaceConfig?: string;
+            flowMetadata?: string;
+            testFileOverrides?: string;
+            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-7","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
+            deviceMatrix?: string;
+            /** @description SHA-256 hash of the flow ZIP file */
+            sha?: string;
+            /** @description JSON-encoded envelope { v, kek, wrapped_key } when the flow ZIP was client-side encrypted (#1151). Stored as uploads.metadata.enc; the flow zip carries its own per-upload DEK, distinct from the binary. */
+            enc?: string;
+            /** @description Size of the flow ZIP file in bytes */
+            bytes?: number;
         };
         IRetryTestArgs: {
-            resultId: number;
+            /** @description ID of a specific result to retry. Either resultId or uploadId must be provided, but not both. */
+            resultId?: number;
+            /** @description ID of an upload to retry all failed tests for. Either resultId or uploadId must be provided, but not both. */
+            uploadId?: string;
         };
         ICancelTestArgs: {
             /** @description ID of a specific result to cancel. Either resultId or uploadId must be provided, but not both. */
             resultId?: number;
             /** @description ID of an upload to cancel all pending results for. Either resultId or uploadId must be provided, but not both. */
             uploadId?: string;
-        };
-        TResultResponse: {
-            id: number;
-            test_file_name: string;
-            status: string;
-            retry_of?: number;
-            fail_reason?: string;
-            duration_seconds?: number;
         };
         UpdateOrgNameDto: {
             /**
@@ -714,6 +1763,25 @@ export interface components {
              */
             name: string;
         };
+        InviteTeamMemberDto: {
+            /**
+             * @description Email address to invite
+             * @example teammate@example.com
+             */
+            inviteEmail: string;
+            /**
+             * @description Invite acceptance link shown in the email
+             * @example https://app.devicecloud.dev/login?invite_email=...
+             */
+            link: string;
+            /**
+             * @description Organization ID
+             * @example 1
+             */
+            orgId: string;
+            /** @description Organization name shown in the email */
+            orgName: string;
+        };
         AcceptInviteDto: {
             /**
              * @description Organization ID
@@ -725,6 +1793,109 @@ export interface components {
              * @example user@example.com
              */
             email: string;
+        };
+        RevokeInviteDto: {
+            /**
+             * @description Organization ID
+             * @example 1
+             */
+            orgId: string;
+            /**
+             * @description Email of the pending invite to revoke
+             * @example teammate@example.com
+             */
+            email: string;
+        };
+        ChangeRoleDto: {
+            /**
+             * @description Organization ID
+             * @example 1
+             */
+            orgId: string;
+            /**
+             * @description Email of the team member whose role is being changed
+             * @example teammate@example.com
+             */
+            email: string;
+            /**
+             * @description New role to assign
+             * @example admin
+             * @enum {string}
+             */
+            newRole: "admin" | "standard" | "owner";
+        };
+        RemoveMemberDto: {
+            /**
+             * @description Organization ID
+             * @example 1
+             */
+            orgId: string;
+            /**
+             * @description Email of the team member to remove
+             * @example teammate@example.com
+             */
+            email: string;
+        };
+        LeaveTeamDto: {
+            /**
+             * @description Organization ID to leave
+             * @example 1
+             */
+            orgId: string;
+        };
+        DeleteTeamDto: {
+            /**
+             * @description Organization ID to delete
+             * @example 1
+             */
+            orgId: string;
+        };
+        TResultResponse: {
+            id: number;
+            test_file_name: string;
+            status: string;
+            retry_of?: number;
+            fail_reason?: string;
+            duration_seconds?: number;
+            simulator_name?: string;
+            config?: Record<string, never>;
+        };
+        TFlowSummaryResponse: {
+            flow_name: string;
+            file_name: string;
+            last_run_at: string;
+            total_runs: number;
+            passed_runs: number;
+            failed_runs: number;
+            pass_rate: number;
+            avg_duration: number;
+            daily_data: Record<string, never>;
+            tags: string[];
+        };
+        TFlowRunItem: {
+            id: number;
+            status: string;
+            createdAt: string;
+            durationSeconds: number | null;
+            failReason: string | null;
+            testUploadId: string;
+            uploadName: string;
+        };
+        HandoffDto: {
+            /** @description Opaque state token minted by the CLI. */
+            state: string;
+            /** @description base64url(sha256(code_verifier)) — the PKCE S256 challenge. */
+            code_challenge: string;
+            /** @description The browser session's Supabase access token (JWT), used only to verify the user's identity. */
+            access_token: string;
+            /** @description The browser session's refresh token. Sent only for SAML SSO sessions, which cannot be minted a dedicated CLI session server-side. */
+            refresh_token?: string;
+        };
+        ClaimDto: {
+            /** @description Opaque state token minted by the CLI. */
+            state: string;
+            /** @description base64url(random bytes) — the PKCE verifier. */
+            code_verifier: string;
         };
     };
     responses: never;
@@ -738,9 +1909,7 @@ export interface operations {
     UploadsController_getBinaryUploadUrl: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -764,9 +1933,7 @@ export interface operations {
     UploadsController_checkForExistingUpload: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -790,9 +1957,7 @@ export interface operations {
     UploadsController_finaliseUpload: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -816,9 +1981,7 @@ export interface operations {
     UploadsController_finishLargeFile: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -839,12 +2002,34 @@ export interface operations {
             };
         };
     };
+    UploadsController_getFlowUploadUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IGetFlowUploadUrlArgs"];
+            };
+        };
+        responses: {
+            /** @description The url has been successfully created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IGetBinaryUploadUrlResponse"];
+                };
+            };
+        };
+    };
     UploadsController_createTest: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -868,18 +2053,16 @@ export interface operations {
             };
         };
     };
-    UploadsController_retryTest: {
+    UploadsController_submitFlowTest: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["IRetryTestArgs"];
+                "application/json": components["schemas"]["ISubmitFlowTestArgs"];
             };
         };
         responses: {
@@ -897,12 +2080,74 @@ export interface operations {
             };
         };
     };
+    UploadsController_estimateMatrix: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IFlowTestParams"];
+            };
+        };
+        responses: {
+            /** @description Estimated cell count and cost for a device-matrix submission. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        cellCount?: number;
+                        totalCost?: number;
+                        excludedFlows?: string[];
+                        columns?: {
+                            deviceName?: string;
+                            osVersion?: string;
+                            googlePlay?: boolean;
+                            flowCount?: number;
+                            cost?: number;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    UploadsController_retryTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IRetryTestArgs"];
+            };
+        };
+        responses: {
+            /** @description Retry started. Provide resultId to retry a single test (returns the new result id), or uploadId to retry all failed tests in an upload (returns retriedCount). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message?: string;
+                        id?: number;
+                        success?: boolean;
+                        retriedCount?: number;
+                    };
+                };
+            };
+        };
+    };
     UploadsController_cancelTest: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -935,9 +2180,7 @@ export interface operations {
                 /** @description Upload name to get status for */
                 name?: string;
             };
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -981,9 +2224,7 @@ export interface operations {
                 /** @description Number of uploads to skip (default: 0) */
                 offset?: number;
             };
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1028,9 +2269,7 @@ export interface operations {
     UploadsController_deleteUpload: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path: {
                 uploadId: string;
             };
@@ -1058,12 +2297,452 @@ export interface operations {
             };
         };
     };
-    ResultsController_getResults: {
+    OrgController_handlePaddleWebhook: {
         parameters: {
             query?: never;
             header: {
-                "x-app-api-key": string;
+                "paddle-signature": string;
             };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paddle webhook handler. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+        };
+    };
+    OrgController_updateOrgName: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrgNameDto"];
+            };
+        };
+        responses: {
+            /** @description Organization name updated successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": boolean;
+                };
+            };
+        };
+    };
+    OrgController_inviteTeamMember: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteTeamMemberDto"];
+            };
+        };
+        responses: {
+            /** @description Team member invited successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": boolean;
+                };
+            };
+        };
+    };
+    OrgController_acceptInvite: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInviteDto"];
+            };
+        };
+        responses: {
+            /** @description Team invite accepted successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": boolean;
+                };
+            };
+        };
+    };
+    OrgController_revokeInvite: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeInviteDto"];
+            };
+        };
+        responses: {
+            /** @description Team invite revoked successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": boolean;
+                };
+            };
+        };
+    };
+    OrgController_changeTeamMemberRole: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeRoleDto"];
+            };
+        };
+        responses: {
+            /** @description Team member role updated successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": boolean;
+                };
+            };
+        };
+    };
+    OrgController_removeTeamMember: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveMemberDto"];
+            };
+        };
+        responses: {
+            /** @description Team member removed successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": boolean;
+                };
+            };
+        };
+    };
+    OrgController_leaveTeam: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveTeamDto"];
+            };
+        };
+        responses: {
+            /** @description Left the team successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": boolean;
+                };
+            };
+        };
+    };
+    OrgController_deleteTeam: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteTeamDto"];
+            };
+        };
+        responses: {
+            /** @description Team deleted successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": boolean;
+                };
+            };
+        };
+    };
+    OrgController_getAllSubscriptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    orgId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description All subscription data fetched successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    OrgController_updateOverageLimit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    orgId: string;
+                    overageLimit: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Overage limit updated successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    OrgController_getUsageHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    orgId: string;
+                    /** @enum {string} */
+                    format?: "json" | "csv";
+                    /** Format: date-time */
+                    startDate?: string;
+                    /** Format: date-time */
+                    endDate?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Usage history fetched successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown[];
+                };
+            };
+        };
+    };
+    OrgController_updateGpuRetries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    orgId: number;
+                    gpuRetries: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description GPU retries setting updated successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    OrgController_updateBillingEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    orgId: number;
+                    billingEmail: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Billing email updated successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    OrgController_getInvoices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    orgId: number;
+                };
+            };
+        };
+        responses: {
+            /** @description List of Paddle invoices for the organization. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    OrgController_getInvoiceUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    orgId: number;
+                    transactionId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Hosted PDF URL for a single invoice. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    OrgController_billDailyOverages: {
+        parameters: {
+            query?: never;
+            header: {
+                "x-cron-secret": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daily overage billing processed. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    ResultsController_getResults: {
+        parameters: {
+            query?: never;
+            header?: never;
             path: {
                 uploadId: string;
             };
@@ -1088,9 +2767,7 @@ export interface operations {
     ResultsController_getTestRunArtifacts: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path: {
                 uploadId: string;
             };
@@ -1106,36 +2783,10 @@ export interface operations {
             };
         };
     };
-    ResultsController_notifyTestRunComplete: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
-            path: {
-                uploadId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Send results summary email. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string;
-                };
-            };
-        };
-    };
     ResultsController_downloadReport: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path: {
                 uploadId: string;
             };
@@ -1157,9 +2808,7 @@ export interface operations {
     ResultsController_downloadHtmlReport: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path: {
                 uploadId: string;
             };
@@ -1181,9 +2830,7 @@ export interface operations {
     ResultsController_downloadSingleHtmlReport: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path: {
                 resultId: string;
             };
@@ -1202,11 +2849,70 @@ export interface operations {
             };
         };
     };
+    ResultsController_getArtifactsBundleManifest: {
+        parameters: {
+            query: {
+                results: string;
+            };
+            header?: never;
+            path: {
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ResultsController_getReportBundleManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ResultsController_getSingleReportBundleManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                resultId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     ResultsController_getCompatibilityData: {
         parameters: {
             query?: never;
             header: {
-                "x-app-api-key": string;
+                "x-dcd-cli-version": string;
             };
             path?: never;
             cookie?: never;
@@ -1251,7 +2957,6 @@ export interface operations {
                      *           "iphone-16-plus": {
                      *             "name": "iPhone 16 Plus",
                      *             "versions": [
-                     *               "18",
                      *               "26"
                      *             ],
                      *             "deprecated": false
@@ -1292,7 +2997,8 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -1300,9 +3006,7 @@ export interface operations {
                      *             "name": "Pixel 6 Pro",
                      *             "apiLevels": [
                      *               "33",
-                     *               "34",
-                     *               "35",
-                     *               "36"
+                     *               "35"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -1312,7 +3016,8 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -1322,57 +3027,43 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
                      *           "generic-tablet": {
                      *             "name": "Generic Tablet",
                      *             "apiLevels": [
-                     *               "33",
-                     *               "34",
-                     *               "35",
-                     *               "36"
+                     *               "33"
                      *             ],
                      *             "deprecated": false
                      *           }
                      *         },
                      *         "androidPlay": {
-                     *           "pixel-6": {
-                     *             "name": "Pixel 6 (Google Play)",
-                     *             "apiLevels": [
-                     *               "34",
-                     *               "35",
-                     *               "36"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
                      *           "pixel-7": {
                      *             "name": "Pixel 7 (Google Play)",
                      *             "apiLevels": [
-                     *               "34",
-                     *               "35",
-                     *               "36"
+                     *               "34"
                      *             ],
                      *             "deprecated": false
                      *           }
                      *         },
                      *         "maestro": {
                      *           "supportedVersions": [
-                     *             "1.39.0",
-                     *             "1.39.2",
-                     *             "1.39.5",
-                     *             "1.39.7",
-                     *             "1.40.3",
-                     *             "1.41.0",
-                     *             "2.0.2",
-                     *             "2.0.3",
                      *             "2.0.4",
                      *             "2.0.9",
-                     *             "2.1.0"
+                     *             "2.1.0",
+                     *             "2.2.0",
+                     *             "2.5.0",
+                     *             "2.5.1",
+                     *             "2.6.0",
+                     *             "2.6.1",
+                     *             "2.7.0",
+                     *             "2.8.0"
                      *           ],
-                     *           "defaultVersion": "1.41.0",
-                     *           "latestVersion": "2.1.0"
+                     *           "defaultVersion": "2.2.0",
+                     *           "latestVersion": "2.8.0"
                      *         }
                      *       }
                      *     }
@@ -1397,9 +3088,7 @@ export interface operations {
     AllureController_downloadAllureReport: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path: {
                 /** @description The upload ID to generate Allure report for */
                 uploadId: string;
@@ -1432,9 +3121,7 @@ export interface operations {
                 /** @description Set to true to return full secret instead of masked version */
                 show_secret?: boolean;
             };
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1464,9 +3151,7 @@ export interface operations {
     WebhooksController_setWebhook: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1496,9 +3181,7 @@ export interface operations {
     WebhooksController_deleteWebhook: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1518,9 +3201,7 @@ export interface operations {
     WebhooksController_regenerateWebhookSecret: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1540,9 +3221,7 @@ export interface operations {
     WebhooksController_testWebhook: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -1566,130 +3245,240 @@ export interface operations {
             };
         };
     };
-    OrgController_handlePaddleWebhook: {
+    SlackController_oauthStart: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Slack authorize URL to redirect the user to */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackController_getConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current Slack connection for the org (or null) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackController_disconnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Slack disconnected and connection removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackController_getChannels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Channels the bot can see, for the picker */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackController_setConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Slack channel / preferences updated */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    SlackController_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Test message sent to the configured channel */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubController_oauthStart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GitHub App install URL to redirect the user to */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubController_getConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current GitHub App connection for the org (or null) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    GithubController_disconnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GitHub connection removed for the org */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    NoticesController_getNotices: {
+        parameters: {
+            query: {
+                surface: string;
+                platform: string;
+            };
             header: {
-                "paddle-signature": string;
+                "x-dcd-cli-version": string;
             };
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Paddle webhook handler. */
-            201: {
+            /** @description Active notices for the calling client. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": string;
+                    "application/json": {
+                        statusCode?: number;
+                        data?: {
+                            id?: string;
+                            slug?: string | null;
+                            /** @enum {string} */
+                            level?: "deprecation" | "warn" | "info" | "marketing";
+                            title?: string;
+                            body?: string;
+                            learnMoreUrl?: string | null;
+                            dismissible?: boolean;
+                            match?: Record<string, never> | null;
+                        }[];
+                    };
                 };
             };
         };
     };
-    OrgController_updateOrgName: {
+    ApiKeysController_list: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateOrgNameDto"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Organization name updated successfully. */
-            201: {
+            /** @description List the org API keys (no secrets) */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": boolean;
-                };
+                content?: never;
             };
         };
     };
-    OrgController_inviteTeamMember: {
+    ApiKeysController_create: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": {
-                    inviteEmail: string;
-                    requesterEmail: string;
-                    link: string;
-                    orgId: string;
-                    orgName: string;
-                };
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Team member invited successfully. */
-            201: {
+            /** @description Issue a new key; returns the raw key once */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": boolean;
-                };
+                content?: never;
             };
-        };
-    };
-    OrgController_acceptInvite: {
-        parameters: {
-            query?: never;
-            header: {
-                authorization: string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AcceptInviteDto"];
-            };
-        };
-        responses: {
-            /** @description Team invite accepted successfully. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": boolean;
-                };
-            };
-        };
-    };
-    OrgController_getAllSubscriptions: {
-        parameters: {
-            query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    orgId: string;
-                };
-            };
-        };
-        responses: {
-            /** @description All subscription data fetched successfully. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -1700,25 +3489,64 @@ export interface operations {
             };
         };
     };
-    OrgController_updateOverageLimit: {
+    ApiKeysController_revoke: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
+            header?: never;
+            path: {
+                id: number;
             };
-            path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": {
-                    orgId: string;
-                    overageLimit: number;
+        requestBody?: never;
+        responses: {
+            /** @description Revoke (soft-delete) a key */
+            200: {
+                headers: {
+                    [name: string]: unknown;
                 };
+                content?: never;
             };
         };
+    };
+    ApiKeysController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
-            /** @description Overage limit updated successfully. */
+            /** @description Update a key name/description/expiry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ApiKeysController_rotate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rotate a key; returns the new raw key once */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -1729,36 +3557,62 @@ export interface operations {
             };
         };
     };
-    OrgController_getUsageHistory: {
+    NetworkController_getIpAddresses: {
         parameters: {
             query?: never;
-            header: {
-                "x-app-api-key": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": {
-                    orgId: string;
-                    /** @enum {string} */
-                    format?: "json" | "csv";
-                    /** Format: date-time */
-                    startDate?: string;
-                    /** Format: date-time */
-                    endDate?: string;
-                };
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Usage history fetched successfully. */
-            201: {
+            /** @description Current DeviceCloud test-runner egress IP addresses. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown[];
+                    /**
+                     * @example {
+                     *       "updatedAt": "2026-07-06",
+                     *       "ipAddresses": [
+                     *         "46.17.215.144",
+                     *         "46.17.215.145",
+                     *         "83.217.174.249"
+                     *       ],
+                     *       "ranges": [
+                     *         {
+                     *           "cidr": "46.17.215.144/32",
+                     *           "platforms": [
+                     *             "android",
+                     *             "ios"
+                     *           ],
+                     *           "type": "egress",
+                     *           "description": "Test runner egress"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        /** @example 2026-07-06 */
+                        updatedAt?: string;
+                        /**
+                         * @example [
+                         *       "46.17.215.144",
+                         *       "46.17.215.145",
+                         *       "83.217.174.249"
+                         *     ]
+                         */
+                        ipAddresses?: string[];
+                        ranges?: {
+                            /** @example 46.17.215.144/32 */
+                            cidr?: string;
+                            platforms?: ("android" | "ios")[];
+                            /** @enum {string} */
+                            type?: "egress";
+                            description?: string;
+                        }[];
+                    };
                 };
             };
         };
@@ -1858,6 +3712,232 @@ export interface operations {
             };
         };
     };
+    FrontendController_getBinaryDownloadUrl: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Get a signed download URL for a binary */
+        requestBody: {
+            content: {
+                "application/json": {
+                    binaryId: string;
+                    orgId: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Signed download URL for the binary; `dek` (base64) is present when the binary is encrypted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        url?: string;
+                        encrypted?: boolean;
+                        dek?: string;
+                    };
+                };
+            };
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Binary not found or not accessible */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error?: string;
+                    };
+                };
+            };
+        };
+    };
+    FrontendController_downloadBinary: {
+        parameters: {
+            query: {
+                orgId: number;
+            };
+            header: {
+                authorization: string;
+            };
+            path: {
+                binaryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Binary bytes (decrypted if encrypted) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Binary not found or not accessible */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FrontendController_getArtifactDownloadUrl: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Get a signed download URL for a single result artifact */
+        requestBody: {
+            content: {
+                "application/json": {
+                    resultId: number;
+                    /** @description Supabase storage path; must be one of the result's recorded files */
+                    path: string;
+                    /** @description Optional filename override for the saved file */
+                    download?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Signed download URL for the artifact (CDN/B2 or Supabase) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        url?: string;
+                    };
+                };
+            };
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Artifact not found or not accessible */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error?: string;
+                    };
+                };
+            };
+        };
+    };
+    FrontendController_getResultDetail: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path: {
+                resultId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bundled result detail: row + result_files + binary + signed media URLs + parsed log in a single round-trip */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Result not found or caller not authorized */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FrontendController_ingestLogs: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+                "x-dcd-org": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Batch accepted for forwarding to Axiom */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted?: number;
+                    };
+                };
+            };
+            /** @description Malformed batch payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FrontendController_ingestLogsAnonymous: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Batch accepted for forwarding to Axiom */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted?: number;
+                    };
+                };
+            };
+            /** @description Malformed batch payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     HealthController_health: {
         parameters: {
             query?: never;
@@ -1902,7 +3982,6 @@ export interface operations {
                     }[];
                     customer_email?: string;
                     custom_data?: {
-                        orgId?: string;
                         userId?: string;
                     };
                     billing_details?: {
@@ -1913,6 +3992,32 @@ export interface operations {
         };
         responses: {
             /** @description Subscription created successfully. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    BillingController_updateSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    price_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Subscription updated successfully. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -1941,6 +4046,559 @@ export interface operations {
                     "application/json": {
                         /** @example 150000 */
                         total_count?: number;
+                    };
+                };
+            };
+        };
+    };
+    FlowsController_getFlows: {
+        parameters: {
+            query?: {
+                platform?: "android" | "ios";
+                appId?: string;
+                days?: number;
+                /** @description ISO 8601 date string (e.g. 2026-01-01). Overrides days when provided. */
+                startDate?: string;
+                /** @description ISO 8601 date string (e.g. 2026-01-31). Defaults to now when startDate is set. */
+                endDate?: string;
+                /** @description Comma-separated tag filter. Returns flows that have any of the given tags (e.g. smoke,critical). */
+                tags?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregated flow statistics for the last N days. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        statusCode?: number;
+                        flows?: components["schemas"]["TFlowSummaryResponse"][];
+                    };
+                };
+            };
+        };
+    };
+    FlowsController_getFlowRuns: {
+        parameters: {
+            query: {
+                fileName: string;
+                platform?: "android" | "ios";
+                appId?: string;
+                limit?: number;
+                /** @description ISO 8601 date string (e.g. 2026-01-01). */
+                startDate?: string;
+                /** @description ISO 8601 date string (e.g. 2026-01-31). */
+                endDate?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Individual run history for a specific flow file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        statusCode?: number;
+                        runs?: components["schemas"]["TFlowRunItem"][];
+                    };
+                };
+            };
+        };
+    };
+    LiveController_createSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    LiveController_getSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    LiveController_stopSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LiveController_execTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    LiveController_getCommandStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+                commandId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    LiveController_keepalive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    LiveController_installBinary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MeController_listOrgs: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MeController_listSessions: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MeController_revokeSession: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MeController_createPersonalTeam: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MeController_createTeam: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    MeController_deleteAccount: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CliLoginController_handoff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HandoffDto"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CliLoginController_claim: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaimDto"];
+            };
+        };
+        responses: {
+            /** @description Returns the Supabase session on successful claim. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    CliLogsController_ingestLogs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Batch accepted for forwarding to Axiom */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted?: number;
+                    };
+                };
+            };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed batch payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    EmailChangeController_start: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description New email address to change to */
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example user@example.com */
+                    newEmail: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Verification code sent to the current address */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok?: boolean;
+                    };
+                };
+            };
+            /** @description Invalid or missing newEmail */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message?: string;
+                    };
+                };
+            };
+        };
+    };
+    EmailChangeController_verifyCurrent: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Code emailed to the current address */
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example 123456 */
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Current address verified; code sent to the new address */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok?: boolean;
+                    };
+                };
+            };
+            /** @description Invalid or expired code */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message?: string;
+                    };
+                };
+            };
+        };
+    };
+    EmailChangeController_verifyNew: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Code emailed to the new address */
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example 123456 */
+                    code: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Email change applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok?: boolean;
+                        email?: string;
+                    };
+                };
+            };
+            /** @description Invalid or expired code, or current email not verified */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        message?: string;
+                    };
+                };
+            };
+        };
+    };
+    EmailChangeController_cancel: {
+        parameters: {
+            query?: never;
+            header: {
+                authorization: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description In-progress email change cancelled (idempotent) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok?: boolean;
                     };
                 };
             };
