@@ -1617,7 +1617,7 @@ export interface components {
             testFileNames?: string;
             sequentialFlows?: string;
             /** @enum {string} */
-            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36";
+            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
             /** @enum {string} */
             androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
             apiKey?: string;
@@ -1657,7 +1657,7 @@ export interface components {
             testFileNames?: string;
             sequentialFlows?: string;
             /** @enum {string} */
-            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36";
+            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
             /** @enum {string} */
             androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
             apiKey?: string;
@@ -1708,7 +1708,7 @@ export interface components {
             testFileNames?: string;
             sequentialFlows?: string;
             /** @enum {string} */
-            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36";
+            androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
             /** @enum {string} */
             androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
             apiKey?: string;
@@ -2997,7 +2997,8 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -3005,9 +3006,7 @@ export interface operations {
                      *             "name": "Pixel 6 Pro",
                      *             "apiLevels": [
                      *               "33",
-                     *               "34",
-                     *               "35",
-                     *               "36"
+                     *               "35"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -3017,7 +3016,8 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -3027,37 +3027,24 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
                      *           "generic-tablet": {
                      *             "name": "Generic Tablet",
                      *             "apiLevels": [
-                     *               "33",
-                     *               "34",
-                     *               "35",
-                     *               "36"
+                     *               "33"
                      *             ],
                      *             "deprecated": false
                      *           }
                      *         },
                      *         "androidPlay": {
-                     *           "pixel-6": {
-                     *             "name": "Pixel 6 (Google Play)",
-                     *             "apiLevels": [
-                     *               "34",
-                     *               "35",
-                     *               "36"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
                      *           "pixel-7": {
                      *             "name": "Pixel 7 (Google Play)",
                      *             "apiLevels": [
-                     *               "34",
-                     *               "35",
-                     *               "36"
+                     *               "34"
                      *             ],
                      *             "deprecated": false
                      *           }

@@ -416,7 +416,7 @@ export const cloudCommand = defineCommand({
       if (runnerType === 'm1') {
         out(
           ui.info(
-            'runnerType m1 is experimental and currently supports Android (Pixel 7, API Level 34) only.',
+            'runnerType m1 is experimental and currently supports Android only (all devices, API level 34-36).',
           ),
         );
       }
@@ -424,7 +424,7 @@ export const cloudCommand = defineCommand({
       if (runnerType === 'gpu1') {
         out(
           ui.info(
-            'runnerType gpu1 is Android-only (all devices, API Level 34 or 35), available to all users.',
+            'runnerType gpu1 is Android-only (all devices, API level 34+), available to all users.',
           ),
         );
       }
