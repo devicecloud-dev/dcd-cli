@@ -12,6 +12,7 @@ import { VersionService } from '../../services/version.service.js';
 import { uploadBinary, uploadFlowZip, verifyAppZip } from '../../methods.js';
 import { getCliVersion } from '../../utils/cli.js';
 import { fetchCompatibilityData } from '../../utils/compatibility.js';
+import { isEncryptionEnabled } from '../../utils/envelope.js';
 import { getConsoleUrl } from '../../utils/styling.js';
 import { getContext, logStderr } from '../context.js';
 import { jsonResult, runTool } from '../helpers.js';
@@ -33,7 +34,7 @@ const sleep = (ms: number) =>
  * `waitTimeoutSeconds`.
  *
  * Mirrors the `dcd cloud` command's submission path but headless: no Expo URL
- * download, mitm, GitHub metadata, or JSON-file output. Use the CLI for those.
+ * download, GitHub metadata, or JSON-file output. Use the CLI for those.
  */
 export function registerRunCloudTest(server: McpServer): void {
   server.registerTool(
@@ -173,6 +174,10 @@ export function registerRunCloudTest(server: McpServer): void {
           });
         }
 
+        // Client-side envelope encryption (binary/flow/env). No MCP flag, so
+        // it's env-driven: DCD_ENCRYPT / DCD_ENCRYPT_BINARIES.
+        const encrypt = isEncryptionEnabled();
+
         // Resolve the binary: existing id, or upload the local file.
         let appBinaryId = args.appBinaryId;
         if (!appBinaryId) {
@@ -190,6 +195,7 @@ export function registerRunCloudTest(server: McpServer): void {
           appBinaryId = await uploadBinary({
             auth,
             apiUrl,
+            encrypt,
             filePath: args.appFile,
             ignoreShaCheck: Boolean(args.ignoreShaCheck),
             log: false,
@@ -199,10 +205,12 @@ export function registerRunCloudTest(server: McpServer): void {
         const { continueOnFailure = true } = executionPlan.sequence ?? {};
         const testSubmissionService = new TestSubmissionService();
         const { buffer, fields } = await testSubmissionService.buildTestPayload({
+          apiUrl,
           appBinaryId,
           cliVersion,
           commonRoot,
           continueOnFailure,
+          encrypt,
           executionPlan,
           flowFile,
           env: args.env ?? [],

@@ -35,6 +35,7 @@ export enum EAndroidApiLevels {
   'thirtyFive' = '35',
   'thirtyFour' = '34',
   'thirtyOne' = '31',
+  'thirtySeven' = '37',
   'thirtySix' = '36',
   'thirtyThree' = '33',
   'thirtyTwo' = '32',

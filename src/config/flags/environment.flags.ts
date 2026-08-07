@@ -17,16 +17,6 @@ export const environmentFlags = {
     description:
       'Arbitrary key-value metadata to include with your test run (format: key=value, may be repeated)',
   },
-  mitmHost: {
-    type: 'string',
-    description:
-      'used for mitmproxy support, enterprise only, contact support if interested',
-  },
-  mitmPath: {
-    type: 'string',
-    description:
-      'used for mitmproxy support, enterprise only, contact support if interested',
-  },
   'moropo-v1-api-key': {
     type: 'string',
     description: 'API key for Moropo v1 integration',
