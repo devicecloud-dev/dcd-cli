@@ -1,5 +1,34 @@
 # Changelog
 
+## [5.2.0-beta.4](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0-beta.3...v5.2.0-beta.4) (2026-08-06)
+
+
+### Features
+
+* **artifacts:** prefer server-assembled bundle delivery for downloads ([#93](https://github.com/devicecloud-dev/dcd-cli/issues/93)) ([f6fcfaf](https://github.com/devicecloud-dev/dcd-cli/commit/f6fcfafa4ce5935decd15952107cd3ac1ebaad7b))
+* client-side envelope encryption of binaries, flow zips & env vars ([#94](https://github.com/devicecloud-dev/dcd-cli/issues/94)) ([a34d9d4](https://github.com/devicecloud-dev/dcd-cli/commit/a34d9d4516a985e92e4e07ec54f703358af45f6e))
+* **device:** add Android API level 37 (Android 17) ([#107](https://github.com/devicecloud-dev/dcd-cli/issues/107)) ([3d24435](https://github.com/devicecloud-dev/dcd-cli/commit/3d2443533119f9a41fe1aa46967c941818584c73))
+* **upload:** dedup encrypted binaries on the plaintext hash ([#101](https://github.com/devicecloud-dev/dcd-cli/issues/101)) ([6e244a9](https://github.com/devicecloud-dev/dcd-cli/commit/6e244a90dedff47c0bba5b1041fa6da4fe2e9d77))
+
+
+### Bug Fixes
+
+* **deps:** resolve pnpm audit failures in transitive dependencies ([#89](https://github.com/devicecloud-dev/dcd-cli/issues/89)) ([cc5ee4d](https://github.com/devicecloud-dev/dcd-cli/commit/cc5ee4d4595fd4b3e6abd9e3ad0d50b2a7db84ca))
+* **deps:** resolve three new transitive security advisories ([#106](https://github.com/devicecloud-dev/dcd-cli/issues/106)) ([f7934b0](https://github.com/devicecloud-dev/dcd-cli/commit/f7934b0743a4bf561f876082f124a87acc41041a))
+
+
+### Dependencies
+
+* bump chalk from 5.6.2 to 6.0.0 ([#98](https://github.com/devicecloud-dev/dcd-cli/issues/98)) ([1b29d2d](https://github.com/devicecloud-dev/dcd-cli/commit/1b29d2d5ec58d391c04dc29ea2e4c989a0a66e0c))
+* bump the minor-and-patch group across 1 directory with 5 updates ([#100](https://github.com/devicecloud-dev/dcd-cli/issues/100)) ([47b9d90](https://github.com/devicecloud-dev/dcd-cli/commit/47b9d905daa49d4d8491b1a8d710545e05822bb0))
+* bump the minor-and-patch group across 1 directory with 7 updates ([#92](https://github.com/devicecloud-dev/dcd-cli/issues/92)) ([f333be9](https://github.com/devicecloud-dev/dcd-cli/commit/f333be97d848e2cd40cbff124584de5af4f89a88))
+* patch js-yaml and brace-expansion DoS advisories ([#95](https://github.com/devicecloud-dev/dcd-cli/issues/95)) ([a4f11ff](https://github.com/devicecloud-dev/dcd-cli/commit/a4f11ff8d771de213b5acdb4f6fcf40f665e5d7b))
+
+
+### Code Refactoring
+
+* **cloud:** remove mitmproxy flags ([#102](https://github.com/devicecloud-dev/dcd-cli/issues/102)) ([3888fc5](https://github.com/devicecloud-dev/dcd-cli/commit/3888fc5cb0ea06828ed94c2d672e0215492f5147))
+
 ## [5.2.0-beta.3](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0-beta.2...v5.2.0-beta.3) (2026-07-13)
 
 
