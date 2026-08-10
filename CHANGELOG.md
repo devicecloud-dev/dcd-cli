@@ -1,5 +1,22 @@
 # Changelog
 
+## [5.3.1-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0-beta.4...v5.3.1-beta.1) (2026-08-10)
+
+
+### Bug Fixes
+
+* **cloud:** exclude config-shaped files from flow discovery ([#114](https://github.com/devicecloud-dev/dcd-cli/issues/114)) ([13d01ee](https://github.com/devicecloud-dev/dcd-cli/commit/13d01eee5d0146049373011f304be2647e7f510b)), closes [#99](https://github.com/devicecloud-dev/dcd-cli/issues/99)
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 5 updates ([#112](https://github.com/devicecloud-dev/dcd-cli/issues/112)) ([2223dd4](https://github.com/devicecloud-dev/dcd-cli/commit/2223dd48bcb8e19d28a842df807939f5bc9879c5))
+
+
+### Miscellaneous
+
+* pin the next dev beta to 5.3.1-beta.1 ([#116](https://github.com/devicecloud-dev/dcd-cli/issues/116)) ([6858220](https://github.com/devicecloud-dev/dcd-cli/commit/6858220e3dc54ae5e505e4dd84aa3fedf3ca2e6e))
+
 ## [5.2.0-beta.4](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0-beta.3...v5.2.0-beta.4) (2026-08-06)
 
 
