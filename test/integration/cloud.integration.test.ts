@@ -287,6 +287,127 @@ appId: com.example.app
     });
   });
 
+  // Regression cover for dcd-cli#99: config files were excluded from flow
+  // discovery by *filename* (literal config.yaml/config.yml plus the exact
+  // --config target), so a second workspace config sharing the folder was
+  // parsed as a flow and blew up with "Expected an array of steps".
+  // These must pass the flow *directory* — the --config tests below pass a
+  // single file, which short-circuits into planSingleFile and never reaches
+  // flow discovery.
+  describe('workspace config discovery', () => {
+    let workspaceDir: string;
+    let buildConfig: string;
+    let updateConfig: string;
+    let globConfig: string;
+
+    before(() => {
+      workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-test-ws-'));
+
+      fs.writeFileSync(
+        path.join(workspaceDir, 'flow.yaml'),
+        `appId: com.example.app
+---
+- launchApp
+- tapOn: "Login"
+`,
+      );
+
+      // A genuine flow whose name merely ends in "config.yaml". The old
+      // unanchored endsWith() dropped it; it must run.
+      fs.writeFileSync(
+        path.join(workspaceDir, 'smoke-config.yaml'),
+        `appId: com.example.app
+name: smoke-config
+---
+- launchApp
+`,
+      );
+
+      // Two sibling workspace configs with custom names, as a folder serving
+      // several CI workflows would have. Neither is a flow.
+      buildConfig = path.join(workspaceDir, 'config_build.yml');
+      fs.writeFileSync(
+        buildConfig,
+        `flows:
+  - ./**/*.yaml
+includeTags:
+  - build
+`,
+      );
+
+      // Deliberately carries no tag or flow filtering, so when it is the active
+      // --config it can't mask the bug by filtering its sibling away first.
+      updateConfig = path.join(workspaceDir, 'config_update.yml');
+      fs.writeFileSync(
+        updateConfig,
+        `platform:
+  android:
+    disableAnimations: true
+`,
+      );
+
+      globConfig = path.join(workspaceDir, 'config_glob.yml');
+      fs.writeFileSync(
+        globConfig,
+        `flows:
+  - ./**/*.yaml
+  - ./**/*.yml
+`,
+      );
+    });
+
+    after(() => {
+      if (fs.existsSync(workspaceDir)) {
+        fs.rmSync(workspaceDir, { force: true, recursive: true });
+      }
+    });
+
+    it('should ignore sibling config files not named in --config', async () => {
+      const command = `${CLI} cloud ${androidAppFile} "${workspaceDir}" --api-key ${mockApiKey} --api-url ${mockApiUrl} --config "${updateConfig}" --dry-run`;
+
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('The following tests would have been run');
+      expect(stdout).to.include('flow.yaml');
+      expect(stdout).to.not.include('config_build.yml');
+      expect(stdout).to.not.include('config_glob.yml');
+      expect(stdout).to.not.include('Expected an array of steps');
+    });
+
+    it('should ignore config-shaped files when no --config is passed', async () => {
+      const command = `${CLI} cloud ${androidAppFile} "${workspaceDir}" --api-key ${mockApiKey} --api-url ${mockApiUrl} --debug --dry-run`;
+
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('flow.yaml');
+      expect(stdout).to.include('[DEBUG] Skipping 3 workspace config file(s)');
+      expect(stdout).to.not.include('Expected an array of steps');
+    });
+
+    it('should ignore config-shaped files matched by a flows glob', async () => {
+      const command = `${CLI} cloud ${androidAppFile} "${workspaceDir}" --api-key ${mockApiKey} --api-url ${mockApiUrl} --config "${globConfig}" --dry-run`;
+
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('flow.yaml');
+      expect(stdout).to.not.include('config_build.yml');
+      expect(stdout).to.not.include('config_update.yml');
+      expect(stdout).to.not.include('Expected an array of steps');
+    });
+
+    it('should run a flow whose filename merely ends in config.yaml', async () => {
+      const command = `${CLI} cloud ${androidAppFile} "${workspaceDir}" --api-key ${mockApiKey} --api-url ${mockApiUrl} --config "${updateConfig}" --dry-run`;
+
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('smoke-config.yaml');
+    });
+
+    it('should reject a custom-named config passed as the flow input', async () => {
+      const command = `${CLI} cloud ${androidAppFile} "${buildConfig}" --api-key ${mockApiKey} --api-url ${mockApiUrl} --dry-run`;
+
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('pass the workspace folder path');
+      expect(output).to.not.include('Expected an array of steps');
+    });
+  });
+
   describe('file and binary management', () => {
     it('should support app binary ID instead of file', async () => {
       const command = `${CLI} cloud --app-binary-id test-binary-123 ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --dry-run`;

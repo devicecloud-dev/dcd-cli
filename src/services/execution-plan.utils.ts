@@ -60,6 +60,53 @@ export function isFlowFile(filePath: string): boolean {
   return filePath.endsWith('.yaml') || filePath.endsWith('.yml');
 }
 
+/**
+ * Top-level keys that only ever appear in a workspace config (see
+ * IWorkspaceConfig in execution-plan.service.ts). Deliberately excludes keys
+ * Maestro also allows in flow front matter — appId, name, tags, env,
+ * onFlowStart, onFlowComplete, jsEngine.
+ */
+const WORKSPACE_CONFIG_KEYS = new Set([
+  'excludeTags',
+  'executionOrder',
+  'flows',
+  'includeTags',
+  'local',
+  'notifications',
+  'platform',
+]);
+
+/**
+ * True when a YAML file is a workspace config rather than a runnable flow.
+ *
+ * A flow is either `front matter --- steps` or a bare steps array; a
+ * single-document top-level map carrying workspace-config keys is neither, and
+ * left in the flow list it blows up processDependencies with "Expected an array
+ * of steps". Detection is by shape, not filename, so several named configs can
+ * coexist in one folder (dcd-cli#99). Requiring a recognised config key — not
+ * just "single document, top-level map" — keeps a flow that is merely *missing*
+ * its `---` separator loud rather than silently dropped.
+ *
+ * @param filePath - Path to the YAML file to classify
+ * @returns Whether the file is a workspace config rather than a flow
+ */
+export function isWorkspaceConfigFile(filePath: string): boolean {
+  let parsed;
+  try {
+    parsed = readTestYamlFileAsJson(filePath);
+  } catch {
+    // Unparseable — leave it in the flow list so the existing error path reports it.
+    return false;
+  }
+
+  const { config, testSteps } = parsed;
+  if (config !== null) return false; // has `---` front matter → flow
+  if (Array.isArray(testSteps)) return false; // bare steps array → flow
+  if (!testSteps || typeof testSteps !== 'object') return false;
+
+  return Object.keys(testSteps).some((key) => WORKSPACE_CONFIG_KEYS.has(key));
+}
+
 export const readYamlFileAsJson = (filePath: string) => {
   try {
     const normalizedPath = path.normalize(filePath);
