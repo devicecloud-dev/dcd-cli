@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.3.1-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.3.1-beta.1...v5.3.1-beta.2) (2026-08-13)
+
+
+### Bug Fixes
+
+* **cloud:** reject malformed executionOrder instead of silently runni… ([#117](https://github.com/devicecloud-dev/dcd-cli/issues/117)) ([1973a42](https://github.com/devicecloud-dev/dcd-cli/commit/1973a42a1c4c01d0db29a106aa9c6a8f82da6853))
+* **cloud:** reject malformed executionOrder instead of silently running in parallel ([1973a42](https://github.com/devicecloud-dev/dcd-cli/commit/1973a42a1c4c01d0db29a106aa9c6a8f82da6853)), closes [#110](https://github.com/devicecloud-dev/dcd-cli/issues/110)
+
 ## [5.3.1-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0-beta.4...v5.3.1-beta.1) (2026-08-10)
 
 
