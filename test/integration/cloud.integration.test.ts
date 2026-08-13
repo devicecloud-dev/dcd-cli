@@ -408,6 +408,90 @@ includeTags:
     });
   });
 
+  // dcd-cli#110: a `config.yaml` whose executionOrder was the wrong *shape* was
+  // silently ignored and every flow ran in parallel — same cost, wrong
+  // semantics, green run. These assert the shape is now validated.
+  describe('executionOrder validation', () => {
+    let workspaceDir: string;
+
+    /** Point the run at a workspace whose config.yaml holds `configBody`. */
+    const commandWithConfig = (configBody: string): string => {
+      fs.writeFileSync(path.join(workspaceDir, 'config.yaml'), configBody);
+      return `${CLI} cloud ${androidAppFile} "${workspaceDir}" --api-key ${mockApiKey} --api-url ${mockApiUrl} --dry-run`;
+    };
+
+    before(() => {
+      workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-test-order-'));
+
+      for (const name of ['a', 'b', 'c']) {
+        fs.writeFileSync(
+          path.join(workspaceDir, `${name}.yaml`),
+          `appId: com.example.app
+---
+- launchApp
+`,
+        );
+      }
+    });
+
+    after(() => {
+      if (fs.existsSync(workspaceDir)) {
+        fs.rmSync(workspaceDir, { force: true, recursive: true });
+      }
+    });
+
+    it('should reject a bare-list executionOrder instead of running in parallel', async () => {
+      const command = commandWithConfig(`executionOrder:
+  - a.yaml
+  - b.yaml
+  - c.yaml
+`);
+
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('Invalid `executionOrder`');
+      expect(output).to.include('flowsOrder');
+      // The whole point: it must not quietly proceed to a parallel run.
+      expect(output).to.not.include('The following tests would have been run');
+    });
+
+    it('should reject an executionOrder map with no flowsOrder', async () => {
+      const command = commandWithConfig(`executionOrder:
+  continueOnFailure: true
+`);
+
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('Invalid `executionOrder`');
+      expect(output).to.include('no `flowsOrder` key');
+    });
+
+    it('should sequence flows for a well-formed executionOrder', async () => {
+      const command = commandWithConfig(`executionOrder:
+  continueOnFailure: true
+  flowsOrder:
+    - a.yaml
+    - b.yaml
+`);
+
+      const { stdout } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('Sequential flows');
+      expect(stdout).to.include('a.yaml');
+      expect(stdout).to.include('b.yaml');
+    });
+
+    it('should warn about unrecognised config keys without failing the run', async () => {
+      const command = commandWithConfig(`flowOrder:
+  - a.yaml
+flowTimeout: 120000
+`);
+
+      const { stdout, stderr } = await exec(command, { timeout: 15_000 });
+      expect(stdout).to.include('The following tests would have been run');
+      expect(stderr).to.include('flowOrder');
+      expect(stderr).to.include('executionOrder.flowsOrder');
+      expect(stderr).to.include('flowTimeout');
+    });
+  });
+
   describe('file and binary management', () => {
     it('should support app binary ID instead of file', async () => {
       const command = `${CLI} cloud --app-binary-id test-binary-123 ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --dry-run`;

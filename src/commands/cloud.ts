@@ -569,6 +569,9 @@ export const cloudCommand = defineCommand({
           excludeFlows,
           configFile,
           debug,
+          // Not warnOut: config problems are worth surfacing even under --json,
+          // and logger.warn writes to stderr so stdout stays parseable.
+          warn: (m: string) => logger.warn(m),
         });
 
         if (debug) {
