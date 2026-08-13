@@ -3,6 +3,12 @@ import * as yaml from 'js-yaml';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import {
+  IWorkspaceConfig,
+  parseWorkspaceConfig,
+  WORKSPACE_CONFIG_KEYS,
+} from './workspace-config.schema.js';
+
 const commandsThatRequireFiles = new Set(['addMedia', 'runFlow', 'runScript']);
 
 export function getFlowsToRunInSequence(
@@ -61,22 +67,6 @@ export function isFlowFile(filePath: string): boolean {
 }
 
 /**
- * Top-level keys that only ever appear in a workspace config (see
- * IWorkspaceConfig in execution-plan.service.ts). Deliberately excludes keys
- * Maestro also allows in flow front matter — appId, name, tags, env,
- * onFlowStart, onFlowComplete, jsEngine.
- */
-const WORKSPACE_CONFIG_KEYS = new Set([
-  'excludeTags',
-  'executionOrder',
-  'flows',
-  'includeTags',
-  'local',
-  'notifications',
-  'platform',
-]);
-
-/**
  * True when a YAML file is a workspace config rather than a runnable flow.
  *
  * A flow is either `front matter --- steps` or a bare steps array; a
@@ -112,26 +102,33 @@ export const readYamlFileAsJson = (filePath: string) => {
     const normalizedPath = path.normalize(filePath);
     const yamlText = fs.readFileSync(normalizedPath, 'utf8');
 
-    const result = yaml.load(yamlText);
-
-    // Ensure includeTags and excludeTags are always arrays if present
-    if (result && typeof result === 'object') {
-      if ('includeTags' in result && !Array.isArray(result.includeTags)) {
-        result.includeTags = result.includeTags ? [result.includeTags] : [];
-      }
-
-      if ('excludeTags' in result && !Array.isArray(result.excludeTags)) {
-        result.excludeTags = result.excludeTags ? [result.excludeTags] : [];
-      }
-    }
-
-    return result;
+    return yaml.load(yamlText);
   } catch (error) {
     throw new Error(`Error parsing YAML file ${filePath}: ${error}`, {
       cause: error,
     });
   }
 };
+
+/**
+ * Load and validate a workspace config file.
+ *
+ * The single chokepoint for reading a config: every caller gets a
+ * runtime-validated object instead of an unchecked `as IWorkspaceConfig` cast.
+ * Scalar-to-array coercion for `includeTags`/`excludeTags` lives in the schema,
+ * so `readYamlFileAsJson` stays a plain YAML read.
+ *
+ * @param filePath - Path to the config file
+ * @param warn - Sink for non-fatal problems (unrecognised keys)
+ * @returns The validated workspace config
+ * @throws Error if the file is unparseable or the config is invalid
+ */
+export function loadWorkspaceConfig(
+  filePath: string,
+  warn: (message: string) => void,
+): IWorkspaceConfig {
+  return parseWorkspaceConfig(readYamlFileAsJson(filePath), { filePath, warn });
+}
 
 export const readTestYamlFileAsJson = (filePath: string) => {
   try {

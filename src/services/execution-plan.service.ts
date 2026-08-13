@@ -5,45 +5,12 @@ import {
   getFlowsToRunInSequence,
   isFlowFile,
   isWorkspaceConfigFile,
+  loadWorkspaceConfig,
   processDependencies,
   readDirectory,
   readTestYamlFileAsJson,
-  readYamlFileAsJson,
 } from './execution-plan.utils.js';
-
-/** Email notification configuration */
-interface INotificationsConfig {
-  email?: {
-    enabled?: boolean;
-    onSuccess?: boolean;
-    recipients?: string[];
-  };
-}
-
-/** Workspace configuration from config.yaml */
-interface IWorkspaceConfig {
-  excludeTags?: null | string[];
-  executionOrder?: IExecutionOrder | null;
-  flows?: null | string[];
-  includeTags?: null | string[];
-  local?: ILocal | null;
-  notifications?: INotificationsConfig;
-  platform?: {
-    android?: { disableAnimations?: boolean };
-    ios?: { disableAnimations?: boolean };
-  };
-}
-
-/** Local execution configuration */
-interface ILocal {
-  deterministicOrder: boolean | null;
-}
-
-/** Sequential execution configuration */
-interface IExecutionOrder {
-  continueOnFailure: boolean;
-  flowsOrder: string[];
-}
+import { IWorkspaceConfig } from './workspace-config.schema.js';
 
 /** Options for execution plan generation */
 export interface PlanOptions {
@@ -53,6 +20,12 @@ export interface PlanOptions {
   excludeTags?: string[];
   includeTags?: string[];
   input: string;
+  /**
+   * Sink for non-fatal config problems. Injected rather than imported so the
+   * MCP server can route warnings to stderr — its stdout is the JSON-RPC
+   * channel.
+   */
+  warn?: (message: string) => void;
 }
 
 /** Execution plan containing all flows to run with metadata and dependencies */
@@ -146,11 +119,13 @@ function filterFlowFiles(
  * Load workspace configuration from config.yaml/yml if present
  * @param input - Input directory path
  * @param unfilteredFlowFiles - List of discovered flow files
+ * @param warn - Sink for non-fatal config problems
  * @returns Workspace configuration object (empty if no config file found)
  */
 function getWorkspaceConfig(
   input: string,
   unfilteredFlowFiles: string[],
+  warn: (message: string) => void,
 ): IWorkspaceConfig {
   const possibleConfigPaths = new Set(
     [path.join(input, 'config.yaml'), path.join(input, 'config.yml')].map((p) =>
@@ -162,11 +137,7 @@ function getWorkspaceConfig(
     possibleConfigPaths.has(path.normalize(file)),
   );
 
-  const config = configFilePath
-    ? (readYamlFileAsJson(configFilePath) as IWorkspaceConfig)
-    : {};
-
-  return config;
+  return configFilePath ? loadWorkspaceConfig(configFilePath, warn) : {};
 }
 
 /**
@@ -199,11 +170,13 @@ function extractDeviceCloudOverrides(
 /**
  * Generate execution plan for a single flow file
  * @param normalizedInput - Normalized path to the flow file
+ * @param warn - Sink for non-fatal config problems
  * @param resolvedConfigFile - Optional absolute path to a custom config file
  * @returns Execution plan for the single file with dependencies
  */
 async function planSingleFile(
   normalizedInput: string,
+  warn: (message: string) => void,
   resolvedConfigFile?: string,
 ): Promise<IExecutionPlan> {
   const inputBasename = path.basename(normalizedInput);
@@ -232,9 +205,17 @@ async function planSingleFile(
       throw new Error(`Config file does not exist: ${resolvedConfigFile}`);
     }
 
-    workspaceConfig = readYamlFileAsJson(
-      resolvedConfigFile,
-    ) as IWorkspaceConfig;
+    workspaceConfig = loadWorkspaceConfig(resolvedConfigFile, warn);
+
+    // Sequencing is resolved against a workspace's discovered flows, which a
+    // single-file input doesn't have — so executionOrder is ignored here. Say so
+    // rather than accepting a config that reads as if it applied (dcd-cli#110).
+    if (workspaceConfig.executionOrder?.flowsOrder.length) {
+      warn(
+        `Warning: \`executionOrder\` in ${resolvedConfigFile} is ignored when a single flow file is passed.\n` +
+          `Pass the workspace folder instead so the named flows can be discovered and sequenced.`,
+      );
+    }
   }
 
   const checkedDependancies = await checkDependencies(normalizedInput);
@@ -386,6 +367,7 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
     excludeFlows,
     configFile,
     debug = false,
+    warn = (message: string) => console.warn(message),
   } = options;
   const normalizedInput = path.normalize(input);
   const flowMetadata: Record<string, Record<string, unknown>> = {};
@@ -400,7 +382,7 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
   }
 
   if (fs.lstatSync(normalizedInput).isFile()) {
-    return planSingleFile(normalizedInput, resolvedConfigFile);
+    return planSingleFile(normalizedInput, warn, resolvedConfigFile);
   }
 
   let unfilteredFlowFiles = await readDirectory(normalizedInput, isFlowFile);
@@ -420,11 +402,13 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
       throw new Error(`Config file does not exist: ${resolvedConfigFile}`);
     }
 
-    workspaceConfig = readYamlFileAsJson(
-      resolvedConfigFile,
-    ) as IWorkspaceConfig;
+    workspaceConfig = loadWorkspaceConfig(resolvedConfigFile, warn);
   } else {
-    workspaceConfig = getWorkspaceConfig(normalizedInput, unfilteredFlowFiles);
+    workspaceConfig = getWorkspaceConfig(
+      normalizedInput,
+      unfilteredFlowFiles,
+      warn,
+    );
   }
 
   unfilteredFlowFiles = await applyFlowGlobs(
