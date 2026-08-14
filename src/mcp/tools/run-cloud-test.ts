@@ -151,6 +151,8 @@ export function registerRunCloudTest(server: McpServer): void {
           excludeTags: args.excludeTags ?? [],
           excludeFlows: args.excludeFlows,
           configFile: args.configFile,
+          // stdout is the JSON-RPC channel — config warnings must go to stderr.
+          warn: logStderr,
         });
 
         const commonRoot = computeCommonRoot(
