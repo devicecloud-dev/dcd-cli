@@ -3,6 +3,12 @@ import * as yaml from 'js-yaml';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import {
+  IWorkspaceConfig,
+  parseWorkspaceConfig,
+  WORKSPACE_CONFIG_KEYS,
+} from './workspace-config.schema.js';
+
 const commandsThatRequireFiles = new Set(['addMedia', 'runFlow', 'runScript']);
 
 export function getFlowsToRunInSequence(
@@ -60,31 +66,69 @@ export function isFlowFile(filePath: string): boolean {
   return filePath.endsWith('.yaml') || filePath.endsWith('.yml');
 }
 
+/**
+ * True when a YAML file is a workspace config rather than a runnable flow.
+ *
+ * A flow is either `front matter --- steps` or a bare steps array; a
+ * single-document top-level map carrying workspace-config keys is neither, and
+ * left in the flow list it blows up processDependencies with "Expected an array
+ * of steps". Detection is by shape, not filename, so several named configs can
+ * coexist in one folder (dcd-cli#99). Requiring a recognised config key — not
+ * just "single document, top-level map" — keeps a flow that is merely *missing*
+ * its `---` separator loud rather than silently dropped.
+ *
+ * @param filePath - Path to the YAML file to classify
+ * @returns Whether the file is a workspace config rather than a flow
+ */
+export function isWorkspaceConfigFile(filePath: string): boolean {
+  let parsed;
+  try {
+    parsed = readTestYamlFileAsJson(filePath);
+  } catch {
+    // Unparseable — leave it in the flow list so the existing error path reports it.
+    return false;
+  }
+
+  const { config, testSteps } = parsed;
+  if (config !== null) return false; // has `---` front matter → flow
+  if (Array.isArray(testSteps)) return false; // bare steps array → flow
+  if (!testSteps || typeof testSteps !== 'object') return false;
+
+  return Object.keys(testSteps).some((key) => WORKSPACE_CONFIG_KEYS.has(key));
+}
+
 export const readYamlFileAsJson = (filePath: string) => {
   try {
     const normalizedPath = path.normalize(filePath);
     const yamlText = fs.readFileSync(normalizedPath, 'utf8');
 
-    const result = yaml.load(yamlText);
-
-    // Ensure includeTags and excludeTags are always arrays if present
-    if (result && typeof result === 'object') {
-      if ('includeTags' in result && !Array.isArray(result.includeTags)) {
-        result.includeTags = result.includeTags ? [result.includeTags] : [];
-      }
-
-      if ('excludeTags' in result && !Array.isArray(result.excludeTags)) {
-        result.excludeTags = result.excludeTags ? [result.excludeTags] : [];
-      }
-    }
-
-    return result;
+    return yaml.load(yamlText);
   } catch (error) {
     throw new Error(`Error parsing YAML file ${filePath}: ${error}`, {
       cause: error,
     });
   }
 };
+
+/**
+ * Load and validate a workspace config file.
+ *
+ * The single chokepoint for reading a config: every caller gets a
+ * runtime-validated object instead of an unchecked `as IWorkspaceConfig` cast.
+ * Scalar-to-array coercion for `includeTags`/`excludeTags` lives in the schema,
+ * so `readYamlFileAsJson` stays a plain YAML read.
+ *
+ * @param filePath - Path to the config file
+ * @param warn - Sink for non-fatal problems (unrecognised keys)
+ * @returns The validated workspace config
+ * @throws Error if the file is unparseable or the config is invalid
+ */
+export function loadWorkspaceConfig(
+  filePath: string,
+  warn: (message: string) => void,
+): IWorkspaceConfig {
+  return parseWorkspaceConfig(readYamlFileAsJson(filePath), { filePath, warn });
+}
 
 export const readTestYamlFileAsJson = (filePath: string) => {
   try {

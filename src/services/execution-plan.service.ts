@@ -4,45 +4,13 @@ import * as path from 'node:path';
 import {
   getFlowsToRunInSequence,
   isFlowFile,
+  isWorkspaceConfigFile,
+  loadWorkspaceConfig,
   processDependencies,
   readDirectory,
   readTestYamlFileAsJson,
-  readYamlFileAsJson,
 } from './execution-plan.utils.js';
-
-/** Email notification configuration */
-interface INotificationsConfig {
-  email?: {
-    enabled?: boolean;
-    onSuccess?: boolean;
-    recipients?: string[];
-  };
-}
-
-/** Workspace configuration from config.yaml */
-interface IWorkspaceConfig {
-  excludeTags?: null | string[];
-  executionOrder?: IExecutionOrder | null;
-  flows?: null | string[];
-  includeTags?: null | string[];
-  local?: ILocal | null;
-  notifications?: INotificationsConfig;
-  platform?: {
-    android?: { disableAnimations?: boolean };
-    ios?: { disableAnimations?: boolean };
-  };
-}
-
-/** Local execution configuration */
-interface ILocal {
-  deterministicOrder: boolean | null;
-}
-
-/** Sequential execution configuration */
-interface IExecutionOrder {
-  continueOnFailure: boolean;
-  flowsOrder: string[];
-}
+import { IWorkspaceConfig } from './workspace-config.schema.js';
 
 /** Options for execution plan generation */
 export interface PlanOptions {
@@ -52,6 +20,12 @@ export interface PlanOptions {
   excludeTags?: string[];
   includeTags?: string[];
   input: string;
+  /**
+   * Sink for non-fatal config problems. Injected rather than imported so the
+   * MCP server can route warnings to stderr — its stdout is the JSON-RPC
+   * channel.
+   */
+  warn?: (message: string) => void;
 }
 
 /** Execution plan containing all flows to run with metadata and dependencies */
@@ -145,11 +119,13 @@ function filterFlowFiles(
  * Load workspace configuration from config.yaml/yml if present
  * @param input - Input directory path
  * @param unfilteredFlowFiles - List of discovered flow files
+ * @param warn - Sink for non-fatal config problems
  * @returns Workspace configuration object (empty if no config file found)
  */
 function getWorkspaceConfig(
   input: string,
   unfilteredFlowFiles: string[],
+  warn: (message: string) => void,
 ): IWorkspaceConfig {
   const possibleConfigPaths = new Set(
     [path.join(input, 'config.yaml'), path.join(input, 'config.yml')].map((p) =>
@@ -161,11 +137,7 @@ function getWorkspaceConfig(
     possibleConfigPaths.has(path.normalize(file)),
   );
 
-  const config = configFilePath
-    ? (readYamlFileAsJson(configFilePath) as IWorkspaceConfig)
-    : {};
-
-  return config;
+  return configFilePath ? loadWorkspaceConfig(configFilePath, warn) : {};
 }
 
 /**
@@ -198,16 +170,20 @@ function extractDeviceCloudOverrides(
 /**
  * Generate execution plan for a single flow file
  * @param normalizedInput - Normalized path to the flow file
- * @param configFile - Optional custom config file path
+ * @param warn - Sink for non-fatal config problems
+ * @param resolvedConfigFile - Optional absolute path to a custom config file
  * @returns Execution plan for the single file with dependencies
  */
 async function planSingleFile(
   normalizedInput: string,
-  configFile?: string,
+  warn: (message: string) => void,
+  resolvedConfigFile?: string,
 ): Promise<IExecutionPlan> {
+  const inputBasename = path.basename(normalizedInput);
   if (
-    normalizedInput.endsWith('config.yaml') ||
-    normalizedInput.endsWith('config.yml')
+    inputBasename === 'config.yaml' ||
+    inputBasename === 'config.yml' ||
+    isWorkspaceConfigFile(normalizedInput)
   ) {
     throw new Error(
       'If using config.yaml, pass the workspace folder path, not the config file or a custom path via --config',
@@ -224,13 +200,22 @@ async function planSingleFile(
   }
 
   let workspaceConfig: IWorkspaceConfig | undefined;
-  if (configFile) {
-    const configFilePath = path.resolve(process.cwd(), configFile);
-    if (!fs.existsSync(configFilePath)) {
-      throw new Error(`Config file does not exist: ${configFilePath}`);
+  if (resolvedConfigFile) {
+    if (!fs.existsSync(resolvedConfigFile)) {
+      throw new Error(`Config file does not exist: ${resolvedConfigFile}`);
     }
 
-    workspaceConfig = readYamlFileAsJson(configFilePath) as IWorkspaceConfig;
+    workspaceConfig = loadWorkspaceConfig(resolvedConfigFile, warn);
+
+    // Sequencing is resolved against a workspace's discovered flows, which a
+    // single-file input doesn't have — so executionOrder is ignored here. Say so
+    // rather than accepting a config that reads as if it applied (dcd-cli#110).
+    if (workspaceConfig.executionOrder?.flowsOrder.length) {
+      warn(
+        `Warning: \`executionOrder\` in ${resolvedConfigFile} is ignored when a single flow file is passed.\n` +
+          `Pass the workspace folder instead so the named flows can be discovered and sequenced.`,
+      );
+    }
   }
 
   const checkedDependancies = await checkDependencies(normalizedInput);
@@ -249,7 +234,7 @@ async function planSingleFile(
  * @param workspaceConfig - Workspace configuration containing flow globs
  * @param normalizedInput - Normalized path to the workspace directory
  * @param unfilteredFlowFiles - List of all discovered flow files
- * @param configFile - Optional custom config file path
+ * @param resolvedConfigFile - Optional absolute path to a custom config file
  * @param excludeFlows - --exclude-flows patterns to re-apply to glob matches
  * @returns Filtered list of flow file paths matching the globs
  */
@@ -257,9 +242,24 @@ async function applyFlowGlobs(
   workspaceConfig: IWorkspaceConfig,
   normalizedInput: string,
   unfilteredFlowFiles: string[],
-  configFile?: string,
+  resolvedConfigFile?: string,
   excludeFlows?: string[],
 ): Promise<string[]> {
+  // Both branches compare absolute paths, so `--config ./x.yml` and
+  // `--config /abs/x.yml` behave identically, and a same-named file in a
+  // sibling directory is never mistaken for the active config.
+  const activeConfig = resolvedConfigFile
+    ? path.normalize(resolvedConfigFile)
+    : undefined;
+  const isExcludedConfig = (absolutePath: string): boolean => {
+    const base = path.basename(absolutePath);
+    if (base === 'config.yaml' || base === 'config.yml') return true;
+    return (
+      activeConfig !== undefined &&
+      path.normalize(absolutePath) === activeConfig
+    );
+  };
+
   if (workspaceConfig.flows) {
     const globs = workspaceConfig.flows.map((g) => g);
     // fs.globSync lands in Node 22; the CLI's `engines.node` already requires it.
@@ -273,31 +273,19 @@ async function applyFlowGlobs(
       }
     });
 
+    // Resolve before filtering: glob matches are relative to normalizedInput,
+    // so comparing them against the config path only ever worked when the
+    // config happened to sit at the workspace root.
     const globbedFlowFiles = matchedFiles
-      .filter((file: string) => {
-        if (file === 'config.yaml' || file === 'config.yml') return false;
-        if (configFile && file === path.basename(configFile)) return false;
-        if (!file.endsWith('.yaml') && !file.endsWith('.yml')) return false;
-        const pathParts = file.split(path.sep);
-        for (const part of pathParts) {
-          if (part.endsWith('.app')) return false;
-        }
-
-        return true;
-      })
-      .map((file) => path.resolve(normalizedInput, file));
+      .map((file) => path.resolve(normalizedInput, file))
+      .filter((file) => !isExcludedConfig(file) && isFlowFile(file));
 
     // Re-globbing from disk bypasses the earlier --exclude-flows filter, so
     // re-apply it here or excluded flows sneak back in via `flows:` globs.
     return filterFlowFiles(globbedFlowFiles, excludeFlows);
   }
 
-  return unfilteredFlowFiles.filter(
-    (file) =>
-      !file.endsWith('config.yaml') &&
-      !file.endsWith('config.yml') &&
-      (!configFile || !file.endsWith(configFile)),
-  );
+  return unfilteredFlowFiles.filter((file) => !isExcludedConfig(file));
 }
 
 /**
@@ -379,9 +367,13 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
     excludeFlows,
     configFile,
     debug = false,
+    warn = (message: string) => console.warn(message),
   } = options;
   const normalizedInput = path.normalize(input);
   const flowMetadata: Record<string, Record<string, unknown>> = {};
+  const resolvedConfigFile = configFile
+    ? path.resolve(process.cwd(), configFile)
+    : undefined;
 
   if (!fs.existsSync(normalizedInput)) {
     throw new Error(
@@ -390,7 +382,7 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
   }
 
   if (fs.lstatSync(normalizedInput).isFile()) {
-    return planSingleFile(normalizedInput, configFile);
+    return planSingleFile(normalizedInput, warn, resolvedConfigFile);
   }
 
   let unfilteredFlowFiles = await readDirectory(normalizedInput, isFlowFile);
@@ -405,24 +397,49 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
   unfilteredFlowFiles = filterFlowFiles(unfilteredFlowFiles, excludeFlows);
 
   let workspaceConfig: IWorkspaceConfig;
-  if (configFile) {
-    const configFilePath = path.resolve(process.cwd(), configFile);
-    if (!fs.existsSync(configFilePath)) {
-      throw new Error(`Config file does not exist: ${configFilePath}`);
+  if (resolvedConfigFile) {
+    if (!fs.existsSync(resolvedConfigFile)) {
+      throw new Error(`Config file does not exist: ${resolvedConfigFile}`);
     }
 
-    workspaceConfig = readYamlFileAsJson(configFilePath) as IWorkspaceConfig;
+    workspaceConfig = loadWorkspaceConfig(resolvedConfigFile, warn);
   } else {
-    workspaceConfig = getWorkspaceConfig(normalizedInput, unfilteredFlowFiles);
+    workspaceConfig = getWorkspaceConfig(
+      normalizedInput,
+      unfilteredFlowFiles,
+      warn,
+    );
   }
 
   unfilteredFlowFiles = await applyFlowGlobs(
     workspaceConfig,
     normalizedInput,
     unfilteredFlowFiles,
-    configFile,
+    resolvedConfigFile,
     excludeFlows,
   );
+
+  // The exclusions above are filename-based: they only catch
+  // `config.yaml`/`config.yml` and the active --config target. Any other
+  // workspace config sharing the folder (a second CI workflow's, say) is still
+  // on the list and would be parsed as a flow, so drop config-shaped files by
+  // shape — see dcd-cli#99.
+  const configShapedFiles = new Set(
+    unfilteredFlowFiles.filter((file) => isWorkspaceConfigFile(file)),
+  );
+  if (configShapedFiles.size > 0) {
+    if (debug) {
+      console.log(
+        `[DEBUG] Skipping ${configShapedFiles.size} workspace config file(s): ${[
+          ...configShapedFiles,
+        ].join(', ')}`,
+      );
+    }
+
+    unfilteredFlowFiles = unfilteredFlowFiles.filter(
+      (file) => !configShapedFiles.has(file),
+    );
+  }
 
   if (unfilteredFlowFiles.length === 0) {
     const error = workspaceConfig.flows
