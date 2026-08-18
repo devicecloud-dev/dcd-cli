@@ -45,36 +45,22 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
 
-    # The mock-api lives in the private devicecloud-dev/dcd repo, checked out via an
-    # SSH deploy key. GitHub does NOT expose secrets to pull_request workflows
-    # triggered from forks, so that checkout (and the integration tests that need
-    # it) can only run for same-repo events. Fork PRs still run lint/typecheck/build.
+    # This repo is PUBLIC and runs no step that reaches into the private
+    # devicecloud-dev/dcd repo. It used to check out that repo's mock-api over an
+    # SSH deploy key to run test/integration/*, which meant a private-repo
+    # credential lived in a public repo's secrets and the API's OpenAPI spec was
+    # pulled onto the runner on every same-repo PR. dcd#1036 deleted that mock-api;
+    # rather than re-point at it, the linkage is gone.
     #
-    # Dependabot PRs branch from this repo (so the fork check passes) but ALSO run
-    # without secrets — treat them like forks and skip the private checkout, or
-    # the mock-api clone fails with an empty DCD_SSH_DEPLOY_KEY.
-    env:
-      HAS_PRIVATE_ACCESS: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.actor != 'dependabot[bot]' }}
-
+    # The consequence is deliberate: test/integration/* does NOT run here, and
+    # neither does the swagger contract-drift check it provided (spec drift used to
+    # surface as a Prism 422). Only test/unit/* runs — pure, no backend. To run the
+    # integration suite locally, point MOCK_API_DIR at a mock; see CLAUDE.md.
     steps:
     - name: Checkout CLI
       uses: actions/checkout@v7
       with:
         path: cli
-
-    - name: Checkout dcd (mock-api)
-      if: env.HAS_PRIVATE_ACCESS == 'true'
-      uses: actions/checkout@v7
-      with:
-        repository: devicecloud-dev/dcd
-        path: dcd
-        ssh-key: ${{ secrets.DCD_SSH_DEPLOY_KEY }}
-        # api/swagger.json is a file, which cone-mode sparse checkout rejects
-        # as of git 2.51 ("is not a directory") — use non-cone patterns.
-        sparse-checkout-cone-mode: false
-        sparse-checkout: |
-          /mock-api/
-          /api/swagger.json
 
     - name: Setup pnpm
       uses: pnpm/action-setup@v6.0.10
@@ -93,11 +79,6 @@ jobs:
       working-directory: ./cli
       run: pnpm install --frozen-lockfile
 
-    - name: Install Mock API dependencies
-      if: env.HAS_PRIVATE_ACCESS == 'true'
-      working-directory: ./dcd/mock-api
-      run: pnpm install --frozen-lockfile
-
     - name: Run CLI linter
       working-directory: ./cli
       run: pnpm lint
@@ -106,16 +87,12 @@ jobs:
       working-directory: ./cli
       run: pnpm typecheck
 
-    - name: Run CLI tests
-      if: env.HAS_PRIVATE_ACCESS == 'true'
+    - name: Run CLI unit tests
       working-directory: ./cli
-      env:
-        MOCK_API_DIR: ${{ github.workspace }}/dcd/mock-api
-      run: pnpm test
+      run: pnpm test:unit
 
-    - name: Skip integration tests (fork PR — no mock-api access)
-      if: env.HAS_PRIVATE_ACCESS != 'true'
-      run: echo "::notice::Integration tests skipped — the mock-api (private devicecloud-dev/dcd) is not accessible from fork PRs. Lint, typecheck, and build still ran."
+    - name: Note skipped integration tests
+      run: echo "::notice::Integration tests are not run in CI — they need a mock of the dcd API, and this public repo does not reach into the private one. Lint, typecheck, unit tests, build and audit all ran."
 
     - name: Build CLI
       working-directory: ./cli
