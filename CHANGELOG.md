@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.3.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.3.0...v5.3.1) (2026-08-18)
+
+
+### Miscellaneous
+
+* promote the [#124](https://github.com/devicecloud-dev/dcd-cli/issues/124) docs into 5.3.1 ([#125](https://github.com/devicecloud-dev/dcd-cli/issues/125)) ([ebf4b03](https://github.com/devicecloud-dev/dcd-cli/commit/ebf4b036645cab1e369b6bf81b4bf39ce5f5b75a))
+* release 5.3.1 ([#119](https://github.com/devicecloud-dev/dcd-cli/issues/119)) ([36610fc](https://github.com/devicecloud-dev/dcd-cli/commit/36610fcf2e3a2c9607ac37e18a8533d9204c8db9))
+
 ## [5.3.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.2.0...v5.3.0) (2026-08-07)
 
 
