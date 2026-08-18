@@ -37,19 +37,29 @@ Useful scripts:
 | `pnpm lint` | ESLint over `src/` and `test/` |
 | `pnpm typecheck` | Strict `tsc --noEmit` over `src/` and `test/` |
 | `pnpm build` | Compile to `dist/` |
-| `pnpm test` | Build + boot the mock API + run integration/unit tests |
+| `pnpm test:unit` | Run the unit suite — no backend needed. **This is what CI runs.** |
+| `pnpm test` | The same, plus the integration suite if `MOCK_API_DIR` points at a mock API |
 
-**Before pushing, make sure `pnpm lint`, `pnpm typecheck`, and `pnpm build`
-pass.** These run for every PR (including from forks) and are required to merge.
+**Before pushing, make sure `pnpm lint`, `pnpm typecheck`, `pnpm test:unit`, and
+`pnpm build` pass.** These run for every PR and are required to merge.
 
 ### About the test suite
 
-`pnpm test` boots a **mock API that lives in a private repository**, so the full
-integration suite only runs on branches inside this repo. **On pull requests from
-forks the integration tests are automatically skipped** — you'll see a CI notice
-saying so. That's expected: lint, typecheck, and build still run and gate your
-PR, and a maintainer runs the full suite before merge. You don't need backend
-access to contribute.
+Tests split in two. `test/unit/*` is pure — no network, no backend — and runs
+everywhere, in CI and locally.
+
+`test/integration/*` drives the built CLI against a Prism mock of the dcd API on
+port 3001. **CI does not run it**, on any PR, from a fork or otherwise: this repo
+is public and deliberately holds no credentials for, and makes no requests to,
+our private infrastructure. There is no default mock API — set
+`MOCK_API_DIR=/path/to/mock-api` (a package exposing a `start:auth` script on
+port 3001) and `pnpm test` picks the integration suite up. Without it the runner
+prints a notice and runs the unit suite alone.
+
+So every contributor, maintainers included, gets the same CI signal, and you
+don't need backend access to contribute. The flip side is worth knowing: a green
+PR says nothing about the integration suite, so if your change touches the API
+surface, say so in the PR and a maintainer will exercise it before merge.
 
 ### Secret scanning
 
