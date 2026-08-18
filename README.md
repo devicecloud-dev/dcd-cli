@@ -78,7 +78,8 @@ $ pnpm install        # install deps, build, set up git hooks
 $ pnpm dcd <args>     # run the CLI from source
 $ pnpm lint           # ESLint
 $ pnpm typecheck      # strict tsc, no emit
-$ pnpm test           # build + boot mock API + integration/unit tests
+$ pnpm test:unit      # unit tests, no backend needed — what CI runs
+$ pnpm test           # the above, plus integration tests if MOCK_API_DIR is set
 ```
 
 ### Secret scanning
