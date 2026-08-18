@@ -66,6 +66,7 @@
     "lint": "eslint src test --ext .ts",
     "prepare": "pnpm build && husky",
     "test": "node scripts/test-runner.mjs",
+    "test:unit": "node scripts/test-runner.mjs --unit",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
   "version": "5.3.0",

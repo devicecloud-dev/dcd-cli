@@ -8,12 +8,19 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// mock-api lives in the sibling dcd/ repo while the oclif→citty migration settles.
-// Override with MOCK_API_DIR=/path/to/mock-api if it moves.
-const mockApiDir =
-  process.env.MOCK_API_DIR ??
-  path.resolve(__dirname, '../../dcd/mock-api');
+// The integration suite drives the built CLI against a Prism mock of the dcd API.
+// That mock used to live in the sibling private dcd/ repo, which no longer ships
+// one (dcd#1036), so there is no default location any more: point MOCK_API_DIR at
+// a mock to run those specs. Without one — which includes CI, where this repo is
+// public and deliberately does not reach into the private repo — the runner falls
+// back to the unit suite, which is pure and needs no backend.
+const mockApiDir = process.env.MOCK_API_DIR ?? null;
 const cliDir = path.resolve(__dirname, '..');
+
+const unitOnly =
+  process.argv.includes('--unit') ||
+  mockApiDir === null ||
+  !fs.existsSync(mockApiDir);
 
 const MOCK_API_URL = 'http://localhost:3001/';
 const READY_DEADLINE_MS = 30_000;
@@ -112,52 +119,62 @@ async function runTests() {
       });
     });
 
-    // Start mock API with authentication
-    console.log('Starting mock API with authentication...');
-    mockApiProcess = spawn('npm', ['run', 'start:auth'], {
-      cwd: mockApiDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
-      // Own process group on POSIX so killMockApi() can signal `npm run`
-      // *and* the server it spawns, not just the wrapper.
-      detached: process.platform !== 'win32',
-    });
+    if (unitOnly) {
+      console.log(
+        'Running the unit suite only — no mock API available. ' +
+          'Set MOCK_API_DIR=/path/to/mock-api to include test/integration/*.'
+      );
+    } else {
+      // Start mock API with authentication
+      console.log('Starting mock API with authentication...');
+      mockApiProcess = spawn('npm', ['run', 'start:auth'], {
+        cwd: mockApiDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true,
+        // Own process group on POSIX so killMockApi() can signal `npm run`
+        // *and* the server it spawns, not just the wrapper.
+        detached: process.platform !== 'win32',
+      });
 
-    forwardOutput(mockApiProcess.stdout, (text) => process.stdout.write(text));
-    forwardOutput(mockApiProcess.stderr, (text) => process.stderr.write(text));
+      forwardOutput(mockApiProcess.stdout, (text) => process.stdout.write(text));
+      forwardOutput(mockApiProcess.stderr, (text) => process.stderr.write(text));
 
-    mockApiProcess.on('error', (error) => {
-      console.error('Mock API failed to start:', error);
-      if (!testsFinished) {
-        process.exit(1);
-      }
-    });
+      mockApiProcess.on('error', (error) => {
+        console.error('Mock API failed to start:', error);
+        if (!testsFinished) {
+          process.exit(1);
+        }
+      });
 
-    mockApiProcess.on('exit', (code, signal) => {
-      mockApiExited = true;
-      if (!testsFinished) {
-        console.error(
-          `Mock API exited before tests finished (code ${code}, signal ${signal})`
-        );
-        process.exit(1);
-      }
-    });
+      mockApiProcess.on('exit', (code, signal) => {
+        mockApiExited = true;
+        if (!testsFinished) {
+          console.error(
+            `Mock API exited before tests finished (code ${code}, signal ${signal})`
+          );
+          process.exit(1);
+        }
+      });
 
-    console.log('Waiting for mock API to be ready...');
-    await waitForMockApi();
-    console.log('Mock API is ready.');
+      console.log('Waiting for mock API to be ready...');
+      await waitForMockApi();
+      console.log('Mock API is ready.');
+    }
 
     // Run tests. Mocha + .mocharc.json handle TypeScript loading via `tsx`
     // (see `node-option: ["import=tsx"]` there). Mocha 11 imports files as
     // ESM, so the `require: ts-node/register` hook doesn't get applied; tsx
     // registers an ESM loader that resolves TS relative imports correctly.
     console.log('Running tests...');
-    const testProcess = spawn('npx', [
+    const mochaArgs = [
       'mocha',
       '--no-warnings',
       'test/**/*.test.ts',
       '--timeout', '60000'
-    ], {
+    ];
+    // Quoted so the shell hands mocha the literal glob instead of expanding it.
+    if (unitOnly) mochaArgs.push('--ignore', '"test/integration/**"');
+    const testProcess = spawn('npx', mochaArgs, {
       cwd: cliDir,
       stdio: 'inherit',
       shell: true,
