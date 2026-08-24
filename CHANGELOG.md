@@ -1,5 +1,26 @@
 # Changelog
 
+## [5.4.0-beta.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.3.1-beta.2...v5.4.0-beta.0) (2026-08-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove iOS 16 ([#126](https://github.com/devicecloud-dev/dcd-cli/issues/126))
+
+### Features
+
+* remove iOS 16 ([#126](https://github.com/devicecloud-dev/dcd-cli/issues/126)) ([fcfa524](https://github.com/devicecloud-dev/dcd-cli/commit/fcfa524ff5213f1ec8ff4b86ef61826c78d6e875))
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 6 updates ([#121](https://github.com/devicecloud-dev/dcd-cli/issues/121)) ([1c07fc1](https://github.com/devicecloud-dev/dcd-cli/commit/1c07fc14a48e7cc29c6deb56f0ad4aa533794f25))
+
+
+### Miscellaneous
+
+* release the iOS 16 removal as 5.4.0, not 6.0.0 ([#127](https://github.com/devicecloud-dev/dcd-cli/issues/127)) ([a60611d](https://github.com/devicecloud-dev/dcd-cli/commit/a60611d388fd6c570a5548bd3ece997afc4ae926))
+
 ## [5.3.1-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.3.1-beta.1...v5.3.1-beta.2) (2026-08-13)
 
 
