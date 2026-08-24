@@ -140,9 +140,10 @@ export interface paths {
          *     never touches credits. Lets the CLI print the cell count and estimated cost,
          *     and surface validation errors, before uploading the flow ZIP.
          *
-         *     The dollar estimate is exact for non-Google-Play cells; a Google Play
-         *     column's price is path-dependent until #1100 unifies the parallel and
-         *     sequential Play tiering.
+         *     The dollar estimate is exact for every cell, Google Play included: quote
+         *     and charge both run buildBaseCostByTuple -> calculateCost -> the shared
+         *     resolvePricingTier over the same typed device, and so do the parallel and
+         *     sequential submit paths (#1100).
          */
         post: operations["UploadsController_estimateMatrix"];
         delete?: never;
@@ -684,6 +685,29 @@ export interface paths {
         put?: never;
         post: operations["WebhooksController_setWebhook"];
         delete: operations["WebhooksController_deleteWebhook"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/notify-on-retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Toggle re-delivery when a retry finishes on an already-reported run (#1277).
+         *
+         *     Defaults to on, unlike the Slack and email equivalents: this endpoint exists
+         *     for the consumer that would rather NOT be called twice, while automations
+         *     that want the current state keep working untouched.
+         */
+        post: operations["WebhooksController_setNotifyOnRetry"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1626,7 +1650,7 @@ export interface components {
             appFile?: string;
             env: string;
             /** @enum {string} */
-            iOSVersion?: "16" | "17" | "18" | "26";
+            iOSVersion?: "17" | "18" | "26";
             /** @enum {string} */
             iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
             platform?: string;
@@ -1666,7 +1690,7 @@ export interface components {
             appFile?: string;
             env: string;
             /** @enum {string} */
-            iOSVersion?: "16" | "17" | "18" | "26";
+            iOSVersion?: "17" | "18" | "26";
             /** @enum {string} */
             iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
             platform?: string;
@@ -1717,7 +1741,7 @@ export interface components {
             appFile?: string;
             env: string;
             /** @enum {string} */
-            iOSVersion?: "16" | "17" | "18" | "26";
+            iOSVersion?: "17" | "18" | "26";
             /** @enum {string} */
             iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
             platform?: string;
@@ -2300,9 +2324,7 @@ export interface operations {
     OrgController_handlePaddleWebhook: {
         parameters: {
             query?: never;
-            header: {
-                "paddle-signature": string;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -2933,7 +2955,6 @@ export interface operations {
                      *           "iphone-14": {
                      *             "name": "iPhone 14",
                      *             "versions": [
-                     *               "16",
                      *               "17",
                      *               "18"
                      *             ],
@@ -2997,8 +3018,7 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36",
-                     *               "37"
+                     *               "36"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -3016,8 +3036,7 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36",
-                     *               "37"
+                     *               "36"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -3027,8 +3046,7 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36",
-                     *               "37"
+                     *               "36"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -3139,6 +3157,8 @@ export interface operations {
                         secret_key?: string;
                         /** @description Masked secret (default) */
                         secret_key_masked?: string;
+                        /** @description Re-deliver when retried tests finish (default true) */
+                        notify_on_retry?: boolean;
                         /** Format: date-time */
                         created_at?: string;
                         /** Format: date-time */
@@ -3189,6 +3209,32 @@ export interface operations {
         responses: {
             /** @description Webhook configuration deleted successfully */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    WebhooksController_setNotifyOnRetry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    notifyOnRetry: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Retry re-delivery setting updated */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3882,7 +3928,6 @@ export interface operations {
             query?: never;
             header: {
                 authorization: string;
-                "x-dcd-org": string;
             };
             path?: never;
             cookie?: never;
