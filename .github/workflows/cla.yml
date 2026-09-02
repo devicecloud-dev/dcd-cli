@@ -7,19 +7,18 @@ name: CLA Assistant
 # by commenting the configured phrase on their PR; the action records it and
 # flips the check green.
 #
-# ACTION SOURCE: devicecloud-dev/cla-assistant-action, a PRIVATE fork of the
-# upstream contributor-assistant/github-action, which was archived read-only on
+# ACTION SOURCE: devicecloud-dev/cla-assistant-action, our fork of the upstream
+# contributor-assistant/github-action, which was archived read-only on
 # 2026-03-23. We forked because GitHub's Node 20 deprecation began force-running
 # node20 actions on Node 24, under which the upstream step does its work, logs
 # "All contributors have signed the CLA", and THEN exits non-zero — failing a
 # required check on every PR (first hit 2026-09-02, last green 2026-08-31). The
 # fork's only change is `using: node24`; dist is unmodified. See its FORK.md.
 #
-# The fork is private, so it relies on Settings -> Actions -> Access ->
-# "Accessible from repositories in the devicecloud-dev organization" being set
-# on THAT repo. Resolution works for outside-contributor PRs because this
-# workflow is `pull_request_target`, so it runs in this repo's context rather
-# than the fork's.
+# The fork must stay PUBLIC: this repo is public, and a public repo's workflow
+# cannot resolve an action from a private one — it fails at resolution with
+# "Unable to resolve action ... not found", before any CLA logic runs, even with
+# the org access policy set. Do not flip it private.
 #
 # AUTH: mints a token from the shared automation GitHub App (the same App
 # release-please uses), so signature commits show as the bot and there's no
