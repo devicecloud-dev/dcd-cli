@@ -2,10 +2,24 @@ name: CLA Assistant
 
 # Gates merges on a signed Contributor License Agreement.
 #
-# Uses CLA Assistant Lite (contributor-assistant/github-action): signatures are
-# stored as a JSON file committed to a branch of THIS repo (no third-party
-# service holds the data). Contributors sign by commenting the configured phrase
-# on their PR; the action records it and flips the check green.
+# Uses CLA Assistant Lite: signatures are stored as a JSON file committed to a
+# branch of THIS repo (no third-party service holds the data). Contributors sign
+# by commenting the configured phrase on their PR; the action records it and
+# flips the check green.
+#
+# ACTION SOURCE: devicecloud-dev/cla-assistant-action, a PRIVATE fork of the
+# upstream contributor-assistant/github-action, which was archived read-only on
+# 2026-03-23. We forked because GitHub's Node 20 deprecation began force-running
+# node20 actions on Node 24, under which the upstream step does its work, logs
+# "All contributors have signed the CLA", and THEN exits non-zero — failing a
+# required check on every PR (first hit 2026-09-02, last green 2026-08-31). The
+# fork's only change is `using: node24`; dist is unmodified. See its FORK.md.
+#
+# The fork is private, so it relies on Settings -> Actions -> Access ->
+# "Accessible from repositories in the devicecloud-dev organization" being set
+# on THAT repo. Resolution works for outside-contributor PRs because this
+# workflow is `pull_request_target`, so it runs in this repo's context rather
+# than the fork's.
 #
 # AUTH: mints a token from the shared automation GitHub App (the same App
 # release-please uses), so signature commits show as the bot and there's no
@@ -50,7 +64,7 @@ jobs:
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-      - uses: contributor-assistant/github-action@v2.6.1
+      - uses: devicecloud-dev/cla-assistant-action@v2.6.2
         if: env.HAS_APP == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
