@@ -1652,7 +1652,7 @@ export interface components {
             /** @enum {string} */
             iOSVersion?: "17" | "18" | "26" | "27";
             /** @enum {string} */
-            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "iphone-17" | "iphone-17-pro" | "iphone-17-pro-max" | "ipad-pro-6th-gen";
+            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
             platform?: string;
             googlePlay?: boolean;
             config: string;
@@ -1692,7 +1692,7 @@ export interface components {
             /** @enum {string} */
             iOSVersion?: "17" | "18" | "26" | "27";
             /** @enum {string} */
-            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "iphone-17" | "iphone-17-pro" | "iphone-17-pro-max" | "ipad-pro-6th-gen";
+            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
             platform?: string;
             googlePlay?: boolean;
             config: string;
@@ -1743,7 +1743,7 @@ export interface components {
             /** @enum {string} */
             iOSVersion?: "17" | "18" | "26" | "27";
             /** @enum {string} */
-            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "iphone-17" | "iphone-17-pro" | "iphone-17-pro-max" | "ipad-pro-6th-gen";
+            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
             platform?: string;
             googlePlay?: boolean;
             config: string;
@@ -3078,10 +3078,11 @@ export interface operations {
                      *             "2.6.0",
                      *             "2.6.1",
                      *             "2.7.0",
-                     *             "2.8.0"
+                     *             "2.8.0",
+                     *             "2.9.0"
                      *           ],
                      *           "defaultVersion": "2.2.0",
-                     *           "latestVersion": "2.8.0"
+                     *           "latestVersion": "2.9.0"
                      *         }
                      *       }
                      *     }
