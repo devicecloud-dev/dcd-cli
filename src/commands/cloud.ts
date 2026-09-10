@@ -56,7 +56,7 @@ import {
   CompatibilityData,
   fetchCompatibilityData,
 } from '../utils/compatibility.js';
-import { renderNotices } from '../services/notices.service.js';
+import { platformFromAppFile, renderNotices } from '../services/notices.service.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo.js';
 import {
@@ -494,17 +494,32 @@ export const cloudCommand = defineCommand({
       // returned with the compatibility data. Replaces the previously hardcoded
       // iOS-16 deprecation warning — that is now a seeded notice gated on the
       // selected iOS version below. Honours --json via out/warnOut.
-      renderNotices(
+      const visibleNotices = renderNotices(
         compatibilityData.notices,
         {
+          platform: platformFromAppFile(finalAppFile),
           ios_version: iOSVersion,
+          ios_device: iOSDevice,
           android_api_level: androidApiLevel,
+          android_device: androidDevice,
+          // Resolved (what the run will use) and requested (undefined when the
+          // customer relied on the default), so a notice can target either.
+          maestro_version: resolvedMaestroVersion,
+          requested_maestro_version: maestroVersion,
           cli_version: cliVersion,
           ci_provider: ciContext.provider,
           ci_wrapper_version: ciContext.wrapperVersion,
         },
         { out },
       );
+      // --json suppresses the rendered lines, so the payload carries them instead.
+      const noticesForJson = visibleNotices.map((n) => ({
+        slug: n.slug,
+        level: n.level,
+        title: n.title,
+        body: n.body,
+        learnMoreUrl: n.learnMoreUrl,
+      }));
 
       deviceValidationService.validateAndroidDevice(
         androidApiLevel,
@@ -963,6 +978,7 @@ export const cloudCommand = defineCommand({
             tags: testMetadataMap[r.test_file_name]?.tags || [],
           })),
           uploadId: results[0].test_upload_id,
+          notices: noticesForJson,
         };
 
         if (jsonFileFlag) {
@@ -1087,7 +1103,7 @@ export const cloudCommand = defineCommand({
         });
       }
 
-      const jsonOutput = pollingResult;
+      const jsonOutput = { ...pollingResult, notices: noticesForJson };
       if (jsonFileFlag) {
         const jsonFilePath = jsonFileName || `${results[0].test_upload_id}_dcd.json`;
         writeJSONFile(jsonFilePath, jsonOutput, {
