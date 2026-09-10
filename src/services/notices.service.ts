@@ -131,6 +131,21 @@ function renderNotice(notice: Notice, opts: RenderNoticesOptions): void {
  * payload instead of printing. `opts.out` is the caller's `--json`-gated
  * emitter, so under `--json` nothing prints but the list is still returned.
  */
+/**
+ * Best-effort platform from the app artifact's extension, so a notice can be
+ * targeted at one platform (e.g. "you rely on the default Android API level")
+ * without firing on the other platform's runs.
+ */
+export function platformFromAppFile(
+  appFile: string | undefined,
+): 'android' | 'ios' | undefined {
+  if (!appFile) return undefined;
+  const ext = appFile.split('?')[0].toLowerCase().match(/.([a-z0-9]+)$/)?.[1];
+  if (ext === 'apk' || ext === 'aab') return 'android';
+  if (ext === 'zip' || ext === 'app' || ext === 'ipa') return 'ios';
+  return undefined;
+}
+
 export function renderNotices(
   notices: Notice[] | undefined,
   ctx: NoticeContext,
