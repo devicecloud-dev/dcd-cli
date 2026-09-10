@@ -1,5 +1,31 @@
 # Changelog
 
+## [5.4.1-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.4.0-beta.0...v5.4.1-beta.1) (2026-09-10)
+
+
+### Features
+
+* **device:** add iOS 27 and the iPhone 17 family ([#131](https://github.com/devicecloud-dev/dcd-cli/issues/131)) ([1333960](https://github.com/devicecloud-dev/dcd-cli/commit/133396051511997bd03efe0aeaf2930dd74c83de))
+* **device:** drop the iPhone 17 family ([#134](https://github.com/devicecloud-dev/dcd-cli/issues/134)) ([38f6dfa](https://github.com/devicecloud-dev/dcd-cli/commit/38f6dfa8c6724be9ce709ef6845e97911a4ee0da))
+
+
+### Bug Fixes
+
+* **ci:** point the CLA check at our node24 fork ([#135](https://github.com/devicecloud-dev/dcd-cli/issues/135)) ([3222dda](https://github.com/devicecloud-dev/dcd-cli/commit/3222ddaabc6a133eb88b73e768d992a36ae89118))
+* **deps:** adopt bplist-parser 0.5 named exports ([#143](https://github.com/devicecloud-dev/dcd-cli/issues/143)) ([9b5f751](https://github.com/devicecloud-dev/dcd-cli/commit/9b5f7510ea1b9f9b1277763e040b84517c91b3c4))
+* **deps:** refresh audit overrides to the patched versions ([#141](https://github.com/devicecloud-dev/dcd-cli/issues/141)) ([7ccb0c9](https://github.com/devicecloud-dev/dcd-cli/commit/7ccb0c98e1834d2689f53c001383c8050c99e17f))
+
+
+### Dependencies
+
+* bump the minor-and-patch group across 1 directory with 4 updates ([#133](https://github.com/devicecloud-dev/dcd-cli/issues/133)) ([0d2234a](https://github.com/devicecloud-dev/dcd-cli/commit/0d2234a55965b4840c6de1a8ddcc3e4933aab237))
+* bump the minor-and-patch group across 1 directory with 5 updates ([#144](https://github.com/devicecloud-dev/dcd-cli/issues/144)) ([9a4ad49](https://github.com/devicecloud-dev/dcd-cli/commit/9a4ad49acad68d90f27c947bcb43db464bd1ef43))
+
+
+### Miscellaneous
+
+* release 5.4.1-beta.1 ([#137](https://github.com/devicecloud-dev/dcd-cli/issues/137)) ([fc43dc6](https://github.com/devicecloud-dev/dcd-cli/commit/fc43dc6e62a265b9860b92b5a8ace750bcead393))
+
 ## [5.4.0-beta.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.3.1-beta.2...v5.4.0-beta.0) (2026-08-24)
 
 
