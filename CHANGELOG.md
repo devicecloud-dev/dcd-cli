@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.5.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.4.1-beta.1...v5.5.0-beta.1) (2026-09-10)
+
+
+### Features
+
+* **notices:** expose platform, device and Maestro version to notice … ([#147](https://github.com/devicecloud-dev/dcd-cli/issues/147)) ([9d9e413](https://github.com/devicecloud-dev/dcd-cli/commit/9d9e4135f4ca47dd51ae7118e038493e16c2a522))
+* **notices:** expose platform, device and Maestro version to notice targeting; include notices in --json output ([9d9e413](https://github.com/devicecloud-dev/dcd-cli/commit/9d9e4135f4ca47dd51ae7118e038493e16c2a522))
+
 ## [5.4.1-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.4.0-beta.0...v5.4.1-beta.1) (2026-09-10)
 
 
