@@ -33,7 +33,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-unicorn": "^73.0.0",
     "husky": "^9.1.7",
-    "mocha": "^11.7.6",
+    "mocha": "^12.0.0",
     "prettier": "^3.8.4",
     "shx": "^0.4.0",
     "tsx": "^4.22.4",
