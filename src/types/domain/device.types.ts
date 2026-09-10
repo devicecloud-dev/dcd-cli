@@ -26,6 +26,7 @@ export enum EAndroidDevices {
 export enum EiOSVersions {
   'eighteen' = '18',
   'seventeen' = '17',
+  'twentySeven' = '27',
   'twentySix' = '26',
 }
 
