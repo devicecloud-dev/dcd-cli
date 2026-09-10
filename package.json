@@ -8,7 +8,7 @@
     "@clack/prompts": "^1.6.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@supabase/supabase-js": "^2.108.2",
-    "bplist-parser": "^0.3.2",
+    "bplist-parser": "^0.5.0",
     "chalk": "^6.0.0",
     "citty": "^0.2.2",
     "js-yaml": "^5.2.2",
