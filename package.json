@@ -69,7 +69,7 @@
     "test:unit": "node scripts/test-runner.mjs --unit",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
-  "version": "5.4.0",
+  "version": "5.4.1",
   "bugs": {
     "url": "https://discord.gg/gm3mJwcNw8"
   },
