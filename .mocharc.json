@@ -1,5 +1,5 @@
 {
-  "node-option": ["import=tsx"],
+  "node-option": ["import=tsx/esm"],
   "extensions": ["ts"],
   "watch-extensions": ["ts"],
   "recursive": true,
