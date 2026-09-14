@@ -44,6 +44,12 @@ export interface TestSubmissionConfig {
   name?: string;
   orientation?: string;
   raw?: unknown;
+  /**
+   * Which emulator software renderer to boot with (Android only). Omitted
+   * means the server decides: lavapipe by default, or swiftshader when the
+   * binary is detected as shipping the Flutter engine.
+   */
+  renderEngine?: 'lavapipe' | 'swiftshader';
   report?: string;
   retry?: number;
   runnerType?: string;
@@ -93,6 +99,7 @@ export class TestSubmissionService {
       orientation,
       retry,
       continueOnFailure = true,
+      renderEngine,
       report,
       showCrosshairs,
       maestroChromeOnboarding,
@@ -281,6 +288,7 @@ export class TestSubmissionService {
       maestroVersion,
       orientation,
       raw: JSON.stringify(raw),
+      renderEngine,
       report,
       showCrosshairs,
       maestroChromeOnboarding,
