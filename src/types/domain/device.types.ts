@@ -21,6 +21,12 @@ export enum EAndroidDevices {
   'pixel-6-pro' = 'pixel-6-pro',
   'pixel-7' = 'pixel-7',
   'pixel-7-pro' = 'pixel-7-pro',
+  'pixel-8' = 'pixel-8',
+  'pixel-10' = 'pixel-10',
+  'pixel-10-pro' = 'pixel-10-pro',
+  'pixel-10-pro-xl' = 'pixel-10-pro-xl',
+  'pixel-10-pro-fold' = 'pixel-10-pro-fold',
+  'pixel-11' = 'pixel-11',
 }
 
 export enum EiOSVersions {
