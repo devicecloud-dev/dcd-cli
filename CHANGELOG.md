@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.5.0-beta.3](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.2...v5.5.0-beta.3) (2026-09-14)
+
+
+### Features
+
+* **cloud:** add --render-engine for the emulator software renderer ([#153](https://github.com/devicecloud-dev/dcd-cli/issues/153)) ([a2888fd](https://github.com/devicecloud-dev/dcd-cli/commit/a2888fd0154ce637a3a7fd02dc04431114df99e0))
+
 ## [5.5.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.1...v5.5.0-beta.2) (2026-09-14)
 
 
