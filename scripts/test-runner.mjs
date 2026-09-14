@@ -162,9 +162,16 @@ async function runTests() {
     }
 
     // Run tests. Mocha + .mocharc.json handle TypeScript loading via `tsx`
-    // (see `node-option: ["import=tsx"]` there). Mocha 11 imports files as
+    // (see `node-option: ["import=tsx/esm"]` there). Mocha imports files as
     // ESM, so the `require: ts-node/register` hook doesn't get applied; tsx
     // registers an ESM loader that resolves TS relative imports correctly.
+    // It has to be `tsx/esm` rather than bare `tsx`: the latter also patches
+    // the CJS resolver, which rewrites an ESM dependency's `import` into a
+    // `require` and then cannot resolve an import-only `exports` map. Mocha's
+    // own lib/cli/*.cjs requires ESM-only find-up@8, whose unicorn-magic
+    // dependency exports nothing under the `require` condition — plain Node
+    // loads that fine via require(esm); tsx's CJS hook throws
+    // ERR_PACKAGE_PATH_NOT_EXPORTED before a single test runs.
     console.log('Running tests...');
     const mochaArgs = [
       'mocha',
