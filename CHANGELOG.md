@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.5.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.1...v5.5.0-beta.2) (2026-09-14)
+
+
+### Features
+
+* add Pixel 8, Pixel 10 family and Pixel 11 device slugs ([#151](https://github.com/devicecloud-dev/dcd-cli/issues/151)) ([dac5d1e](https://github.com/devicecloud-dev/dcd-cli/commit/dac5d1ec88c3488802e244338684cfc0f1e2d50f))
+
 ## [5.5.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.4.1-beta.1...v5.5.0-beta.1) (2026-09-10)
 
 
