@@ -24,6 +24,11 @@ export const deviceFlags = {
     type: 'string',
     description: `[Android only] Android device to run your flow against (options: ${androidDevices})`,
   },
+  'render-engine': {
+    type: 'string',
+    description:
+      '[Android only] Software renderer the emulator boots with (options: lavapipe, swiftshader). Defaults to lavapipe; pick swiftshader if your app fails to render or the device drops out mid-run. Apps shipping the Flutter engine are detected and switched automatically, so this is only needed to override that.',
+  },
   'device-locale': {
     type: 'string',
     description:

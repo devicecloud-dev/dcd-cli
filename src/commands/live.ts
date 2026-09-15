@@ -139,7 +139,7 @@ const startSub = defineCommand({
     'android-device': {
       type: 'string',
       description:
-        '[Android] Device profile to match a cloud run (options: pixel-6, pixel-6-pro, pixel-7, pixel-7-pro)',
+        '[Android] Device profile to match a cloud run (options: pixel-6, pixel-6-pro, pixel-7, pixel-7-pro, pixel-8, pixel-10, pixel-10-pro, pixel-10-pro-xl, pixel-11)',
     },
     'android-api-level': {
       type: 'string',

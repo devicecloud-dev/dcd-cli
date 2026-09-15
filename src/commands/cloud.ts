@@ -86,6 +86,7 @@ const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
 const REPORT_OPTIONS = ['allure', 'html', 'html-detailed', 'junit'] as const;
 const ORIENTATION_OPTIONS = ['0', '90'] as const;
 const RUNNER_TYPE_OPTIONS = ['default', 'm4', 'm1', 'gpu1', 'cpu1'] as const;
+const RENDER_ENGINE_OPTIONS = ['lavapipe', 'swiftshader'] as const;
 
 /**
  * Primary CLI command for executing tests on DeviceCloud.
@@ -257,6 +258,11 @@ export const cloudCommand = defineCommand({
           RUNNER_TYPE_OPTIONS,
           'runner-type',
         ) ?? 'default';
+      const renderEngine = validateEnum(
+        args['render-engine'] as string | undefined,
+        RENDER_ENGINE_OPTIONS,
+        'render-engine',
+      );
       const showCrosshairs = Boolean(args['show-crosshairs']);
       const maestroChromeOnboarding = Boolean(args['maestro-chrome-onboarding']);
       const disableAnimations = Boolean(args['disable-animations']);
@@ -838,6 +844,7 @@ export const cloudCommand = defineCommand({
         showCrosshairs,
         maestroChromeOnboarding,
         disableAnimations,
+        renderEngine,
       });
 
       // Device-matrix cost preview: the server prices the exact fan-out (quote

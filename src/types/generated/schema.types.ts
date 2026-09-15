@@ -424,7 +424,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/org/update-gpu-retries": {
+    "/org/update-retry-escalation": {
         parameters: {
             query?: never;
             header?: never;
@@ -433,7 +433,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["OrgController_updateGpuRetries"];
+        post: operations["OrgController_updateRetryEscalation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1643,7 +1643,7 @@ export interface components {
             /** @enum {string} */
             androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
             /** @enum {string} */
-            androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
+            androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "pixel-8" | "pixel-10" | "pixel-10-pro" | "pixel-10-pro-xl" | "pixel-10-pro-fold" | "pixel-11" | "generic-tablet";
             apiKey?: string;
             apiUrl?: string;
             appBinaryId: string;
@@ -1683,7 +1683,7 @@ export interface components {
             /** @enum {string} */
             androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
             /** @enum {string} */
-            androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
+            androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "pixel-8" | "pixel-10" | "pixel-10-pro" | "pixel-10-pro-xl" | "pixel-10-pro-fold" | "pixel-11" | "generic-tablet";
             apiKey?: string;
             apiUrl?: string;
             appBinaryId: string;
@@ -1734,7 +1734,7 @@ export interface components {
             /** @enum {string} */
             androidApiLevel?: "29" | "30" | "31" | "32" | "33" | "34" | "35" | "36" | "37";
             /** @enum {string} */
-            androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "generic-tablet";
+            androidDevice?: "pixel-6" | "pixel-6-pro" | "pixel-7" | "pixel-7-pro" | "pixel-8" | "pixel-10" | "pixel-10-pro" | "pixel-10-pro-xl" | "pixel-10-pro-fold" | "pixel-11" | "generic-tablet";
             apiKey?: string;
             apiUrl?: string;
             appBinaryId: string;
@@ -2632,7 +2632,7 @@ export interface operations {
             };
         };
     };
-    OrgController_updateGpuRetries: {
+    OrgController_updateRetryEscalation: {
         parameters: {
             query?: never;
             header?: never;
@@ -2643,12 +2643,12 @@ export interface operations {
             content: {
                 "application/json": {
                     orgId: number;
-                    gpuRetries: boolean;
+                    enabled: boolean;
                 };
             };
         };
         responses: {
-            /** @description GPU retries setting updated successfully. */
+            /** @description Retry escalation setting updated successfully. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -3018,7 +3018,8 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -3036,7 +3037,8 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
@@ -3046,14 +3048,66 @@ export interface operations {
                      *               "33",
                      *               "34",
                      *               "35",
-                     *               "36"
+                     *               "36",
+                     *               "37"
+                     *             ],
+                     *             "deprecated": false
+                     *           },
+                     *           "pixel-8": {
+                     *             "name": "Pixel 8",
+                     *             "apiLevels": [
+                     *               "34",
+                     *               "35",
+                     *               "36",
+                     *               "37"
+                     *             ],
+                     *             "deprecated": false
+                     *           },
+                     *           "pixel-10": {
+                     *             "name": "Pixel 10",
+                     *             "apiLevels": [
+                     *               "36",
+                     *               "37"
+                     *             ],
+                     *             "deprecated": false
+                     *           },
+                     *           "pixel-10-pro": {
+                     *             "name": "Pixel 10 Pro",
+                     *             "apiLevels": [
+                     *               "36",
+                     *               "37"
+                     *             ],
+                     *             "deprecated": false
+                     *           },
+                     *           "pixel-10-pro-xl": {
+                     *             "name": "Pixel 10 Pro XL",
+                     *             "apiLevels": [
+                     *               "36",
+                     *               "37"
+                     *             ],
+                     *             "deprecated": false
+                     *           },
+                     *           "pixel-10-pro-fold": {
+                     *             "name": "Pixel 10 Pro Fold",
+                     *             "apiLevels": [
+                     *               "36",
+                     *               "37"
+                     *             ],
+                     *             "deprecated": false
+                     *           },
+                     *           "pixel-11": {
+                     *             "name": "Pixel 11",
+                     *             "apiLevels": [
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           },
                      *           "generic-tablet": {
                      *             "name": "Generic Tablet",
                      *             "apiLevels": [
-                     *               "33"
+                     *               "33",
+                     *               "36",
+                     *               "37"
                      *             ],
                      *             "deprecated": false
                      *           }
@@ -3079,10 +3133,11 @@ export interface operations {
                      *             "2.6.1",
                      *             "2.7.0",
                      *             "2.8.0",
-                     *             "2.9.0"
+                     *             "2.9.0",
+                     *             "2.10.0"
                      *           ],
                      *           "defaultVersion": "2.2.0",
-                     *           "latestVersion": "2.9.0"
+                     *           "latestVersion": "2.10.0"
                      *         }
                      *       }
                      *     }
