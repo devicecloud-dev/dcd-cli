@@ -143,7 +143,8 @@ Releases are automated by [release-please](https://github.com/googleapis/release
 
 - Merges to `dev` accumulate into a **beta** release (published to npm under the
   `beta` tag).
-- Maintainers promote `dev` → `production` for **stable** releases (npm `latest`).
+- Maintainers promote `dev` → `production` for **stable** releases (npm `latest`),
+  always with a **merge commit** so the two branches stay in sync.
 
 release-please reads the Conventional Commit titles of merged PRs to compute the
 next version and generate the changelog — which is exactly why the PR title
