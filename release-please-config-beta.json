@@ -26,7 +26,7 @@
   "packages": {
     ".": {
       "package-name": "@devicecloud.dev/dcd",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG-beta.md"
     }
   }
 }
