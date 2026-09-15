@@ -1,5 +1,17 @@
 # Changelog
 
+## [5.5.0-beta.4](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.3...v5.5.0-beta.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* register tsx's ESM loader only so mocha 12.0.1 can load find-up@8 ([#157](https://github.com/devicecloud-dev/dcd-cli/issues/157)) ([004b478](https://github.com/devicecloud-dev/dcd-cli/commit/004b47838983a6e1c6caca060e7c43f85a737f4a))
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 7 updates ([#156](https://github.com/devicecloud-dev/dcd-cli/issues/156)) ([1e6e2c0](https://github.com/devicecloud-dev/dcd-cli/commit/1e6e2c087817218d9fc8da69a95089253b779d39))
+
 ## [5.5.0-beta.3](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.2...v5.5.0-beta.3) (2026-09-14)
 
 
