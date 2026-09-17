@@ -4,6 +4,12 @@ import type { ArgsDef } from 'citty';
  * Test execution and flow management flags
  */
 export const executionFlags = {
+  'cancel-previous': {
+    type: 'boolean',
+    default: false,
+    description:
+      'Cancel the still-queued tests of the previous run from the same CI context (repo + branch/PR + check name, read from your CI metadata). Tests already running are left to finish; cancelled tests are refunded at 75%. Does nothing outside CI.',
+  },
   config: {
     type: 'string',
     description:

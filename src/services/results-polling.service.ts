@@ -81,9 +81,36 @@ export function deviceFromResultRow(r: {
   };
 }
 
+/**
+ * Was this row cancelled because a newer run from the same CI context
+ * replaced it (`dcd cloud --cancel-previous`)?
+ *
+ * Read through a structural cast for the same reason deviceFromResultRow
+ * does: the committed generated types are regenerated wholesale from dev's
+ * swagger and lag the API, and this must work against an API that already
+ * sends the field.
+ */
+export function isSupersededRow(r: unknown): boolean {
+  const reason = (r as { cancellation_reason?: string | null } | null)
+    ?.cancellation_reason;
+  return typeof reason === 'string' && reason.startsWith('superseded_by:');
+}
+
+/** The upload that superseded this run, for the console link. */
+export function supersedingUploadId(results: unknown[]): string | undefined {
+  for (const r of results) {
+    const reason = (r as { cancellation_reason?: string | null } | null)
+      ?.cancellation_reason;
+    if (typeof reason === 'string' && reason.startsWith('superseded_by:')) {
+      return reason.slice('superseded_by:'.length) || undefined;
+    }
+  }
+  return undefined;
+}
+
 export interface PollingResult {
   consoleUrl: string;
-  status: 'FAILED' | 'PASSED';
+  status: 'FAILED' | 'PASSED' | 'SUPERSEDED';
   tests: Array<{
     /** Device this result ran on (present when the API reports it). */
     device?: TestDevice;
@@ -339,13 +366,24 @@ export class ResultsPollingService {
   ): PollingResult {
     const resultsWithoutEarlierTries = this.filterLatestResults(results);
 
+    // ANY superseded row settles the whole verdict, even alongside a test
+    // that had genuinely failed before the newer run replaced this one: this
+    // run no longer speaks for the commit, so failing the build on its behalf
+    // is wrong. Actions reaches the same conclusion — a cancelled run's
+    // conclusion is `cancelled`, whatever had already failed inside it. The
+    // failure is still printed and still in `tests[]`; only the exit code
+    // changes.
+    const superseded = resultsWithoutEarlierTries.some(isSupersededRow);
+
     return {
       consoleUrl,
       // Anything other than an explicit pass (CANCELLED, ERROR, a status we
       // don't know about yet) must fail the run — this gates CI exit codes.
-      status: resultsWithoutEarlierTries.every((result) => result.status === 'PASSED')
-        ? 'PASSED'
-        : 'FAILED',
+      status: superseded
+        ? 'SUPERSEDED'
+        : resultsWithoutEarlierTries.every((result) => result.status === 'PASSED')
+          ? 'PASSED'
+          : 'FAILED',
       tests: resultsWithoutEarlierTries.map((r) => ({
         // r carries config/simulator_name at runtime; the committed generated
         // types lag the API (regenerated wholesale from dev's swagger), so read
@@ -386,8 +424,12 @@ export class ResultsPollingService {
     const pending = statusCounts.PENDING || 0;
     const queued = statusCounts.QUEUED || 0;
     const running = statusCounts.RUNNING || 0;
+    // CANCELLED is terminal, so it counts as completed. Without it a
+    // cancelled or superseded run's footer sticks at "8/12 completed"
+    // forever, having already stopped polling.
+    const cancelled = statusCounts.CANCELLED || 0;
     const total = results.length;
-    const completed = passed + failed;
+    const completed = passed + failed + cancelled;
 
     const summary = formatTestSummary({
       completed,
@@ -561,6 +603,37 @@ export class ResultsPollingService {
       consoleUrl,
       testMetadata,
     );
+
+    if (output.status === 'SUPERSEDED') {
+      // Exit 0: a newer run of the same CI context replaced this one, so
+      // failing the build here would fail it for work nobody is waiting on.
+      // Falls through to the success return below — RunFailedError, and with
+      // it the exit code 2 in `dcd cloud`, is never reached.
+      if (logger && !json) {
+        const newer = supersedingUploadId(updatedResults);
+        logger('\n');
+        logger(
+          ui.warn(
+            'Run superseded by a newer run from the same CI context — exiting 0',
+          ),
+        );
+        if (newer) {
+          logger(
+            ui.branch(
+              ui.fields([
+                [
+                  'superseded by',
+                  colors.url(consoleUrl.replace(uploadId, newer)),
+                ],
+              ]),
+            ),
+          );
+        }
+        logger('\n');
+      }
+
+      return output;
+    }
 
     if (output.status === 'FAILED') {
       if (debug && logger) {
