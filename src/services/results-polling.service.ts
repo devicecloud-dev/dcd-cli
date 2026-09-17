@@ -108,6 +108,25 @@ export function supersedingUploadId(results: unknown[]): string | undefined {
   return undefined;
 }
 
+/**
+ * The superseding run's console link, derived from this run's.
+ *
+ * The `result` parameter deep-links a single test, and that id belongs to
+ * THIS upload — carrying it over would point at a result the newer upload
+ * does not contain. Swap the upload id and drop it.
+ */
+export function supersedingConsoleUrl(
+  consoleUrl: string,
+  uploadId: string,
+  supersededBy: string,
+): string {
+  return consoleUrl
+    .replace(uploadId, supersededBy)
+    .replace(/&result=[^&]*/, '')
+    .replace(/\?result=[^&]*&/, '?')
+    .replace(/\?result=[^&]*$/, '');
+}
+
 export interface PollingResult {
   consoleUrl: string;
   status: 'FAILED' | 'PASSED' | 'SUPERSEDED';
@@ -623,7 +642,9 @@ export class ResultsPollingService {
               ui.fields([
                 [
                   'superseded by',
-                  colors.url(consoleUrl.replace(uploadId, newer)),
+                  colors.url(
+                    supersedingConsoleUrl(consoleUrl, uploadId, newer),
+                  ),
                 ],
               ]),
             ),
