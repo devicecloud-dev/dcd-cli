@@ -1,6 +1,6 @@
 # Changelog
 
-## [5.6.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0...v5.6.0-beta.1) (2026-09-17)
+## [5.6.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0...v5.6.0-beta.1) (2026-09-17)
 
 
 ### Features
