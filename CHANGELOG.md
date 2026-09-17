@@ -1,5 +1,28 @@
 # Changelog
 
+## [5.5.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.4.1...v5.5.0) (2026-09-15)
+
+
+### Features
+
+* add Pixel 8, Pixel 10 family and Pixel 11 device slugs ([#151](https://github.com/devicecloud-dev/dcd-cli/issues/151)) ([dac5d1e](https://github.com/devicecloud-dev/dcd-cli/commit/dac5d1ec88c3488802e244338684cfc0f1e2d50f))
+* **cloud:** add --render-engine for the emulator software renderer ([#153](https://github.com/devicecloud-dev/dcd-cli/issues/153)) ([a2888fd](https://github.com/devicecloud-dev/dcd-cli/commit/a2888fd0154ce637a3a7fd02dc04431114df99e0))
+
+
+### Bug Fixes
+
+* register tsx's ESM loader only so mocha 12.0.1 can load find-up@8 ([#157](https://github.com/devicecloud-dev/dcd-cli/issues/157)) ([004b478](https://github.com/devicecloud-dev/dcd-cli/commit/004b47838983a6e1c6caca060e7c43f85a737f4a))
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 7 updates ([#156](https://github.com/devicecloud-dev/dcd-cli/issues/156)) ([1e6e2c0](https://github.com/devicecloud-dev/dcd-cli/commit/1e6e2c087817218d9fc8da69a95089253b779d39))
+
+
+### Miscellaneous
+
+* pin the 5.5.0 promotion ([ea27543](https://github.com/devicecloud-dev/dcd-cli/commit/ea275430ad5e8369a83a07b51fd9c1ec0addd3d1))
+
 ## [5.4.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.4.0...v5.4.1) (2026-09-10)
 
 
