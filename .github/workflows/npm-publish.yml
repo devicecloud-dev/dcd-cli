@@ -23,6 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Trusted publishing: npm is configured with this repo + this workflow as
+      # the publisher for @devicecloud.dev/dcd, and mints a short-lived token
+      # from the OIDC claim instead of a long-lived NPM_TOKEN. Without this
+      # permission the runner cannot request the claim at all, and npm falls
+      # back to the token -- which is what expired on 2026-09-17 and failed the
+      # publish with a 404 on PUT.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
       # Setup .npmrc file to publish to npm
@@ -31,9 +38,13 @@ jobs:
         with:
           run_install: false
 
+      # Node 24 for its bundled npm 11: trusted publishing needs npm >= 11.5.1,
+      # and Node 22 ships npm 10.9. This is the publish job only -- what the CLI
+      # itself supports at runtime is set by tsconfig, not by the Node that
+      # builds it.
       - uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version: '24.x'
           registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
           cache-dependency-path: './pnpm-lock.yaml'
@@ -74,14 +85,19 @@ jobs:
           fi
           echo "Version $VERSION is valid for beta release"
 
+      # `npm publish`, not `pnpm publish`: pnpm only learned the OIDC exchange
+      # in v11, and this repo pins pnpm 10.17 in packageManager. pnpm still does
+      # the install and the build above; only the upload differs. Safe here
+      # because this is a single package with no workspace: deps -- npm packs
+      # the same `files` list.
+      #
+      # No NODE_AUTH_TOKEN on either step: its presence would take precedence
+      # over the OIDC token and put us straight back on the expiring-secret
+      # path.
       - name: Publish Production Version
         if: ${{ inputs.release_type == 'prod' }}
-        run: pnpm publish --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
 
       - name: Publish Beta Version
         if: ${{ inputs.release_type == 'beta' }}
-        run: pnpm publish --tag beta --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --tag beta

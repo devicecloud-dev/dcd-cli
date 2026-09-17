@@ -194,6 +194,7 @@ export const cloudCommand = defineCommand({
         collectRepeatedFlag(rawArgs, ['--exclude-tags']),
       );
       let flows = args.flows as string | undefined;
+      const cancelPrevious = Boolean(args['cancel-previous']);
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
       // Single opt-in for client-side envelope encryption of every sensitive
@@ -819,6 +820,7 @@ export const cloudCommand = defineCommand({
         androidNoSnapshot,
         apiUrl,
         appBinaryId: finalBinaryId,
+        cancelPrevious,
         cliVersion,
         commonRoot,
         continueOnFailure,
