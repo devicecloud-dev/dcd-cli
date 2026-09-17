@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.5.0-beta.5](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.4...v5.5.0-beta.5) (2026-09-17)
+
+
+### Features
+
+* **cloud:** add --cancel-previous to supersede the previous CI run ([#164](https://github.com/devicecloud-dev/dcd-cli/issues/164)) ([169036d](https://github.com/devicecloud-dev/dcd-cli/commit/169036deef348b5955ca2c2a70169c876829eca3))
+
 ## [5.5.0-beta.4](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.3...v5.5.0-beta.4) (2026-09-14)
 
 
