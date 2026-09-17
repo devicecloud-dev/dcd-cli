@@ -1,5 +1,24 @@
 # Changelog
 
+## [5.6.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.5...v5.6.0-beta.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **cloud:** drop the stale result id from the superseded-by link ([#166](https://github.com/devicecloud-dev/dcd-cli/issues/166)) ([a781e4c](https://github.com/devicecloud-dev/dcd-cli/commit/a781e4c87e96100e83309b5b68785aa1a8ca4e15))
+
+
+### Miscellaneous
+
+* re-anchor the beta line and pin the next beta to 5.6.0-beta.1 ([#170](https://github.com/devicecloud-dev/dcd-cli/issues/170)) ([d089531](https://github.com/devicecloud-dev/dcd-cli/commit/d089531a50c0c239ce95c136f403b06892afe638))
+
+## [5.5.0-beta.5](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.4...v5.5.0-beta.5) (2026-09-17)
+
+
+### Features
+
+* **cloud:** add --cancel-previous to supersede the previous CI run ([#164](https://github.com/devicecloud-dev/dcd-cli/issues/164)) ([169036d](https://github.com/devicecloud-dev/dcd-cli/commit/169036deef348b5955ca2c2a70169c876829eca3))
+
 ## [5.5.0-beta.4](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.3...v5.5.0-beta.4) (2026-09-14)
 
 
