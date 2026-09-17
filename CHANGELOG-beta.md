@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.5.0-beta.6](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.5...v5.5.0-beta.6) (2026-09-17)
+
+
+### Bug Fixes
+
+* **cloud:** drop the stale result id from the superseded-by link ([#166](https://github.com/devicecloud-dev/dcd-cli/issues/166)) ([a781e4c](https://github.com/devicecloud-dev/dcd-cli/commit/a781e4c87e96100e83309b5b68785aa1a8ca4e15))
+
 ## [5.5.0-beta.5](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.4...v5.5.0-beta.5) (2026-09-17)
 
 
