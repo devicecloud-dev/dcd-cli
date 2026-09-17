@@ -18,6 +18,13 @@ export interface TestSubmissionConfig {
   androidNoSnapshot?: boolean;
   apiUrl?: string;
   appBinaryId: string;
+  /**
+   * Ask the API to cancel the still-queued tests of the previous run from
+   * the same CI context. Sent as its own field rather than inside `config`,
+   * which is stamped onto every result row and shipped to the runner — this
+   * is a one-off submission directive, not run configuration.
+   */
+  cancelPrevious?: boolean;
   cliVersion: string;
   commonRoot: string;
   continueOnFailure?: boolean;
@@ -86,6 +93,7 @@ export class TestSubmissionService {
       cliVersion,
       env = [],
       metadata = [],
+      cancelPrevious = false,
       googlePlay = false,
       androidApiLevel,
       androidDevice,
@@ -306,6 +314,12 @@ export class TestSubmissionService {
         logger,
         `[DEBUG] Sending metadata to API: ${JSON.stringify(metadataPayload)}`,
       );
+    }
+
+    // Only sent when asked for, so every other submission's wire shape is
+    // unchanged and the flag is simply ignored by an older API.
+    if (cancelPrevious) {
+      fields.cancelPrevious = 'true';
     }
 
     this.setOptionalFields(fields, {
