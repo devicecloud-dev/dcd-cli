@@ -57,7 +57,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://devicecloud.dev"
+    "url": "git+https://github.com/devicecloud-dev/dcd-cli.git"
   },
   "scripts": {
     "dcd": "tsx src/index.ts",

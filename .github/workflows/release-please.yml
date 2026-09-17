@@ -76,6 +76,13 @@ jobs:
           manifest-file: .release-please-manifest-beta.json
 
   publish-npm-prod:
+    # Must be granted here too: a reusable workflow can never hold a
+    # permission its caller does not, and this workflow's top-level
+    # block has none. Without it npm-publish's own id-token: write is
+    # silently dropped and trusted publishing falls back to a token.
+    permissions:
+      contents: read
+      id-token: write
     needs: release-please-prod
     if: needs.release-please-prod.outputs.release_created == 'true'
     uses: ./.github/workflows/npm-publish.yml
@@ -92,6 +99,13 @@ jobs:
     secrets: inherit
 
   publish-npm-beta:
+    # Must be granted here too: a reusable workflow can never hold a
+    # permission its caller does not, and this workflow's top-level
+    # block has none. Without it npm-publish's own id-token: write is
+    # silently dropped and trusted publishing falls back to a token.
+    permissions:
+      contents: read
+      id-token: write
     needs: release-please-beta
     if: needs.release-please-beta.outputs.release_created == 'true'
     uses: ./.github/workflows/npm-publish.yml
