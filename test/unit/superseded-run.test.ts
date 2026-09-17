@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import {
   isSupersededRow,
   ResultsPollingService,
+  supersedingConsoleUrl,
   supersedingUploadId,
 } from '../../src/services/results-polling.service.js';
 
@@ -64,6 +65,30 @@ describe('superseded runs', () => {
 
     it('is undefined when nothing was superseded', () => {
       expect(supersedingUploadId([row()])).to.equal(undefined);
+    });
+  });
+
+  describe('supersedingConsoleUrl', () => {
+    const base = 'https://dev.console.devicecloud.dev/results?upload=A&result=44376';
+
+    it('points at the newer upload and drops the old result id', () => {
+      // 44376 is a result of upload A; carried over it would deep-link B to a
+      // test that is not in it.
+      expect(supersedingConsoleUrl(base, 'A', 'B')).to.equal(
+        'https://dev.console.devicecloud.dev/results?upload=B',
+      );
+    });
+
+    it('handles a url with no result param', () => {
+      expect(
+        supersedingConsoleUrl('https://c/results?upload=A', 'A', 'B'),
+      ).to.equal('https://c/results?upload=B');
+    });
+
+    it('handles result appearing first', () => {
+      expect(
+        supersedingConsoleUrl('https://c/results?result=1&upload=A', 'A', 'B'),
+      ).to.equal('https://c/results?upload=B');
     });
   });
 
