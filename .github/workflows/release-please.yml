@@ -1,17 +1,19 @@
 name: Release
 
-# Drives the full release pipeline:
-#   - Push to `production` → stable release (no -beta suffix, npm `latest` tag).
-#   - Push to `dev` → beta release (e.g. 5.1.0-beta.0, npm `beta` tag, GitHub
-#     "pre-release" badge).
-# In both cases release-please opens/updates a Release PR; merging that PR
-# creates the tag + GitHub Release whose body is the freshly-rendered changelog
-# section, and the same workflow run chains into npm publish + binary uploads.
-# (Chained as jobs because GITHUB_TOKEN-created releases don't trigger
-# workflows listening on `release: published`.)
+# Drives the STABLE release pipeline. A push to `production` makes release-please
+# open/update a Release PR; merging that PR creates the tag + GitHub Release whose
+# body is the freshly-rendered changelog section, and the same workflow run chains
+# into npm publish + binary uploads. (Chained as jobs because GITHUB_TOKEN-created
+# releases don't trigger workflows listening on `release: published`.)
+#
+# Betas are NOT handled here — they are cut by hand from
+# .github/workflows/release-beta.yml. They used to be a second release-please
+# track on `dev` with its own config and manifest, which numbered itself without
+# reference to what stable had shipped and so kept publishing betas that sorted
+# below `@latest`. See that workflow's header for the full story.
 on:
   push:
-    branches: [production, dev]
+    branches: [production]
   workflow_dispatch:
 
 permissions:
@@ -49,32 +51,6 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  release-please-beta:
-    if: github.ref_name == 'dev'
-    runs-on: ubuntu-latest
-    # See release-please-prod above for why this uses an App token with a
-    # GITHUB_TOKEN fallback.
-    env:
-      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
-    steps:
-      - uses: actions/create-github-app-token@v3
-        id: app-token
-        if: env.BOT_APP_ID != ''
-        with:
-          app-id: ${{ secrets.BOT_APP_ID }}
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-      - uses: googleapis/release-please-action@v5
-        id: release
-        with:
-          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
-          target-branch: dev
-          config-file: release-please-config-beta.json
-          manifest-file: .release-please-manifest-beta.json
-
   publish-npm-prod:
     # Must be granted here too: a reusable workflow can never hold a
     # permission its caller does not, and this workflow's top-level
@@ -86,8 +62,6 @@ jobs:
     needs: release-please-prod
     if: needs.release-please-prod.outputs.release_created == 'true'
     uses: ./.github/workflows/npm-publish.yml
-    with:
-      release_type: prod
     secrets: inherit
 
   publish-binaries-prod:
@@ -98,25 +72,67 @@ jobs:
       tag_name: ${{ needs.release-please-prod.outputs.tag_name }}
     secrets: inherit
 
-  publish-npm-beta:
-    # Must be granted here too: a reusable workflow can never hold a
-    # permission its caller does not, and this workflow's top-level
-    # block has none. Without it npm-publish's own id-token: write is
-    # silently dropped and trusted publishing falls back to a token.
+  # Stable releases land on `production` and were never merged back, so `dev`
+  # accumulated a permanent one-way divergence: 26 commits at the last count,
+  # every one of them release bookkeeping, growing by ~3 per release forever.
+  # That also left `dev`'s package.json and CHANGELOG.md stale between releases.
+  # This opens the back-merge automatically so the next promotion's diff is only
+  # the commits since this release.
+  back-merge:
+    needs: release-please-prod
+    if: needs.release-please-prod.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
-    needs: release-please-beta
-    if: needs.release-please-beta.outputs.release_created == 'true'
-    uses: ./.github/workflows/npm-publish.yml
-    with:
-      release_type: beta
-    secrets: inherit
+      contents: write
+      pull-requests: write
+    env:
+      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+    steps:
+      # See release-please-prod for why this prefers an App token: a PR opened by
+      # GITHUB_TOKEN does not trigger the required checks, and `dev`'s `Require
+      # CI` ruleset has NO bypass actors, so such a PR can never be merged.
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        if: env.BOT_APP_ID != ''
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-  publish-binaries-beta:
-    needs: release-please-beta
-    if: needs.release-please-beta.outputs.release_created == 'true'
-    uses: ./.github/workflows/release-binaries.yml
-    with:
-      tag_name: ${{ needs.release-please-beta.outputs.tag_name }}
-    secrets: inherit
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      - name: Open the back-merge PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-please-prod.outputs.version }}
+        run: |
+          set -euo pipefail
+          BRANCH="chore/back-merge-${VERSION}"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+
+          # A merge commit, never a squash or rebase: it is what keeps `dev` and
+          # `production` ancestors of each other. Rewriting the commits here is
+          # what left the two branches permanently divergent before 5.5.0.
+          if ! git merge --no-ff origin/production -m "chore: merge production into dev after ${VERSION}"; then
+            echo "Back-merge of production into dev conflicts — resolve it by hand." >&2
+            git merge --abort || true
+            exit 1
+          fi
+
+          if git diff --quiet "origin/dev..HEAD"; then
+            echo "dev already contains production; nothing to back-merge."
+            exit 0
+          fi
+
+          git push origin "$BRANCH"
+          gh pr create \
+            --base dev \
+            --head "$BRANCH" \
+            --title "chore: merge production into dev after ${VERSION}" \
+            --body "Back-merge of the ${VERSION} stable release so \`dev\` carries the released package.json, CHANGELOG.md and manifest. Opened automatically by the Release workflow."

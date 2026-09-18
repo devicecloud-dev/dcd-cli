@@ -57,15 +57,11 @@ jobs:
             echo "name=v${VERSION}" >> "$GITHUB_OUTPUT"
           fi
 
+      # Glob rather than a hand-listed set: build-binaries.mjs rm -rf's dist-bin
+      # and then writes exactly the five binaries plus SHA256SUMS, so the
+      # directory IS the asset list. release-beta.yml uploads the same way.
       - name: Upload binaries to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ steps.tag.outputs.name }}" \
-            dist-bin/dcd-darwin-arm64 \
-            dist-bin/dcd-darwin-x64 \
-            dist-bin/dcd-linux-arm64 \
-            dist-bin/dcd-linux-x64 \
-            dist-bin/dcd-windows-x64.exe \
-            dist-bin/SHA256SUMS \
-            --clobber
+          TAG: ${{ steps.tag.outputs.name }}
+        run: gh release upload "$TAG" dist-bin/* --clobber

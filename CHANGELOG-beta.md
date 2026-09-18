@@ -1,5 +1,30 @@
 # Changelog
 
+> **Frozen.** Betas are no longer cut by release-please, so nothing appends to
+> this file any more. They are published on demand from the `Release beta`
+> workflow, and each one's notes live on its GitHub prerelease.
+> Entries below are kept as the historical record of the beta line up to
+> 5.6.0-beta.3.
+
+## [5.6.0-beta.3](https://github.com/devicecloud-dev/dcd-cli/compare/v5.6.0-beta.2...v5.6.0-beta.3) (2026-09-18)
+
+
+### Miscellaneous
+
+* re-cut the beta to verify npm trusted publishing ([#180](https://github.com/devicecloud-dev/dcd-cli/issues/180)) ([6e720fb](https://github.com/devicecloud-dev/dcd-cli/commit/6e720fbf4d596ba3d0f9000a049ed2343f166466))
+
+## [5.6.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.6.0-beta.1...v5.6.0-beta.2) (2026-09-18)
+
+
+### Features
+
+* **config:** add includedPaths to ship non-flow files ([#178](https://github.com/devicecloud-dev/dcd-cli/issues/178)) ([aaf91a1](https://github.com/devicecloud-dev/dcd-cli/commit/aaf91a1ee5688bfbd261f3360d5ec4ca8e5ceb0d))
+
+
+### Bug Fixes
+
+* v5 release blockers — installer, binary version, repeated flags, upgrade, CI output ([80eafc6](https://github.com/devicecloud-dev/dcd-cli/commit/80eafc671fdbf87e5efb3416d48b300b16b71bb4))
+
 ## [5.6.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.5...v5.6.0-beta.1) (2026-09-17)
 
 

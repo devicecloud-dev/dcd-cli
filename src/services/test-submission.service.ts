@@ -124,6 +124,7 @@ export class TestSubmissionService {
       flowMetadata,
       flowOverrides,
       flowsToRun: testFileNames,
+      includedFiles = [],
       referencedFiles,
       sequence,
       workspaceConfig,
@@ -168,6 +169,22 @@ export class TestSubmissionService {
       }
     }
 
+    // Logged separately from referencedFiles: these come from config.yaml's
+    // `includedPaths` rather than from a flow command, and they can raise the
+    // common root (see computeCommonRoot) — which shows up here as every flow
+    // key gaining a leading directory segment.
+    if (includedFiles.length > 0) {
+      this.logDebug(
+        debug,
+        logger,
+        `[DEBUG] Uploading ${includedFiles.length} file(s) from \`includedPaths\`:`,
+      );
+      for (const file of includedFiles) {
+        const normalizedPath = this.normalizeFilePath(file, commonRoot);
+        this.logDebug(debug, logger, `[DEBUG]   - ${normalizedPath}`);
+      }
+    }
+
     this.logDebug(debug, logger, `[DEBUG] Compressing files from path: ${flowFile}`);
 
     const plaintextZip = await compressFilesFromRelativePath(
@@ -179,6 +196,7 @@ export class TestSubmissionService {
           ...referencedFiles,
           ...testFileNames,
           ...sequentialFlows,
+          ...includedFiles,
         ]),
       ],
       commonRoot,
