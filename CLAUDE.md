@@ -59,23 +59,37 @@ Full guide in `CONTRIBUTING.md`; the operationally important parts (the ones tha
 - PRs are **squash-merged**, so the **PR title becomes the commit** and must be a [Conventional Commit](https://www.conventionalcommits.org). The title — not the branch commits — is what release-please reads to compute the next version, so it matters even though individual commits are squashed away. A `PR Title` CI check enforces it.
 - Type → bump: `feat` **minor**; `fix`/`perf`/`deps`/`revert`/`refactor` **patch**; `docs`/`chore`/`test`/`ci`/`build`/`style` are hidden and bump nothing. Allowed scopes are free-form.
 - ⚠️ **A `!` (or `BREAKING CHANGE:` footer) bumps the MAJOR — do not use it casually.** The configs set `bump-minor-pre-major: true`, but that only applies **below 1.0.0**; we are on 5.x, so it is inert and a breaking marker means exactly what semver says. A `refactor(cloud)!:` PR title once produced a `6.0.0-beta.1` release PR for what was only a flag rename in an unconsumed beta. Because PRs are squash-merged, **the PR title IS the commit** — the `!` lands even if no branch commit carried it.
-- **Never hand-edit `package.json` version, `CHANGELOG.md` / `CHANGELOG-beta.md`, or the `.release-please-manifest*.json` files** — release-please owns all of them. `src/types/generated/schema.types.ts` is likewise generated (openapi-typescript).
+- **Never hand-edit `package.json` version, `CHANGELOG.md`, or `.release-please-manifest.json`** — release-please owns all three, and hand-editing them is what left the 5.6.0 release PR internally inconsistent. (`CHANGELOG-beta.md` is frozen; nothing writes it any more.) `src/types/generated/schema.types.ts` is likewise generated (openapi-typescript).
 - A first-time contributor must sign the CLA (the CLA Assistant bot comments on the first PR); the CLA check must be green to merge.
 - **CI (`.github/workflows/cli-ci.yml`) runs the same steps on every PR** — fork, Dependabot and same-repo alike, with no privileged path: gitleaks secret scan, `pnpm lint`, `pnpm typecheck`, `pnpm test:unit`, `pnpm build`, `pnpm audit --audit-level moderate`. **`test/integration/*` is not run by CI at all** (see the Commands section: this public repo no longer reaches into the private `devicecloud-dev/dcd` repo for a mock API), so a green PR says nothing about the integration suite — run it locally with `MOCK_API_DIR` set if a change touches the API surface. gitleaks also runs as a pre-commit hook (allowlist in `.gitleaks.toml`); without the binary installed the hook self-skips and CI is the backstop.
 
 ## Releases
 
-Fully automated by [release-please](https://github.com/googleapis/release-please) — no manual version bumping. `.github/workflows/release-please.yml` drives **two parallel tracks off two separate config+manifest pairs**:
+**Stable releases are automatic; betas are cut by hand.**
 
-| Push to | Track | Config / manifest | Version | npm tag |
-| --- | --- | --- | --- | --- |
-| `dev` | **beta** (prerelease) | `release-please-config-beta.json` / `.release-please-manifest-beta.json` | `X.Y.Z-beta.N` | `beta` |
-| `production` | **stable** | `release-please-config.json` / `.release-please-manifest.json` | `X.Y.Z` | `latest` |
+| Line | Trigger | Version | npm tag |
+| --- | --- | --- | --- |
+| **stable** | push to `production` -> release-please opens a Release PR; merging it tags, publishes and uploads binaries | `X.Y.Z` | `latest` |
+| **beta** | run the **Release beta** workflow (`release-beta.yml`) by hand from `dev` | `X.Y.Z-beta.N` | `beta` |
 
-The two tracks also keep **separate changelog files** — beta writes `CHANGELOG-beta.md`, stable writes `CHANGELOG.md` — so a promotion never conflicts on them. The two manifests track their versions **independently** (e.g. beta `5.0.0-beta.3` while stable is `5.0.0`). On each qualifying push release-please opens/updates a **Release PR** on that branch; merging the Release PR creates the git tag + GitHub Release, and the same workflow run **chains** (as `needs:` jobs, because a `GITHUB_TOKEN`-created release won't fire `release: published`) into:
-1. `npm-publish.yml` — publishes to npm. Guards: a prod publish may only run from `production` and its version must **not** carry `-beta`; a beta version **must** carry `-beta`.
-2. `release-binaries.yml` — bun-compiles the standalone binaries (`node scripts/build-binaries.mjs`) and uploads them to the GitHub Release. `get.devicecloud.dev` serves them by reading the GitHub Releases API at runtime, so there's no separate manifest to deploy.
+Stable is driven by `release-please.yml` off `release-please-config.json` / `.release-please-manifest.json`, writing `CHANGELOG.md`. Merging the Release PR creates the tag + GitHub Release and the same run **chains** (as `needs:` jobs, because a `GITHUB_TOKEN`-created release won't fire `release: published`) into `npm-publish.yml` and `release-binaries.yml`. `get.devicecloud.dev` serves the binaries by reading the GitHub Releases API at runtime, so there's no separate manifest to deploy. After a stable release the workflow also opens a **back-merge PR** into `dev`, so the two branches don't drift apart the way they did up to 5.5.0.
 
-**Promoting beta → stable** is a maintainer opening a PR from `dev` into `production` and merging it with a **merge commit** — that push to `production` is what triggers the stable Release PR. Use a merge commit, never squash or rebase: the merge is what makes `production` a descendant of `dev`, so the two branches stay reconcilable and the next promotion's diff is only the commits since the last one. A squash or rebase promotion rewrites the commits, leaves the histories permanently divergent, and forces the next promotion to be reconstructed by hand — that is exactly what the pre-5.5.0 promotions did.
+Betas have **no release-please track and no manifest**. `release-beta.yml` derives the version from the npm registry (`scripts/next-beta-version.mjs`): it bumps the published `latest` and appends the next `-beta.N`, so a beta is always above the current stable. There was a second release-please track until 5.6.0, and because its manifest numbered itself with no reference to what stable had shipped, `@beta` ended up *older* than `@latest` three times (5.0.0, 5.2.0, 5.5.0) — each needing a hand-written `Release-As` to escape. `CHANGELOG-beta.md` is frozen at 5.6.0-beta.2; beta notes now live on the GitHub prerelease.
 
-The only conflict a promotion should raise is the `version` line in `package.json` (beta on one side, stable on the other). **Take `dev`'s** — release-please overwrites it from `.release-please-manifest.json` when the Release PR lands. Releases prefer an automation GitHub App token (`BOT_APP_ID`) so the Release PR triggers the CI / PR-title / CLA checks that branch protection requires, falling back to `GITHUB_TOKEN` until the App secrets are configured.
+**Promoting beta -> stable** is a maintainer opening a PR from `dev` into `production` and merging it with a **merge commit** — that push to `production` is what triggers the stable Release PR. Use a merge commit, never squash or rebase: the merge is what makes `production` a descendant of `dev`, so the two branches stay reconcilable and the next promotion's diff is only the commits since the last one. A squash or rebase promotion rewrites the commits, leaves the histories permanently divergent, and forces the next promotion to be reconstructed by hand — that is exactly what the pre-5.5.0 promotions did.
+
+### Every promotion must carry a `Release-As:` pin
+
+Put the stable version on its own commit in the promotion branch:
+
+```
+git commit --allow-empty -m "chore: pin the X.Y.Z promotion" -m "Release-As: X.Y.Z"
+```
+
+It must be an ordinary commit, not the merge commit — release-please's commit splitting is unreliable on merges. The `promotion-pin` check in `cli-ci.yml` enforces this.
+
+**Do not skip it on the grounds that the conventional commits since the last stable already imply the right bump.** They don't. A promotion is a merge, so every beta tag becomes reachable from `production`, and release-please takes the newest reachable tag as its base — which is a `-beta` one. The 5.6.0 promotion reasoned exactly that way, skipped the pin, and produced a `chore(production): release 5.6.0-beta.1` release PR while leaving `production` carrying `5.6.0-beta.1` in `package.json` against a stable manifest still reading `5.5.0`. `npm-publish.yml`'s version guard then refuses to publish, which is the intended backstop, not the fix.
+
+Also **keep `production`'s `version` line** when resolving the promotion's `package.json` conflict, not `dev`'s. Taking `dev`'s puts a prerelease on the stable branch for as long as the Release PR is open; release-please rewrites it from the manifest when that PR lands, but if the PR stalls — as 5.6.0's did — the stable branch sits on a `-beta`.
+
+Releases prefer an automation GitHub App token (`BOT_APP_ID`) so the Release PR and the back-merge PR trigger the CI / PR-title / CLA checks that branch protection requires, falling back to `GITHUB_TOKEN` until the App secrets are configured.
