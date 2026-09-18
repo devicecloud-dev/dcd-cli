@@ -158,6 +158,7 @@ export function registerRunCloudTest(server: McpServer): void {
         const commonRoot = computeCommonRoot(
           executionPlan.flowsToRun,
           executionPlan.referencedFiles,
+          executionPlan.includedFiles,
         );
         const testMetadataMap = buildTestMetadataMap(
           executionPlan.flowMetadata,

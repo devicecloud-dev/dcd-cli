@@ -35,6 +35,12 @@ export interface IExecutionPlan {
   flowMetadata: Record<string, Record<string, unknown>>;
   flowOverrides: Record<string, Record<string, unknown>>;
   flowsToRun: string[];
+  /**
+   * Extra files pulled in by `config.yaml`'s `includedPaths`. Kept separate
+   * from `referencedFiles` (which is derived from flow commands) so the zip
+   * manifest and the common-root calculation can tell the two apart.
+   */
+  includedFiles: string[];
   referencedFiles: string[];
   sequence?: IFlowSequence | null;
   totalFlowFiles: number;
@@ -178,6 +184,7 @@ async function planSingleFile(
   normalizedInput: string,
   warn: (message: string) => void,
   resolvedConfigFile?: string,
+  debug = false,
 ): Promise<IExecutionPlan> {
   const inputBasename = path.basename(normalizedInput);
   if (
@@ -218,11 +225,24 @@ async function planSingleFile(
     }
   }
 
+  // A single-file input has no workspace directory, so `includedPaths` (which
+  // only reaches here via --config) anchors on the flow file's own directory —
+  // the same place Maestro resolves an assertScreenshot baseline from.
+  const includedFiles = workspaceConfig
+    ? resolveIncludedPaths(
+        workspaceConfig,
+        path.dirname(normalizedInput),
+        warn,
+        debug,
+      )
+    : [];
+
   const checkedDependancies = await checkDependencies(normalizedInput);
   return {
     flowMetadata,
     flowOverrides,
     flowsToRun: [normalizedInput],
+    includedFiles,
     referencedFiles: [...new Set(checkedDependancies)],
     totalFlowFiles: 1,
     workspaceConfig,
@@ -286,6 +306,119 @@ async function applyFlowGlobs(
   }
 
   return unfilteredFlowFiles.filter((file) => !isExcludedConfig(file));
+}
+
+/**
+ * The whole archive is buffered in memory by `compressFilesFromRelativePath`,
+ * so an unbounded `**` glob is a real footgun. These are warn thresholds, not
+ * hard limits — a legitimately large baseline set should still upload.
+ */
+const INCLUDED_PATHS_FILE_WARN_THRESHOLD = 200;
+const INCLUDED_PATHS_BYTES_WARN_THRESHOLD = 50 * 1024 * 1024;
+
+/**
+ * Resolve `config.yaml`'s `includedPaths` globs into absolute file paths.
+ *
+ * This is the general-purpose escape hatch for shipping files the flow
+ * commands don't reference: `assertScreenshot` baselines above all, but also
+ * fixtures, test data and certificates. Only `addMedia` / `runFlow` /
+ * `runScript` arguments are discovered by walking the flows, so without this
+ * key such files are silently absent from the uploaded zip.
+ *
+ * Glob semantics deliberately mirror `flows:` (`applyFlowGlobs`): patterns
+ * resolve against the workspace root, never the config file's directory, so
+ * `--config ci/workspace.yaml` behaves identically to an auto-detected config.
+ *
+ * @param workspaceConfig - Validated workspace config
+ * @param normalizedInput - Normalized path to the workspace directory
+ * @param warn - Sink for non-fatal problems
+ * @param debug - Whether to emit debug logging
+ * @returns Absolute paths of every matched file, deduped and sorted
+ * @throws Error if a pattern escapes the workspace root
+ */
+function resolveIncludedPaths(
+  workspaceConfig: IWorkspaceConfig,
+  normalizedInput: string,
+  warn: (message: string) => void,
+  debug = false,
+): string[] {
+  const patterns = workspaceConfig.includedPaths;
+  if (!patterns || patterns.length === 0) return [];
+
+  const workspaceRoot = path.resolve(normalizedInput);
+  const resolved = new Set<string>();
+  const unmatched: string[] = [];
+
+  for (const pattern of patterns) {
+    // fs.globSync lands in Node 22; the CLI's `engines.node` already requires
+    // it. No `nodir` option — directories are stripped by the stat check below.
+    const matches = fs.globSync(pattern, { cwd: normalizedInput });
+    let matchedFile = false;
+
+    for (const match of matches) {
+      const absolute = path.resolve(normalizedInput, match);
+
+      // Containment guard: `flows:` has none because its matches are only ever
+      // parsed as YAML, but this key ships arbitrary bytes to a remote runner,
+      // so a `../../../` climb must not silently leave the workspace.
+      const relative = path.relative(workspaceRoot, absolute);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error(
+          `\`includedPaths\` pattern "${pattern}" resolves outside the workspace: ${absolute}\n\n` +
+            `Included paths must stay within ${workspaceRoot}.`,
+        );
+      }
+
+      try {
+        if (!fs.statSync(absolute).isFile()) continue;
+      } catch {
+        continue;
+      }
+
+      matchedFile = true;
+      resolved.add(absolute);
+    }
+
+    if (!matchedFile) unmatched.push(pattern);
+  }
+
+  if (unmatched.length > 0) {
+    warn(
+      `Warning: \`includedPaths\` pattern(s) in config matched no files:\n` +
+        `${unmatched.map((pattern) => `  ${pattern}`).join('\n')}\n\n` +
+        `Patterns are resolved relative to ${workspaceRoot}.`,
+    );
+  }
+
+  const files = [...resolved].sort((a, b) => a.localeCompare(b));
+
+  let totalBytes = 0;
+  for (const file of files) {
+    try {
+      totalBytes += fs.statSync(file).size;
+    } catch {
+      // Raced away between glob and stat; the zip step reports it properly.
+    }
+  }
+
+  if (
+    files.length > INCLUDED_PATHS_FILE_WARN_THRESHOLD ||
+    totalBytes > INCLUDED_PATHS_BYTES_WARN_THRESHOLD
+  ) {
+    warn(
+      `Warning: \`includedPaths\` matched ${files.length} file(s) totalling ` +
+        `${Math.round(totalBytes / (1024 * 1024))} MB. The flow archive is built in ` +
+        `memory, so consider narrowing the patterns.`,
+    );
+  }
+
+  if (debug) {
+    console.log(
+      `[DEBUG] includedPaths matched ${files.length} file(s):\n${files.join('\n')}`,
+    );
+  }
+
+  return files;
 }
 
 /**
@@ -382,7 +515,7 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
   }
 
   if (fs.lstatSync(normalizedInput).isFile()) {
-    return planSingleFile(normalizedInput, warn, resolvedConfigFile);
+    return planSingleFile(normalizedInput, warn, resolvedConfigFile, debug);
   }
 
   let unfilteredFlowFiles = await readDirectory(normalizedInput, isFlowFile);
@@ -522,6 +655,12 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
     flowMetadata,
     flowOverrides,
     flowsToRun: normalFlows,
+    includedFiles: resolveIncludedPaths(
+      workspaceConfig,
+      normalizedInput,
+      warn,
+      debug,
+    ),
     referencedFiles: [...new Set(allFiles)],
     sequence: {
       continueOnFailure: workspaceConfig.executionOrder?.continueOnFailure,

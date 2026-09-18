@@ -621,6 +621,7 @@ export const cloudCommand = defineCommand({
         flowMetadata,
         flowOverrides,
         flowsToRun: testFileNames,
+        includedFiles,
         referencedFiles,
         sequence,
       } = executionPlan;
@@ -635,10 +636,27 @@ export const cloudCommand = defineCommand({
         out(`[DEBUG] Test file names: ${testFileNames.join(', ')}`);
       }
 
-      const commonRoot = computeCommonRoot(testFileNames, referencedFiles);
+      const commonRoot = computeCommonRoot(
+        testFileNames,
+        referencedFiles,
+        includedFiles,
+      );
 
       if (debug) {
         out(`[DEBUG] Common root directory: ${commonRoot}`);
+
+        // `includedPaths` files sitting beside the flows tree rather than
+        // inside it raise the common root, so every server-side flow key gains
+        // a leading segment. Harmless but visible in the console, so say it.
+        const rootWithoutIncludes = computeCommonRoot(
+          testFileNames,
+          referencedFiles,
+        );
+        if (includedFiles.length > 0 && rootWithoutIncludes !== commonRoot) {
+          out(
+            `[DEBUG] \`includedPaths\` raised the common root from ${rootWithoutIncludes} to ${commonRoot} — flow paths gain a leading segment`,
+          );
+        }
       }
 
       const testMetadataMap = buildTestMetadataMap(flowMetadata, commonRoot);
