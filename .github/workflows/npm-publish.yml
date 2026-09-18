@@ -23,16 +23,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Trusted publishing: npm is configured with this repo + this workflow as
-      # the publisher for @devicecloud.dev/dcd, and mints a short-lived token
-      # from the OIDC claim instead of a long-lived NPM_TOKEN. Without this
-      # permission the runner cannot request the claim at all, and npm falls
-      # back to the token -- which is what expired on 2026-09-17 and failed the
-      # publish with a 404 on PUT.
+      # Trusted publishing: npm mints a short-lived token from the OIDC claim
+      # instead of a long-lived NPM_TOKEN (which expired on 2026-09-17). The
+      # caller must grant this too — release-please.yml's publish-npm-* jobs do
+      # — because a workflow_call job's permissions are capped by the caller's.
+      #
+      # The trusted publisher registered on npmjs.com must name the workflow
+      # that STARTED the run, not this file: npm validates the calling
+      # workflow's filename, so the normal release path needs
+      # `release-please.yml`. A manual workflow_dispatch of this file would need
+      # `npm-publish.yml` instead. See https://docs.npmjs.com/trusted-publishers
       id-token: write
     steps:
       - uses: actions/checkout@v7
-      # Setup .npmrc file to publish to npm
       - name: Setup pnpm
         uses: pnpm/action-setup@v6.1.0
         with:
@@ -42,10 +45,19 @@ jobs:
       # and Node 22 ships npm 10.9. This is the publish job only -- what the CLI
       # itself supports at runtime is set by tsconfig, not by the Node that
       # builds it.
+      # Deliberately NO `registry-url`. It looks harmless — npmjs.org is the
+      # default registry anyway — but it makes setup-node write an .npmrc
+      # containing `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`. With
+      # no NODE_AUTH_TOKEN in the env (the whole point of trusted publishing)
+      # that expands to an EMPTY token, npm sees auth as already configured,
+      # never performs the OIDC exchange, and PUTs unauthenticated. npm answers
+      # an unauthorised write to an existing package with 404, not 403, so the
+      # symptom is a bare `E404 ... PUT /@devicecloud.dev%2fdcd` and a log with
+      # no mention of OIDC at all. That is what broke 5.6.0-beta.1 and beta.2.
+      # See actions/setup-node#1551 and npm/documentation#1960.
       - uses: actions/setup-node@v7
         with:
           node-version: '24.x'
-          registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
           cache-dependency-path: './pnpm-lock.yaml'
 
