@@ -1,5 +1,11 @@
 # Changelog
 
+> **Frozen.** Betas are no longer cut by release-please, so nothing appends to
+> this file any more. They are published on demand from the `Release beta`
+> workflow, and each one's notes live on its GitHub prerelease.
+> Entries below are kept as the historical record of the beta line up to
+> 5.6.0-beta.2.
+
 ## [5.6.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.6.0-beta.1...v5.6.0-beta.2) (2026-09-18)
 
 
