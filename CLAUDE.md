@@ -78,18 +78,12 @@ Betas have **no release-please track and no manifest**. `release-beta.yml` deriv
 
 **Promoting beta -> stable** is a maintainer opening a PR from `dev` into `production` and merging it with a **merge commit** — that push to `production` is what triggers the stable Release PR. Use a merge commit, never squash or rebase: the merge is what makes `production` a descendant of `dev`, so the two branches stay reconcilable and the next promotion's diff is only the commits since the last one. A squash or rebase promotion rewrites the commits, leaves the histories permanently divergent, and forces the next promotion to be reconstructed by hand — that is exactly what the pre-5.5.0 promotions did.
 
-### Every promotion must carry a `Release-As:` pin
+### Keep `production`'s version stable through a promotion
 
-Put the stable version on its own commit in the promotion branch:
+When resolving the promotion's `package.json` conflict, **keep `production`'s `version` line, not `dev`'s** — and if `dev` is mid-beta, reset it to production's last stable on the promotion branch.
 
-```
-git commit --allow-empty -m "chore: pin the X.Y.Z promotion" -m "Release-As: X.Y.Z"
-```
+release-please's node strategy reads `package.json` as the *current* version when computing the next one. Its manifest is what anchors the last release (`Found release for path ., v5.5.0`), but the updater still reads the file — and when the 5.6.0 promotion carried `5.6.0-beta.1` across, its log read `updating from 5.6.0-beta.1 to 5.6.0-beta.1` and the stable Release PR proposed **a prerelease as the stable release**. `production` was then stuck: `npm-publish.yml`'s version guard correctly refuses to publish a `-beta` to `latest`, so nothing could ship until the version was reset by hand. The `production-version` check in `cli-ci.yml` now catches this on the PR instead of after a tag exists.
 
-It must be an ordinary commit, not the merge commit — release-please's commit splitting is unreliable on merges. The `promotion-pin` check in `cli-ci.yml` enforces this.
-
-**Do not skip it on the grounds that the conventional commits since the last stable already imply the right bump.** They don't. A promotion is a merge, so every beta tag becomes reachable from `production`, and release-please takes the newest reachable tag as its base — which is a `-beta` one. The 5.6.0 promotion reasoned exactly that way, skipped the pin, and produced a `chore(production): release 5.6.0-beta.1` release PR while leaving `production` carrying `5.6.0-beta.1` in `package.json` against a stable manifest still reading `5.5.0`. `npm-publish.yml`'s version guard then refuses to publish, which is the intended backstop, not the fix.
-
-Also **keep `production`'s `version` line** when resolving the promotion's `package.json` conflict, not `dev`'s. Taking `dev`'s puts a prerelease on the stable branch for as long as the Release PR is open; release-please rewrites it from the manifest when that PR lands, but if the PR stalls — as 5.6.0's did — the stable branch sits on a `-beta`.
+This is self-correcting from 5.6.0 onward: nothing writes `dev`'s `package.json` any more (`release-please.yml` only triggers on `production`, and `release-beta.yml` stamps the version in CI without committing it), so the back-merge after each stable release leaves `dev` holding the last stable version. A `Release-As:` footer is only needed when the computed bump is genuinely wrong — put it on an ordinary commit, never the merge commit.
 
 Releases prefer an automation GitHub App token (`BOT_APP_ID`) so the Release PR and the back-merge PR trigger the CI / PR-title / CLA checks that branch protection requires, falling back to `GITHUB_TOKEN` until the App secrets are configured.
