@@ -113,8 +113,9 @@ Allowed types and how they affect the next release:
 | `style` | Formatting, whitespace | hidden | none |
 
 **Breaking changes:** append `!` after the type (e.g. `feat!: drop Node 20`) or
-add a `BREAKING CHANGE:` footer in the PR description. While the CLI is pre-1.0,
-`feat` bumps the minor version and breaking changes bump the minor too.
+add a `BREAKING CHANGE:` footer in the PR description. The CLI is on 5.x, so this
+bumps the **major** version — please don't reach for it casually. (The configs set
+`bump-minor-pre-major`, but that only applies below 1.0.0 and is inert here.)
 
 Examples:
 
@@ -139,16 +140,19 @@ deps: bump @modelcontextprotocol/sdk to 1.x
 You don't need to do anything for releases — **do not bump the version in
 `package.json` or edit `CHANGELOG.md`** in your PR.
 
-Releases are automated by [release-please](https://github.com/googleapis/release-please):
-
-- Merges to `dev` accumulate into a **beta** release (published to npm under the
-  `beta` tag).
-- Maintainers promote `dev` → `production` for **stable** releases (npm `latest`),
-  always with a **merge commit** so the two branches stay in sync.
+Stable releases are automated by
+[release-please](https://github.com/googleapis/release-please): maintainers
+promote `dev` → `production` (always with a **merge commit**, so the two branches
+stay in sync), which opens a Release PR; merging that publishes to npm under the
+`latest` tag.
 
 release-please reads the Conventional Commit titles of merged PRs to compute the
 next version and generate the changelog — which is exactly why the PR title
 convention matters.
+
+Betas are published on demand by a maintainer running the **Release beta**
+workflow, so your change reaches npm's `beta` tag whenever the next one is cut
+rather than automatically on merge.
 
 ## Questions
 

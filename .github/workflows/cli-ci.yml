@@ -101,3 +101,69 @@ jobs:
     - name: Security audit
       working-directory: ./cli
       run: pnpm audit --audit-level moderate
+
+  # Promotions to `production` MUST pin the stable version with a `Release-As:`
+  # footer on a commit. Without it release-please derives the stable version
+  # from the most recent tag reachable from `production` — and because a
+  # promotion is a merge commit, every beta tag is reachable, so it picks up a
+  # `-beta` version. That is exactly how 5.6.0 ended up with `production`
+  # carrying 5.6.0-beta.1 in package.json and a release PR that could not
+  # publish. 5.5.0 got a pin (`chore: pin the 5.5.0 promotion`) and came out
+  # correct; 5.6.0's was abandoned and did not.
+  #
+  # It has to be on a NORMAL commit, not the merge commit — release-please's
+  # commit splitting is unreliable on merges.
+  promotion-pin:
+    if: github.event_name == 'pull_request' && github.base_ref == 'production'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Require a stable Release-As pin
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        git fetch --quiet origin dev
+
+        # Scope matters more than the pattern here. A promotion merges the whole
+        # of `dev`, whose history carries a `Release-As:` footer from every past
+        # promotion (5.0.0, 5.1.0, 5.1.1, 5.2.0, 5.3.0, 5.3.1 …). Scanning
+        # `base..head` therefore always finds one and passes vacuously — checked
+        # against the real #176, which it waved through. Only commits unique to
+        # this promotion branch count: everything on `production` and everything
+        # on `dev` is excluded. `--no-merges` because release-please's commit
+        # splitting is unreliable on merge commits, so a pin has to sit on an
+        # ordinary one.
+        #
+        # NB `^ref` not `--not ref`: --not is a TOGGLE over everything that
+        # follows, so `--not A --not B` excludes A and re-includes B.
+        MESSAGES=$(git log --no-merges --format=%B "$HEAD_SHA" "^$BASE_SHA" "^origin/dev")
+
+        if echo "$MESSAGES" | grep -qE '^Release-As:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$'; then
+          echo "Found $(echo "$MESSAGES" | grep -oE '^Release-As:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          exit 0
+        fi
+
+        if echo "$MESSAGES" | grep -qE '^Release-As:'; then
+          echo "::error::This promotion pins a PRERELEASE version. The stable line must be pinned to a plain X.Y.Z."
+          echo "$MESSAGES" | grep -E '^Release-As:' >&2
+          exit 1
+        fi
+
+        echo "::error::No 'Release-As: X.Y.Z' footer on any non-merge commit unique to this promotion."
+        {
+          echo "Add one as its own commit on the promotion branch:"
+          echo "    git commit --allow-empty -m 'chore: pin the X.Y.Z promotion' -m 'Release-As: X.Y.Z'"
+          echo
+          echo "Do not skip it on the grounds that the conventional commits since the last"
+          echo "stable already imply the right bump. They do not: a promotion is a merge, so"
+          echo "every beta tag becomes reachable from production, and release-please picks the"
+          echo "newest reachable tag as its base. That is how the 5.6.0 promotion — which"
+          echo "reasoned exactly that way — produced a 'chore(production): release 5.6.0-beta.1'"
+          echo "release PR and left production carrying a prerelease in package.json."
+        } >&2
+        exit 1

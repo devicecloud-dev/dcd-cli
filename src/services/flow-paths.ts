@@ -14,14 +14,25 @@ import { toPortableRelativePath } from '../utils/paths.js';
  * file path. Segment comparison (not `startsWith`) so sibling dirs like
  * `flows`/`flows-extra` can't merge, and the file segment itself is never
  * consumed. Returns '' when the paths share no root at all (or none are given).
+ *
+ * `includedFiles` (config.yaml `includedPaths`) must be folded in for the same
+ * reason referenced files are: the zip strips this root as an anchored prefix,
+ * so a file outside it would get a non-relative entry name. Folding them in
+ * can raise the root — flows in `flows/` beside baselines in `screenshots/`
+ * shifts it from `<root>/flows` to `<root>`, so flow keys gain a `flows/`
+ * segment. That shift is what preserves the flow→baseline relative offset
+ * Maestro resolves against, and is already how `addMedia` behaves.
  */
 export function computeCommonRoot(
   testFileNames: string[],
   referencedFiles: string[],
+  includedFiles: string[] = [],
 ): string {
-  const pathsShortestToLongest = [...testFileNames, ...referencedFiles].sort(
-    (a, b) => a.split(path.sep).length - b.split(path.sep).length,
-  );
+  const pathsShortestToLongest = [
+    ...testFileNames,
+    ...referencedFiles,
+    ...includedFiles,
+  ].sort((a, b) => a.split(path.sep).length - b.split(path.sep).length);
   if (pathsShortestToLongest.length === 0) return '';
 
   const splitPaths = pathsShortestToLongest.map((p) => p.split(path.sep));

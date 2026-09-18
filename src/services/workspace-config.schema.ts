@@ -47,6 +47,7 @@ export const WorkspaceConfigSchema = z.looseObject({
   excludeTags: tagList.nullish(),
   executionOrder: ExecutionOrderSchema.nullish(),
   flows: z.array(z.string()).nullish(),
+  includedPaths: z.array(z.string()).nullish(),
   includeTags: tagList.nullish(),
   local: z
     .looseObject({ deterministicOrder: z.boolean().nullish() })
@@ -92,10 +93,15 @@ export const WORKSPACE_CONFIG_KEYS: ReadonlySet<string> = new Set(
  * Near-misses that aren't just a casing slip on a real key. Keyed lowercase.
  */
 const KEY_ALIASES: Record<string, string> = {
+  assets: 'includedPaths',
   continueonfailure: 'executionOrder.continueOnFailure',
   excludetag: 'excludeTags',
+  files: 'includedPaths',
   floworder: 'executionOrder.flowsOrder',
   flowsorder: 'executionOrder.flowsOrder',
+  includedpath: 'includedPaths',
+  includefiles: 'includedPaths',
+  includepaths: 'includedPaths',
   includetag: 'includeTags',
   tags: 'includeTags / excludeTags',
 };
