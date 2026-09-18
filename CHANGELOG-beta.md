@@ -1,5 +1,17 @@
 # Changelog
 
+## [5.6.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.6.0-beta.1...v5.6.0-beta.2) (2026-09-18)
+
+
+### Features
+
+* **config:** add includedPaths to ship non-flow files ([#178](https://github.com/devicecloud-dev/dcd-cli/issues/178)) ([aaf91a1](https://github.com/devicecloud-dev/dcd-cli/commit/aaf91a1ee5688bfbd261f3360d5ec4ca8e5ceb0d))
+
+
+### Bug Fixes
+
+* v5 release blockers — installer, binary version, repeated flags, upgrade, CI output ([80eafc6](https://github.com/devicecloud-dev/dcd-cli/commit/80eafc671fdbf87e5efb3416d48b300b16b71bb4))
+
 ## [5.6.0-beta.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0-beta.5...v5.6.0-beta.1) (2026-09-17)
 
 
