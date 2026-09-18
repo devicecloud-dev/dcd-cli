@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.6.0-beta.3](https://github.com/devicecloud-dev/dcd-cli/compare/v5.6.0-beta.2...v5.6.0-beta.3) (2026-09-18)
+
+
+### Miscellaneous
+
+* re-cut the beta to verify npm trusted publishing ([#180](https://github.com/devicecloud-dev/dcd-cli/issues/180)) ([6e720fb](https://github.com/devicecloud-dev/dcd-cli/commit/6e720fbf4d596ba3d0f9000a049ed2343f166466))
+
 ## [5.6.0-beta.2](https://github.com/devicecloud-dev/dcd-cli/compare/v5.6.0-beta.1...v5.6.0-beta.2) (2026-09-18)
 
 
