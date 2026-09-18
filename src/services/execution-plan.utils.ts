@@ -9,7 +9,53 @@ import {
   WORKSPACE_CONFIG_KEYS,
 } from './workspace-config.schema.js';
 
-const commandsThatRequireFiles = new Set(['addMedia', 'runFlow', 'runScript']);
+const commandsThatRequireFiles = new Set([
+  'addMedia',
+  'assertScreenshot',
+  'runFlow',
+  'runScript',
+]);
+
+/**
+ * Commands whose file references are best-effort rather than mandatory.
+ *
+ * `assertScreenshot` baselines are legitimately absent on a first run, and
+ * Maestro's own "Screenshot file not found — searched in: …" error is more
+ * useful than ours, so a missing baseline must not abort the upload the way a
+ * missing `addMedia` file does.
+ */
+const commandsWithOptionalFiles = new Set(['assertScreenshot']);
+
+/**
+ * Extensions Maestro's `normalizeScreenshotPath` recognises; anything else
+ * gets `.png` appended, so `assertScreenshot: home` means `home.png`.
+ */
+const SCREENSHOT_EXTENSIONS = new Set([
+  '.bmp',
+  '.gif',
+  '.heic',
+  '.heif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.tiff',
+  '.wbmp',
+]);
+
+/**
+ * Mirror Maestro's `Orchestra.normalizeScreenshotPath`: a screenshot path with
+ * no image extension gets `.png`. Without this, `assertScreenshot: home` looks
+ * like a missing file here while resolving fine on the device.
+ *
+ * @param relativePath - The path as written in the flow
+ * @returns The path with an image extension guaranteed
+ */
+function normalizeScreenshotPath(relativePath: string): string {
+  const extension = path.extname(relativePath).toLowerCase();
+  return SCREENSHOT_EXTENSIONS.has(extension)
+    ? relativePath
+    : `${relativePath}.png`;
+}
 
 export function getFlowsToRunInSequence(
   paths: { [key: string]: string },
@@ -189,6 +235,8 @@ export const checkIfFilesExistInWorkspace = (
   const errors: string[] = [];
   const files: string[] = [];
   const directory = path.dirname(absoluteFilePath);
+  const isScreenshot = commandName === 'assertScreenshot';
+  const isOptional = commandsWithOptionalFiles.has(commandName);
 
   const buildError = (error: string) =>
     `Flow file "${absoluteFilePath}" has a command "${commandName}" that references a ${error} ${JSON.stringify(
@@ -196,11 +244,25 @@ export const checkIfFilesExistInWorkspace = (
     )}`;
 
   const processFilePath = (relativePath: string) => {
+    // A JS/variable-interpolated path (`screenshots/${DCD_DEVICE}/home`) can't
+    // be resolved without running the flow. Skip it rather than guessing — the
+    // config.yaml `includedPaths` key is how those files get bundled.
+    if (relativePath.includes('${')) return;
+
+    const resolvedRelativePath = isScreenshot
+      ? normalizeScreenshotPath(relativePath)
+      : relativePath;
     const absoluteFilePath = path.normalize(
-      path.resolve(directory, relativePath),
+      path.resolve(directory, resolvedRelativePath),
     );
     const error = checkFile(absoluteFilePath);
-    if (error) errors.push(buildError(error));
+    if (error) {
+      // Optional references drop out entirely when missing: pushing them onto
+      // `files` would put a non-existent path into the zip manifest.
+      if (isOptional) return;
+      errors.push(buildError(error));
+    }
+
     files.push(absoluteFilePath);
   };
 
@@ -216,9 +278,13 @@ export const checkIfFilesExistInWorkspace = (
     }
   }
 
-  // object command
+  // object command. `file` is addMedia/runFlow/runScript; `path` is
+  // assertScreenshot's own key for the same thing.
   const x = command as Record<string, string>; // prevent annoying ts error
-  if (typeof command === 'object' && x?.file) processFilePath(x.file);
+  if (typeof command === 'object' && !Array.isArray(command)) {
+    if (x?.file) processFilePath(x.file);
+    if (isScreenshot && typeof x?.path === 'string') processFilePath(x.path);
+  }
 
   return { errors, files };
 };
