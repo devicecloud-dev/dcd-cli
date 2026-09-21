@@ -1,18 +1,31 @@
 /**
  * Device type definitions - should be kept in sync with API
- * @see /Users/riglar/repos/dcd/api/src/common/types/device.types.ts
+ * @see dcd/api/src/common/types/device.types.ts
+ *
+ * These drive `--ios-device` / `--android-device` help text and nothing else:
+ * the actual validation runs against the live compatibility payload
+ * (device-validation.service.ts), so a value the API has dropped produces a
+ * clear "not supported" error rather than a wrong local rejection. That makes
+ * a CLI *ahead* of the API safe and a CLI *behind* it not.
+ *
+ * `iphone-14-pro` and `iphone-15-pro` were listed here but have never existed
+ * in the API enum; removed 2026-09-21 rather than carried forward.
  */
 
 export enum EiOSDevices {
   'ipad-pro-6th-gen' = 'ipad-pro-6th-gen',
+  'ipad-pro-m5-11' = 'ipad-pro-m5-11',
+  'ipad-pro-m5-13' = 'ipad-pro-m5-13',
   'iphone-14' = 'iphone-14',
-  'iphone-14-pro' = 'iphone-14-pro',
   'iphone-15' = 'iphone-15',
-  'iphone-15-pro' = 'iphone-15-pro',
   'iphone-16' = 'iphone-16',
   'iphone-16-plus' = 'iphone-16-plus',
   'iphone-16-pro' = 'iphone-16-pro',
   'iphone-16-pro-max' = 'iphone-16-pro-max',
+  'iphone-17' = 'iphone-17',
+  'iphone-18-pro' = 'iphone-18-pro',
+  'iphone-18-pro-max' = 'iphone-18-pro-max',
+  'iphone-air' = 'iphone-air',
 }
 
 export enum EAndroidDevices {

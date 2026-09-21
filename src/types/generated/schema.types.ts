@@ -1652,9 +1652,11 @@ export interface components {
             /** @enum {string} */
             iOSVersion?: "17" | "18" | "26" | "27";
             /** @enum {string} */
-            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
+            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "iphone-17" | "iphone-air" | "iphone-18-pro" | "iphone-18-pro-max" | "ipad-pro-6th-gen" | "ipad-pro-m5-11" | "ipad-pro-m5-13";
             platform?: string;
             googlePlay?: boolean;
+            /** @description Cancel the still-queued tests of the previous run from the same CI context. The context is derived from the run metadata (gh_repo/bb_repo, gh_branch/gh_pr_number or their bb_ twins, and gh_check_name); without it nothing is cancelled. Tests already running are left to finish. */
+            cancelPrevious?: boolean;
             config: string;
             name?: string;
             /** @enum {string} */
@@ -1692,9 +1694,11 @@ export interface components {
             /** @enum {string} */
             iOSVersion?: "17" | "18" | "26" | "27";
             /** @enum {string} */
-            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
+            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "iphone-17" | "iphone-air" | "iphone-18-pro" | "iphone-18-pro-max" | "ipad-pro-6th-gen" | "ipad-pro-m5-11" | "ipad-pro-m5-13";
             platform?: string;
             googlePlay?: boolean;
+            /** @description Cancel the still-queued tests of the previous run from the same CI context. The context is derived from the run metadata (gh_repo/bb_repo, gh_branch/gh_pr_number or their bb_ twins, and gh_check_name); without it nothing is cancelled. Tests already running are left to finish. */
+            cancelPrevious?: boolean;
             config: string;
             name?: string;
             /** @enum {string} */
@@ -1743,9 +1747,11 @@ export interface components {
             /** @enum {string} */
             iOSVersion?: "17" | "18" | "26" | "27";
             /** @enum {string} */
-            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "ipad-pro-6th-gen";
+            iOSDevice?: "iphone-14" | "iphone-15" | "iphone-16" | "iphone-16-plus" | "iphone-16-pro" | "iphone-16-pro-max" | "iphone-17" | "iphone-air" | "iphone-18-pro" | "iphone-18-pro-max" | "ipad-pro-6th-gen" | "ipad-pro-m5-11" | "ipad-pro-m5-13";
             platform?: string;
             googlePlay?: boolean;
+            /** @description Cancel the still-queued tests of the previous run from the same CI context. The context is derived from the run metadata (gh_repo/bb_repo, gh_branch/gh_pr_number or their bb_ twins, and gh_check_name); without it nothing is cancelled. Tests already running are left to finish. */
+            cancelPrevious?: boolean;
             config: string;
             name?: string;
             /** @enum {string} */
@@ -1881,6 +1887,7 @@ export interface components {
             retry_of?: number;
             fail_reason?: string;
             duration_seconds?: number;
+            cancellation_reason?: string;
             simulator_name?: string;
             config?: Record<string, never>;
         };
@@ -2191,6 +2198,8 @@ export interface operations {
                         message?: string;
                         success?: boolean;
                         cancelledCount?: number;
+                        /** @description Credits returned for tests that had not started yet. 0 when nothing was refundable. See the billing docs for the rate. */
+                        refundedAmount?: number;
                     };
                 };
             };
@@ -2952,174 +2961,125 @@ export interface operations {
                      *       "statusCode": 200,
                      *       "data": {
                      *         "ios": {
-                     *           "iphone-14": {
-                     *             "name": "iPhone 14",
-                     *             "versions": [
-                     *               "17",
-                     *               "18"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "iphone-15": {
-                     *             "name": "iPhone 15",
-                     *             "versions": [
-                     *               "17"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "iphone-16": {
-                     *             "name": "iPhone 16",
-                     *             "versions": [
-                     *               "18",
-                     *               "26"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "iphone-16-plus": {
-                     *             "name": "iPhone 16 Plus",
-                     *             "versions": [
-                     *               "26"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "iphone-16-pro": {
-                     *             "name": "iPhone 16 Pro",
-                     *             "versions": [
-                     *               "18",
-                     *               "26"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "iphone-16-pro-max": {
-                     *             "name": "iPhone 16 Pro Max",
-                     *             "versions": [
-                     *               "18",
-                     *               "26"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "ipad-pro-6th-gen": {
-                     *             "name": "iPad Pro (6th gen)",
-                     *             "versions": [
-                     *               "18",
-                     *               "26"
-                     *             ],
-                     *             "deprecated": false
-                     *           }
+                     *           "iphone-14": [
+                     *             "17",
+                     *             "18"
+                     *           ],
+                     *           "iphone-15": [
+                     *             "17"
+                     *           ],
+                     *           "iphone-16": [
+                     *             "18",
+                     *             "26",
+                     *             "27"
+                     *           ],
+                     *           "iphone-16-plus": [
+                     *             "26",
+                     *             "27"
+                     *           ],
+                     *           "iphone-16-pro": [
+                     *             "18",
+                     *             "26",
+                     *             "27"
+                     *           ],
+                     *           "iphone-16-pro-max": [
+                     *             "18",
+                     *             "26",
+                     *             "27"
+                     *           ],
+                     *           "iphone-17": [
+                     *             "26",
+                     *             "27"
+                     *           ],
+                     *           "iphone-air": [
+                     *             "26",
+                     *             "27"
+                     *           ],
+                     *           "iphone-18-pro": [
+                     *             "27"
+                     *           ],
+                     *           "iphone-18-pro-max": [
+                     *             "27"
+                     *           ],
+                     *           "ipad-pro-6th-gen": [
+                     *             "18",
+                     *             "26",
+                     *             "27"
+                     *           ],
+                     *           "ipad-pro-m5-11": [
+                     *             "26",
+                     *             "27"
+                     *           ],
+                     *           "ipad-pro-m5-13": [
+                     *             "26",
+                     *             "27"
+                     *           ]
                      *         },
                      *         "android": {
-                     *           "pixel-6": {
-                     *             "name": "Pixel 6",
-                     *             "apiLevels": [
-                     *               "29",
-                     *               "30",
-                     *               "31",
-                     *               "32",
-                     *               "33",
-                     *               "34",
-                     *               "35",
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-6-pro": {
-                     *             "name": "Pixel 6 Pro",
-                     *             "apiLevels": [
-                     *               "33",
-                     *               "35"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-7": {
-                     *             "name": "Pixel 7",
-                     *             "apiLevels": [
-                     *               "33",
-                     *               "34",
-                     *               "35",
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-7-pro": {
-                     *             "name": "Pixel 7 Pro",
-                     *             "apiLevels": [
-                     *               "33",
-                     *               "34",
-                     *               "35",
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-8": {
-                     *             "name": "Pixel 8",
-                     *             "apiLevels": [
-                     *               "34",
-                     *               "35",
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-10": {
-                     *             "name": "Pixel 10",
-                     *             "apiLevels": [
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-10-pro": {
-                     *             "name": "Pixel 10 Pro",
-                     *             "apiLevels": [
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-10-pro-xl": {
-                     *             "name": "Pixel 10 Pro XL",
-                     *             "apiLevels": [
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-10-pro-fold": {
-                     *             "name": "Pixel 10 Pro Fold",
-                     *             "apiLevels": [
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "pixel-11": {
-                     *             "name": "Pixel 11",
-                     *             "apiLevels": [
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           },
-                     *           "generic-tablet": {
-                     *             "name": "Generic Tablet",
-                     *             "apiLevels": [
-                     *               "33",
-                     *               "36",
-                     *               "37"
-                     *             ],
-                     *             "deprecated": false
-                     *           }
+                     *           "pixel-6": [
+                     *             "29",
+                     *             "30",
+                     *             "31",
+                     *             "32",
+                     *             "33",
+                     *             "34",
+                     *             "35",
+                     *             "36",
+                     *             "37"
+                     *           ],
+                     *           "pixel-6-pro": [
+                     *             "33",
+                     *             "35"
+                     *           ],
+                     *           "pixel-7": [
+                     *             "33",
+                     *             "34",
+                     *             "35",
+                     *             "36",
+                     *             "37"
+                     *           ],
+                     *           "pixel-7-pro": [
+                     *             "33",
+                     *             "34",
+                     *             "35",
+                     *             "36",
+                     *             "37"
+                     *           ],
+                     *           "pixel-8": [
+                     *             "34",
+                     *             "35",
+                     *             "36",
+                     *             "37"
+                     *           ],
+                     *           "pixel-10": [
+                     *             "36",
+                     *             "37"
+                     *           ],
+                     *           "pixel-10-pro": [
+                     *             "36",
+                     *             "37"
+                     *           ],
+                     *           "pixel-10-pro-xl": [
+                     *             "36",
+                     *             "37"
+                     *           ],
+                     *           "pixel-10-pro-fold": [
+                     *             "36",
+                     *             "37"
+                     *           ],
+                     *           "pixel-11": [
+                     *             "37"
+                     *           ],
+                     *           "generic-tablet": [
+                     *             "33",
+                     *             "36",
+                     *             "37"
+                     *           ]
                      *         },
                      *         "androidPlay": {
-                     *           "pixel-7": {
-                     *             "name": "Pixel 7 (Google Play)",
-                     *             "apiLevels": [
-                     *               "34"
-                     *             ],
-                     *             "deprecated": false
-                     *           }
+                     *           "pixel-7": [
+                     *             "34"
+                     *           ]
                      *         },
                      *         "maestro": {
                      *           "supportedVersions": [
