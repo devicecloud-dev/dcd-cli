@@ -7,6 +7,7 @@
  */
 import { defineCommand } from 'citty';
 
+import { apiFlags } from '../config/flags/api.flags.js';
 import { apiKeyOverride } from '../utils/auth.js';
 import { logger } from '../utils/cli.js';
 import { readConfig } from '../utils/config-store.js';
@@ -20,8 +21,7 @@ export const whoamiCommand = defineCommand({
   },
   args: {
     'api-key': {
-      type: 'string',
-      alias: ['apiKey'],
+      ...apiFlags['api-key'],
       description:
         'An API key as you would pass it to other commands; whoami says that it takes precedence over the stored session',
     },
