@@ -1,6 +1,7 @@
 /**
- * Per-process MCP context: a single resolved AuthContext + API URL, plus the
- * stderr logger every tool must use.
+ * Per-process MCP context: the resolved AuthContext + API URL (re-resolved
+ * when a `dcd login` session nears expiry), plus the stderr logger every tool
+ * must use.
  *
  * stdio transport reserves **stdout** for the JSON-RPC frame stream — anything
  * a tool prints there corrupts the protocol. Tools therefore call the services
@@ -8,7 +9,7 @@
  * can `process.exit`).
  */
 import type { AuthContext } from '../types/domain/auth.types.js';
-import { resolveAuth } from '../utils/auth.js';
+import { isAuthExpiring, resolveAuth } from '../utils/auth.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 
 /** Write a line to stderr. Safe under stdio transport; stdout is reserved. */
@@ -24,22 +25,35 @@ export interface McpContext {
 let cached: McpContext | null = null;
 
 /**
- * Resolve auth + API URL once per process, lazily on first tool invocation.
+ * Resolve auth + API URL lazily on first tool invocation, and again whenever a
+ * `dcd login` session is near expiry.
  *
  * Lazy so `initialize` / `tools/list` succeed before the user has supplied a
  * credential (clients enumerate tools on connect), and so an auth failure
  * surfaces as a tool error rather than crashing the server at boot.
+ *
+ * Re-resolved near expiry because a session's access token lasts about an
+ * hour while an MCP server can run for days: resolving once left every tool
+ * call failing after the first hour. resolveAuth refreshes the stored session
+ * (or picks up one another `dcd` process already refreshed). A failed
+ * refresh leaves the cache alone, so the next call retries — including after
+ * the user runs `dcd login` again. API keys never expire and are resolved once.
  *
  * Precedence matches the CLI: `DEVICE_CLOUD_API_KEY` env > stored `dcd login`
  * session. The API URL honors `DCD_API_URL` (handy for pointing the server at
  * dev/staging), then the logged-in env, then the prod default.
  */
 export async function getContext(): Promise<McpContext> {
-  if (cached) return cached;
+  if (cached && !isAuthExpiring(cached.auth)) return cached;
   const auth = await resolveAuth({ apiKeyFlag: undefined });
   const apiUrl = resolveApiUrl(process.env.DCD_API_URL);
   cached = { apiUrl, auth };
   return cached;
+}
+
+/** Forget the resolved context. For tests. */
+export function clearContextCache(): void {
+  cached = null;
 }
 
 /**
