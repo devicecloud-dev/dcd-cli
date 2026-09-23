@@ -266,7 +266,9 @@ export const cloudCommand = defineCommand({
       );
       const showCrosshairs = Boolean(args['show-crosshairs']);
       const maestroChromeOnboarding = Boolean(args['maestro-chrome-onboarding']);
-      const disableAnimations = Boolean(args['disable-animations']);
+      // Left undefined when not passed, so config.yaml's per-platform value
+      // applies; --no-disable-animations is an explicit false that beats it.
+      const disableAnimations = args['disable-animations'] as boolean | undefined;
       const ghBranch = args.branch as string | undefined;
       const ghCommitSha = args['commit-sha'] as string | undefined;
       const ghRepoName = args['repo-name'] as string | undefined;
@@ -838,6 +840,8 @@ export const cloudCommand = defineCommand({
         androidNoSnapshot,
         apiUrl,
         appBinaryId: finalBinaryId,
+        // With --app-binary-id the binary's platform is unknown here.
+        appPlatform: appBinaryId ? undefined : platformFromAppFile(finalAppFile),
         cancelPrevious,
         cliVersion,
         commonRoot,

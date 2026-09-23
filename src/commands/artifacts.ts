@@ -49,7 +49,7 @@ export const artifactsCommand = defineCommand({
     'html-path': {
       type: 'string',
       description:
-        'Custom file path for downloaded HTML report (default: ./report.html)',
+        'Custom file path for the downloaded HTML report, a ZIP of report.html and its assets (default: ./report.zip)',
     },
     'junit-path': {
       type: 'string',

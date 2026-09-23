@@ -22,7 +22,7 @@ export const outputFlags = {
   'html-path': {
     type: 'string',
     description:
-      'Custom file path for downloaded HTML report (requires --report html, default: ./report.html)',
+      'Custom file path for the downloaded HTML report, a ZIP of report.html and its assets (requires --report html or html-detailed, default: ./report.zip)',
   },
   async: {
     type: 'boolean',

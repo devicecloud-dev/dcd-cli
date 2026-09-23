@@ -19,6 +19,12 @@ export interface TestSubmissionConfig {
   apiUrl?: string;
   appBinaryId: string;
   /**
+   * Platform of the app binary, when the CLI can tell from a local file
+   * (.apk → android; .app / .zip / Expo .tar.gz → ios). Unknown for
+   * --app-binary-id, which falls back to the device flags.
+   */
+  appPlatform?: 'android' | 'ios';
+  /**
    * Ask the API to cancel the still-queued tests of the previous run from
    * the same CI context. Sent as its own field rather than inside `config`,
    * which is stamped onto every result row and shipped to the runner — this
@@ -31,6 +37,11 @@ export interface TestSubmissionConfig {
   debug?: boolean;
   deviceLocale?: string;
   deviceMatrix?: DeviceMatrixConfig[];
+  /**
+   * --disable-animations as given on the command line: true / false when the
+   * flag (or --no-disable-animations) was passed, undefined when it wasn't —
+   * only then does the workspace config's per-platform value apply.
+   */
   disableAnimations?: boolean;
   /**
    * Encrypt the flow zip and env vars before upload (#1151/#1152), each with its
@@ -86,6 +97,7 @@ export class TestSubmissionService {
     const {
       apiUrl,
       appBinaryId,
+      appPlatform,
       encrypt = false,
       flowFile,
       executionPlan,
@@ -278,8 +290,10 @@ export class TestSubmissionService {
     }
 
     // Platform used only to pick which workspace-config disableAnimations flag
-    // applies. A device matrix is single-platform; its first cell decides. Fall
-    // back to the scalar iOS flags for single-device submissions.
+    // applies. The binary decides when the CLI knows it — otherwise an iOS run
+    // without --ios-device/--ios-version read the android block. For an
+    // --app-binary-id, a device matrix (single-platform; its first cell
+    // decides) or the scalar iOS flags are the best evidence left.
     const matrixPlatform =
       deviceMatrix && deviceMatrix.length > 0
         ? 'iOSDevice' in deviceMatrix[0]
@@ -287,12 +301,18 @@ export class TestSubmissionService {
           : 'android'
         : undefined;
     const targetPlatform =
-      matrixPlatform ?? (iOSDevice || iOSVersion ? 'ios' : 'android');
+      appPlatform ??
+      matrixPlatform ??
+      (iOSDevice || iOSVersion ? 'ios' : 'android');
     const configYamlDisableAnimations =
       targetPlatform === 'ios'
         ? Boolean(workspaceConfig?.platform?.ios?.disableAnimations)
         : Boolean(workspaceConfig?.platform?.android?.disableAnimations);
-    const effectiveDisableAnimations = disableAnimations || configYamlDisableAnimations;
+    // An explicit --disable-animations / --no-disable-animations wins over
+    // config.yaml; previously `flag || config` meant the flag could only ever
+    // turn animations off, never keep them on against the config.
+    const effectiveDisableAnimations =
+      disableAnimations ?? configYamlDisableAnimations;
 
     const configPayload: Record<
       string,

@@ -785,7 +785,8 @@ export const ApiGateway = {
       },
       html: {
         endpoint: `/results/${uploadId}/html-report`,
-        defaultFilename: `report-${uploadId}.html`,
+        // A ZIP of report.html plus its assets, not a bare HTML file.
+        defaultFilename: `report-${uploadId}.zip`,
         notFoundMessage: `Upload ID '${uploadId}' not found or no HTML report available for this upload`,
         errorPrefix: 'Failed to download HTML report',
       },

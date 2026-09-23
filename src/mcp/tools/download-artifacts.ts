@@ -41,7 +41,9 @@ export function registerDownloadArtifacts(server: McpServer): void {
         reportPath: z
           .string()
           .optional()
-          .describe('Local path for the report file (defaults depend on report type)'),
+          .describe(
+            'Local path for the report file (default ./report.xml for junit, ./report.html for allure, ./report.zip for html, which is a ZIP of report.html and its assets)',
+          ),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -68,13 +70,14 @@ export function registerDownloadArtifacts(server: McpServer): void {
 
         let reportPath: string | undefined;
         if (args.report) {
-          reportPath = args.reportPath
-            ? path.resolve(args.reportPath)
-            : path.resolve(
-                args.report === 'junit'
-                  ? 'report.xml'
-                  : 'report.html',
-              );
+          // The HTML report is a ZIP of report.html plus assets; Allure's is
+          // a single HTML file.
+          const defaultReportPath = {
+            allure: 'report.html',
+            html: 'report.zip',
+            junit: 'report.xml',
+          }[args.report];
+          reportPath = path.resolve(args.reportPath || defaultReportPath);
           await service.downloadReports({
             apiUrl,
             auth,
