@@ -8,6 +8,7 @@ import { uploadBinary, verifyAppZip } from '../methods.js';
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
+import { isEncryptionEnabled } from '../utils/envelope.js';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo.js';
 import { colors, formatId } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
@@ -43,7 +44,10 @@ export const uploadCommand = defineCommand({
       const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
       const appUrl = args['app-url'] as string | undefined;
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
-      const encryptBinary = Boolean(args['encrypt']);
+      // Same rule as `dcd cloud`: the flag turns encryption on, and without it
+      // DCD_ENCRYPT decides. Passing `false` here used to mean "explicitly
+      // off", which silently beat DCD_ENCRYPT=1 for every `dcd upload`.
+      const encryptBinary = isEncryptionEnabled(args['encrypt'] ? true : undefined);
       const debug = Boolean(args.debug);
       const positional = args.appFile as string | undefined;
 
