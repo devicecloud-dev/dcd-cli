@@ -27,12 +27,7 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "json", "path": "server.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "server.json", "jsonpath": "$.packages[*].version" },
-        {
-          "type": "json",
-          "path": "server.json",
-          "jsonpath": "$.packages[*].runtimeArguments[?(@.name === '--package')].value"
-        }
+        { "type": "json", "path": "server.json", "jsonpath": "$.packages[*].version" }
       ]
     }
   }

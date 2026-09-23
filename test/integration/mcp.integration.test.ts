@@ -72,8 +72,9 @@ describe('MCP Server Integration Tests', () => {
       }
     });
 
-    // Registry clients append `<identifier>@<version>` after server.json's
-    // runtime arguments, so the server must shrug off a stray positional.
+    // server.json has registry clients pass `<identifier>@<version>` as the
+    // value of --package, but a client that assembles argv differently could
+    // still hand it to dcd-mcp, so the server must shrug off a stray positional.
     it('ignores the package spec a registry client appends to argv', async () => {
       const { client, ready } = connect(['@devicecloud.dev/dcd@5.5.0', '--read-only']);
       await ready;
