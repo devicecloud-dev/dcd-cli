@@ -27,13 +27,7 @@ import {
 import { telemetry } from '../services/telemetry.service.js';
 import { TestSubmissionService } from '../services/test-submission.service.js';
 import { VersionService } from '../services/version.service.js';
-import {
-  EAndroidApiLevels,
-  EAndroidDevices,
-  EiOSDevices,
-  EiOSVersions,
-  isIosMatrixConfig,
-} from '../types/domain/device.types.js';
+import { isIosMatrixConfig } from '../types/domain/device.types.js';
 import { resolveAuth } from '../utils/auth.js';
 import {
   assertMatrixSupported,
@@ -206,26 +200,16 @@ export const cloudCommand = defineCommand({
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
       );
-      const iOSDevice = validateEnum(
-        args['ios-device'] as string | undefined,
-        Object.values(EiOSDevices),
-        'ios-device',
-      );
-      const iOSVersion = validateEnum(
-        args['ios-version'] as string | undefined,
-        Object.values(EiOSVersions),
-        'ios-version',
-      );
-      const androidApiLevel = validateEnum(
-        args['android-api-level'] as string | undefined,
-        Object.values(EAndroidApiLevels),
-        'android-api-level',
-      );
-      const androidDevice = validateEnum(
-        args['android-device'] as string | undefined,
-        Object.values(EAndroidDevices),
-        'android-device',
-      );
+      // Devices and OS versions are checked against the API's live
+      // compatibility data further down (DeviceValidationService), not the
+      // CLI's enums, which only feed --help: a device the API adds must not
+      // need a CLI release, and one it drops must fail with the API's list.
+      const iOSDevice = (args['ios-device'] as string | undefined) || undefined;
+      const iOSVersion = (args['ios-version'] as string | undefined) || undefined;
+      const androidApiLevel =
+        (args['android-api-level'] as string | undefined) || undefined;
+      const androidDevice =
+        (args['android-device'] as string | undefined) || undefined;
       const androidNoSnapshot = Boolean(args['android-no-snapshot']);
       // Repeatable device-matrix flags: one validated cell each, no cross-product.
       const iosMatrixFlags = collectRepeatedFlag(rawArgs, ['--ios-device-matrix']);

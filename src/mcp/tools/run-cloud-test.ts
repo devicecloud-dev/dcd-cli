@@ -114,18 +114,25 @@ export function registerRunCloudTest(server: McpServer): void {
         const compatibilityData = await fetchCompatibilityData(apiUrl, auth);
 
         const deviceValidation = new DeviceValidationService();
+        // Hints in validation errors name this tool's parameters, not CLI flags.
+        const argNames = {
+          androidApiLevel: 'androidApiLevel',
+          androidDevice: 'androidDevice',
+          iOSDevice: 'iosDevice',
+          iOSVersion: 'iosVersion',
+        };
         deviceValidation.validateiOSDevice(
           args.iosVersion,
           args.iosDevice,
           compatibilityData,
-          { logger: logStderr },
+          { argNames, logger: logStderr },
         );
         deviceValidation.validateAndroidDevice(
           args.androidApiLevel,
           args.androidDevice,
           Boolean(args.googlePlay),
           compatibilityData,
-          { logger: logStderr },
+          { argNames, logger: logStderr },
         );
 
         const resolvedMaestroVersion = new VersionService().resolveMaestroVersion(

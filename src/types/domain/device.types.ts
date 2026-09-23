@@ -2,11 +2,12 @@
  * Device type definitions - should be kept in sync with API
  * @see dcd/api/src/common/types/device.types.ts
  *
- * These drive `--ios-device` / `--android-device` help text and nothing else:
- * the actual validation runs against the live compatibility payload
- * (device-validation.service.ts), so a value the API has dropped produces a
- * clear "not supported" error rather than a wrong local rejection. That makes
- * a CLI *ahead* of the API safe and a CLI *behind* it not.
+ * These drive the `--ios-device` / `--ios-version` / `--android-device` /
+ * `--android-api-level` help text and nothing else: validation runs against
+ * the live compatibility payload (device-validation.service.ts). A value the
+ * API has dropped gets a "not supported" error listing what it offers now, and
+ * one it has added is accepted even if it is missing here — so keeping these
+ * lists current only improves the help text; it never gates a run.
  *
  * `iphone-14-pro` and `iphone-15-pro` were listed here but have never existed
  * in the API enum; removed 2026-09-21 rather than carried forward.

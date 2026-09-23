@@ -158,8 +158,28 @@ appId: com.example.app
       const command = `${CLI} cloud ${androidAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device unsupported-device --ios-version 99`;
 
       const { output } = await runExpectingFailure(command);
-      expect(output).to.include('Invalid value for --ios-device');
-      expect(output).to.include('unsupported-device');
+      expect(output).to.include(
+        'iOS device "unsupported-device" is not supported',
+      );
+      // The alternatives come from the API's compatibility data, not the
+      // CLI's help-text enum.
+      expect(output).to.include('Supported iOS devices: ');
+      expect(output).to.include('iphone-17');
+    });
+
+    it('accepts a device from the API compatibility data (dry run)', async () => {
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device iphone-17 --ios-version 26 --dry-run`;
+
+      const { stdout } = await exec(command, { timeout: 30_000 });
+      expect(stdout).to.include('Dry run mode');
+    });
+
+    it('asks for the version when a lone device needs a non-default one', async () => {
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device iphone-17 --dry-run`;
+
+      const { output } = await runExpectingFailure(command);
+      expect(output).to.include('iphone-17 only supports these iOS versions');
+      expect(output).to.include('--ios-version');
     });
   });
 
