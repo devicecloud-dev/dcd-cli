@@ -45,6 +45,19 @@ export interface ResolveAuthOptions {
   sessionOnly?: boolean;
 }
 
+/**
+ * Which API key, if any, outranks the stored session — the precedence
+ * resolveAuth applies. For the session-only commands (`whoami`, `switch-org`)
+ * to say that what they show is not what other commands will authenticate as.
+ */
+export function apiKeyOverride(
+  apiKeyFlag?: string,
+): '--api-key' | 'DEVICE_CLOUD_API_KEY' | undefined {
+  if (apiKeyFlag?.trim()) return '--api-key';
+  if (process.env.DEVICE_CLOUD_API_KEY?.trim()) return 'DEVICE_CLOUD_API_KEY';
+  return undefined;
+}
+
 export async function resolveAuth(
   opts: ResolveAuthOptions,
 ): Promise<AuthContext> {
