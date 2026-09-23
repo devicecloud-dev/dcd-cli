@@ -72,6 +72,22 @@ describe('MCP Server Integration Tests', () => {
       }
     });
 
+    // server.json has registry clients pass `<identifier>@<version>` as the
+    // value of --package, but a client that assembles argv differently could
+    // still hand it to dcd-mcp, so the server must shrug off a stray positional.
+    it('ignores the package spec a registry client appends to argv', async () => {
+      const { client, ready } = connect(['@devicecloud.dev/dcd@5.5.0', '--read-only']);
+      await ready;
+      try {
+        const { tools } = await client.listTools();
+        const names = tools.map((t) => t.name);
+        expect(names).to.include('dcd_list_devices');
+        expect(names).to.not.include('dcd_run_cloud_test');
+      } finally {
+        await client.close();
+      }
+    });
+
     it('marks the run tool as non-read-only / destructive', async () => {
       const { client, ready } = connect();
       await ready;
