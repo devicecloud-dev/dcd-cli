@@ -11,6 +11,7 @@ import { platformFromAppFile } from '../../services/notices.service.js';
 import { TestSubmissionService } from '../../services/test-submission.service.js';
 import { VersionService } from '../../services/version.service.js';
 import { uploadBinary, uploadFlowZip, verifyAppZip } from '../../methods.js';
+import { refreshAuth } from '../../utils/auth.js';
 import { getCliVersion } from '../../utils/cli.js';
 import { fetchCompatibilityData } from '../../utils/compatibility.js';
 import { isEncryptionEnabled } from '../../utils/envelope.js';
@@ -282,8 +283,13 @@ export function registerRunCloudTest(server: McpServer): void {
         // the caller can resume with dcd_get_status using the returned uploadId.
         const deadline =
           Date.now() + (args.waitTimeoutSeconds ?? 600) * 1000;
+        let pollAuth = auth;
         for (;;) {
-          const status = await ApiGateway.getUploadStatus(apiUrl, auth, { uploadId });
+          // A wait of up to an hour can outlast a `dcd login` access token.
+          pollAuth = await refreshAuth(pollAuth);
+          const status = await ApiGateway.getUploadStatus(apiUrl, pollAuth, {
+            uploadId,
+          });
           if (TERMINAL_STATUSES.has(status.status)) {
             return jsonResult({ uploadId, consoleUrl, status: status.status, tests: status.tests });
           }

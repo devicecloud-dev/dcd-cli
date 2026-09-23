@@ -2,6 +2,7 @@ import * as path from 'node:path';
 
 import { ApiGateway } from '../gateways/api-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
+import { refreshAuth } from '../utils/auth.js';
 
 export interface DownloadOptions {
   auth: AuthContext;
@@ -52,9 +53,11 @@ export class ReportDownloadService {
         logger(`[DEBUG] Downloading artifacts: ${downloadType}`);
       }
 
+      // `dcd cloud` downloads after polling, which can outlast a `dcd login`
+      // token; a failed refresh lands in the warning below like any failure.
       await ApiGateway.downloadArtifactsZip(
         apiUrl,
-        auth,
+        await refreshAuth(auth),
         uploadId,
         downloadType,
         artifactsPath,
@@ -155,9 +158,10 @@ export class ReportDownloadService {
         logger(`[DEBUG] Downloading ${type.toUpperCase()} report`);
       }
 
+      // As for artifacts: this can run after a poll that outlasted the token.
       await ApiGateway.downloadReportGeneric(
         apiUrl,
-        auth,
+        await refreshAuth(auth),
         uploadId,
         type,
         filePath,

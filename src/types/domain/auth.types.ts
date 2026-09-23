@@ -14,6 +14,12 @@ export interface AuthContext {
   accessToken?: string;
   /** Environment the session belongs to — present when mode === 'bearer'. */
   env?: DcdEnvName;
+  /**
+   * Unix epoch seconds at which `accessToken` expires — present when
+   * mode === 'bearer'. Long-lived callers check it (utils/auth.ts
+   * isAuthExpiring / refreshAuth) because the headers below stop working then.
+   */
+  expiresAt?: number;
   /** Present when mode === 'bearer'. */
   orgId?: string;
   /** Present when mode === 'bearer'. */
