@@ -7,7 +7,7 @@
  */
 import { defineCommand } from 'citty';
 
-import { resolveAuth } from '../utils/auth.js';
+import { apiKeyOverride, resolveAuth } from '../utils/auth.js';
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, resolveApiUrl, writeConfig } from '../utils/config-store.js';
 import { fetchOrgs, pickOrg, OrgListItem } from '../utils/orgs.js';
@@ -61,6 +61,15 @@ export const switchOrgCommand = defineCommand({
     });
 
     logger.log(ui.success(`Switched to ${colors.highlight(chosen.name)}`));
+
+    // The switch only changes the stored session; an exported key still wins.
+    if (apiKeyOverride() === 'DEVICE_CLOUD_API_KEY') {
+      logger.log(
+        ui.warn(
+          `${colors.highlight('DEVICE_CLOUD_API_KEY')} is set, so other dcd commands still authenticate with that API key and its org, not ${chosen.name}. Unset it to use the session.`,
+        ),
+      );
+    }
   },
 });
 
