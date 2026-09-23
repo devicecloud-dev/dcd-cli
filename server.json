@@ -1,8 +1,8 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "dev.devicecloud/dcd",
-  "description": "Run Maestro mobile app tests on devicecloud.dev — submit flows, check status, and download artifacts.",
-  "version": "5.0.0-beta.0",
+  "description": "Run Maestro mobile app tests on devicecloud.dev: submit flows, check status, download artifacts.",
+  "version": "5.5.0",
   "repository": {
     "url": "https://github.com/devicecloud-dev/dcd-cli",
     "source": "github"
@@ -11,12 +11,26 @@
     {
       "registryType": "npm",
       "identifier": "@devicecloud.dev/dcd",
-      "version": "5.0.0-beta.0",
+      "version": "5.5.0",
       "runtimeHint": "npx",
-      "transport": { "type": "stdio" },
-      "packageArguments": [
-        { "type": "positional", "value": "dcd-mcp", "valueHint": "dcd-mcp" }
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "value": "-y"
+        },
+        {
+          "type": "named",
+          "name": "--package",
+          "value": "@devicecloud.dev/dcd@5.5.0"
+        },
+        {
+          "type": "positional",
+          "value": "dcd-mcp"
+        }
       ],
+      "transport": {
+        "type": "stdio"
+      },
       "environmentVariables": [
         {
           "name": "DEVICE_CLOUD_API_KEY",

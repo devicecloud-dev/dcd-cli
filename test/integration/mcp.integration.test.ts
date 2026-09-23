@@ -72,6 +72,21 @@ describe('MCP Server Integration Tests', () => {
       }
     });
 
+    // Registry clients append `<identifier>@<version>` after server.json's
+    // runtime arguments, so the server must shrug off a stray positional.
+    it('ignores the package spec a registry client appends to argv', async () => {
+      const { client, ready } = connect(['@devicecloud.dev/dcd@5.5.0', '--read-only']);
+      await ready;
+      try {
+        const { tools } = await client.listTools();
+        const names = tools.map((t) => t.name);
+        expect(names).to.include('dcd_list_devices');
+        expect(names).to.not.include('dcd_run_cloud_test');
+      } finally {
+        await client.close();
+      }
+    });
+
     it('marks the run tool as non-read-only / destructive', async () => {
       const { client, ready } = connect();
       await ready;

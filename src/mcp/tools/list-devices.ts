@@ -17,7 +17,7 @@ export function registerListDevices(server: McpServer): void {
       description:
         'List the iOS and Android devices, OS versions, and Maestro versions available on devicecloud.dev. ' +
         'Use this to discover valid device/version values before submitting a test run. ' +
-        'Returns: { ios, android, androidPlay, maestro }, where each platform maps OS version → supported device list.',
+        'Returns: { ios, android, androidPlay, maestro }, where each platform maps a device slug to the OS versions it runs.',
       inputSchema: {},
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
