@@ -118,7 +118,9 @@ export class ReportDownloadService {
 
       case 'html':
       case 'html-detailed': {
-        const htmlReportPath = path.resolve(process.cwd(), htmlPath || 'report.html');
+        // The HTML report is a ZIP (report.html plus its screenshots and
+        // assets), so the default name says so. An explicit path is kept as-is.
+        const htmlReportPath = path.resolve(process.cwd(), htmlPath || 'report.zip');
         await this.downloadReport('html', htmlReportPath, {
           ...downloadOptions,
           warnLogger,

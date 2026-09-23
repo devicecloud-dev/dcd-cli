@@ -7,6 +7,7 @@ import { ApiError, ApiGateway } from '../../gateways/api-gateway.js';
 import { plan } from '../../services/execution-plan.service.js';
 import { computeCommonRoot, buildTestMetadataMap } from '../../services/flow-paths.js';
 import { DeviceValidationService } from '../../services/device-validation.service.js';
+import { platformFromAppFile } from '../../services/notices.service.js';
 import { TestSubmissionService } from '../../services/test-submission.service.js';
 import { VersionService } from '../../services/version.service.js';
 import { uploadBinary, uploadFlowZip, verifyAppZip } from '../../methods.js';
@@ -210,6 +211,8 @@ export function registerRunCloudTest(server: McpServer): void {
         const { buffer, fields } = await testSubmissionService.buildTestPayload({
           apiUrl,
           appBinaryId,
+          // Picks the workspace config's per-platform disableAnimations.
+          appPlatform: args.appBinaryId ? undefined : platformFromAppFile(args.appFile),
           cliVersion,
           commonRoot,
           continueOnFailure,

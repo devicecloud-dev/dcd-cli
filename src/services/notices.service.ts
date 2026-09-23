@@ -140,6 +140,8 @@ export function platformFromAppFile(
   appFile: string | undefined,
 ): 'android' | 'ios' | undefined {
   if (!appFile) return undefined;
+  // Expo iOS simulator builds (`dcd cloud` extracts these to a .app first).
+  if (appFile.split('?')[0].toLowerCase().endsWith('.tar.gz')) return 'ios';
   const ext = appFile.split('?')[0].toLowerCase().match(/.([a-z0-9]+)$/)?.[1];
   if (ext === 'apk' || ext === 'aab') return 'android';
   if (ext === 'zip' || ext === 'app' || ext === 'ipa') return 'ios';
