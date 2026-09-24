@@ -7,9 +7,11 @@ import { ApiError, ApiGateway } from '../../gateways/api-gateway.js';
 import { plan } from '../../services/execution-plan.service.js';
 import { computeCommonRoot, buildTestMetadataMap } from '../../services/flow-paths.js';
 import { DeviceValidationService } from '../../services/device-validation.service.js';
+import { platformFromAppFile } from '../../services/notices.service.js';
 import { TestSubmissionService } from '../../services/test-submission.service.js';
 import { VersionService } from '../../services/version.service.js';
 import { uploadBinary, uploadFlowZip, verifyAppZip } from '../../methods.js';
+import { refreshAuth } from '../../utils/auth.js';
 import { getCliVersion } from '../../utils/cli.js';
 import { fetchCompatibilityData } from '../../utils/compatibility.js';
 import { isEncryptionEnabled } from '../../utils/envelope.js';
@@ -114,18 +116,25 @@ export function registerRunCloudTest(server: McpServer): void {
         const compatibilityData = await fetchCompatibilityData(apiUrl, auth);
 
         const deviceValidation = new DeviceValidationService();
+        // Hints in validation errors name this tool's parameters, not CLI flags.
+        const argNames = {
+          androidApiLevel: 'androidApiLevel',
+          androidDevice: 'androidDevice',
+          iOSDevice: 'iosDevice',
+          iOSVersion: 'iosVersion',
+        };
         deviceValidation.validateiOSDevice(
           args.iosVersion,
           args.iosDevice,
           compatibilityData,
-          { logger: logStderr },
+          { argNames, logger: logStderr },
         );
         deviceValidation.validateAndroidDevice(
           args.androidApiLevel,
           args.androidDevice,
           Boolean(args.googlePlay),
           compatibilityData,
-          { logger: logStderr },
+          { argNames, logger: logStderr },
         );
 
         const resolvedMaestroVersion = new VersionService().resolveMaestroVersion(
@@ -210,6 +219,8 @@ export function registerRunCloudTest(server: McpServer): void {
         const { buffer, fields } = await testSubmissionService.buildTestPayload({
           apiUrl,
           appBinaryId,
+          // Picks the workspace config's per-platform disableAnimations.
+          appPlatform: args.appBinaryId ? undefined : platformFromAppFile(args.appFile),
           cliVersion,
           commonRoot,
           continueOnFailure,
@@ -279,8 +290,13 @@ export function registerRunCloudTest(server: McpServer): void {
         // the caller can resume with dcd_get_status using the returned uploadId.
         const deadline =
           Date.now() + (args.waitTimeoutSeconds ?? 600) * 1000;
+        let pollAuth = auth;
         for (;;) {
-          const status = await ApiGateway.getUploadStatus(apiUrl, auth, { uploadId });
+          // A wait of up to an hour can outlast a `dcd login` access token.
+          pollAuth = await refreshAuth(pollAuth);
+          const status = await ApiGateway.getUploadStatus(apiUrl, pollAuth, {
+            uploadId,
+          });
           if (TERMINAL_STATUSES.has(status.status)) {
             return jsonResult({ uploadId, consoleUrl, status: status.status, tests: status.tests });
           }

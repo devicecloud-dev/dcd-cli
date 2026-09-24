@@ -45,12 +45,14 @@ Add it to your MCP client config:
   "mcpServers": {
     "devicecloud": {
       "command": "npx",
-      "args": ["-y", "@devicecloud.dev/dcd", "dcd-mcp"],
+      "args": ["-y", "--package=@devicecloud.dev/dcd", "dcd-mcp"],
       "env": { "DEVICE_CLOUD_API_KEY": "<your-api-key>" }
     }
   }
 }
 ```
+
+`--package` matters: the package's default bin is `dcd`, so `npx @devicecloud.dev/dcd dcd-mcp` would run `dcd dcd-mcp` (an unknown command) instead of the server.
 
 Auth is inherited from the CLI: set `DEVICE_CLOUD_API_KEY` as above, or run `dcd login` once and the server picks up the stored session. Point it at a non-prod environment with `DCD_API_URL`.
 
@@ -64,7 +66,7 @@ Auth is inherited from the CLI: set `DEVICE_CLOUD_API_KEY` as above, or run `dcd
 | `dcd_download_artifacts` | Download a run's artifacts/report to disk |
 | `dcd_run_cloud_test` | Submit a flow to run on the cloud (**billable**) |
 
-**Read-only mode.** `dcd_run_cloud_test` consumes test minutes, so it is annotated as non-read-only/destructive (clients can prompt before calling it). To hide it entirely — recommended for autonomous or untrusted agents — pass `--read-only` in `args`, or set `DCD_MCP_READONLY=1` in `env`.
+**Read-only mode.** `dcd_run_cloud_test` consumes test minutes, so it is annotated as non-read-only/destructive (clients can prompt before calling it). To hide it entirely — recommended for autonomous or untrusted agents — pass `--read-only` at the end of `args` (`["-y", "--package=@devicecloud.dev/dcd", "dcd-mcp", "--read-only"]`), or set `DCD_MCP_READONLY=1` in `env`.
 
 By default `dcd_run_cloud_test` is async: it returns an `uploadId` immediately, which you poll with `dcd_get_status`. Pass `wait: true` (bounded by `waitTimeoutSeconds`) to block until completion, or `dryRun: true` to preview the flows without submitting.
 

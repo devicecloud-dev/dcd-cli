@@ -4,8 +4,9 @@
  * Supabase session (refreshed if near expiry). Throws CliError if none found.
  *
  * The refresh path writes the rotated tokens back to disk atomically. Callers
- * use the returned AuthContext for the duration of the command — one resolve
- * per invocation, not per request.
+ * resolve once per invocation, not per request — except where a process can
+ * outlive the session's access token (the MCP server, a long `dcd cloud`
+ * poll), which re-checks with isAuthExpiring / refreshAuth below.
  */
 import { closeSync, openSync, rmSync, statSync } from 'node:fs';
 
@@ -43,6 +44,19 @@ export interface ResolveAuthOptions {
    * needs a browser login even when an API key is exported).
    */
   sessionOnly?: boolean;
+}
+
+/**
+ * Which API key, if any, outranks the stored session — the precedence
+ * resolveAuth applies. For the session-only commands (`whoami`, `switch-org`)
+ * to say that what they show is not what other commands will authenticate as.
+ */
+export function apiKeyOverride(
+  apiKeyFlag?: string,
+): '--api-key' | 'DEVICE_CLOUD_API_KEY' | undefined {
+  if (apiKeyFlag?.trim()) return '--api-key';
+  if (process.env.DEVICE_CLOUD_API_KEY?.trim()) return 'DEVICE_CLOUD_API_KEY';
+  return undefined;
 }
 
 export async function resolveAuth(
@@ -96,6 +110,7 @@ export async function resolveAuth(
     mode: 'bearer',
     accessToken: session.access_token,
     env: config.env,
+    expiresAt: session.expires_at,
     orgId: config.current_org_id,
     userEmail: session.user_email,
     headers: {
@@ -105,6 +120,61 @@ export async function resolveAuth(
   };
   telemetry.configure({ auth, apiUrl: config.api_url });
   return auth;
+}
+
+/**
+ * True when a `dcd login` (bearer) context's access token has expired or will
+ * within the refresh window. API-key contexts never expire.
+ */
+export function isAuthExpiring(
+  auth: AuthContext,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): boolean {
+  return (
+    auth.mode === 'bearer' &&
+    auth.expiresAt !== undefined &&
+    auth.expiresAt <= nowSeconds + REFRESH_SKEW_SECONDS
+  );
+}
+
+/**
+ * Keep a long-running command's credential usable. An API-key context, or a
+ * session that isn't near expiry, comes back unchanged. Otherwise the stored
+ * session is re-read and, if it is expiring too, refreshed under the same lock
+ * resolveAuth uses — so a session another `dcd` process has already rotated
+ * is picked up rather than raced for.
+ *
+ * Only the token changes: the org the command started with is kept, so an
+ * org switched in another terminal mid-run can't redirect an in-flight poll
+ * at an upload that org doesn't own.
+ *
+ * @throws SessionRefreshError when Supabase refuses the refresh (`definitive`
+ *   when only `dcd login` can fix it), or CliError when there is no stored
+ *   session any more (e.g. after `dcd logout`).
+ */
+export async function refreshAuth(auth: AuthContext): Promise<AuthContext> {
+  if (!isAuthExpiring(auth)) return auth;
+
+  const fresh = await resolveAuth({ apiKeyFlag: undefined, sessionOnly: true });
+  if (!auth.orgId || fresh.orgId === auth.orgId) return fresh;
+
+  return {
+    ...fresh,
+    orgId: auth.orgId,
+    headers: { ...fresh.headers, 'x-dcd-org': auth.orgId },
+  };
+}
+
+/**
+ * Whether a refreshAuth failure is final for this process — the refresh token
+ * was refused, or the session is gone — as opposed to a network blip that the
+ * next attempt may get past.
+ */
+export function isDefinitiveAuthFailure(error: unknown): boolean {
+  return (
+    (error instanceof SessionRefreshError && error.definitive) ||
+    error instanceof CliError
+  );
 }
 
 /**

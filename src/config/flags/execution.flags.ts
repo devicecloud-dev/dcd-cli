@@ -8,7 +8,7 @@ export const executionFlags = {
     type: 'boolean',
     default: false,
     description:
-      'Cancel the still-queued tests of the previous run from the same CI context (repo + branch/PR + check name, read from your CI metadata). Tests already running are left to finish; cancelled tests are refunded at 75%. Does nothing outside CI.',
+      'Cancel the still-queued tests of the previous run from the same CI context: the same repo and branch or PR (and check name, if one is set), read from the run metadata. Needs repo plus branch/PR metadata (--repo-name with --branch or --pr-number, or --metadata gh_repo=… with gh_branch=… or gh_pr_number=…); without it nothing is superseded. Tests already running are left to finish; cancelled tests are refunded at 75%.',
   },
   config: {
     type: 'string',

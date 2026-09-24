@@ -30,6 +30,13 @@ export interface RealtimeResultsSubscription {
   isConnected(): boolean;
   /** Tear down the channel and close the socket. Best-effort, never throws. */
   unsubscribe(): Promise<void>;
+  /**
+   * Hand the socket a refreshed JWT. RLS authorises the channel with the token
+   * it joined with, and the server drops the channel once that expires — so a
+   * poll that outlives the token passes the new one on. Best-effort, never
+   * throws.
+   */
+  updateAccessToken(accessToken: string): void;
 }
 
 export interface RealtimeSubscribeOptions {
@@ -134,6 +141,15 @@ export class RealtimeResultsGateway {
             /* best effort — process is exiting anyway */
           }
         },
+        updateAccessToken(nextToken: string) {
+          // setAuth updates the join payload and pushes the token to joined
+          // channels. A failure only costs realtime; the backstop poll stays.
+          activeClient.realtime.setAuth(nextToken).catch((error: unknown) => {
+            dbg(
+              `failed to update the socket's token: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
+        },
       };
     } catch (error) {
       dbg(`failed to subscribe: ${error instanceof Error ? error.message : String(error)}`);
@@ -143,7 +159,11 @@ export class RealtimeResultsGateway {
       } catch {
         /* ignore */
       }
-      return { isConnected: () => false, async unsubscribe() {} };
+      return {
+        isConnected: () => false,
+        async unsubscribe() {},
+        updateAccessToken() {},
+      };
     }
   }
 }

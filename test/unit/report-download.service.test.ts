@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { ApiGateway } from '../../src/gateways/api-gateway.js';
 import { ReportDownloadService } from '../../src/services/report-download.service.js';
 import type { AuthContext } from '../../src/types/domain/auth.types.js';
 
@@ -455,5 +456,68 @@ describe('ReportDownloadService', () => {
         url: 'https://cdn.example.com/bundle',
       });
     });
+  });
+});
+
+// The HTML report (html and html-detailed alike) is a ZIP of report.html and
+// its assets, so saving it as ./report.html by default produced a file no
+// browser could open.
+describe('ReportDownloadService default report paths', () => {
+  const realDownload = ApiGateway.downloadReportGeneric;
+  let saved: Array<{ filePath?: string; type: string }>;
+
+  beforeEach(() => {
+    saved = [];
+    ApiGateway.downloadReportGeneric = (async (
+      _baseUrl: string,
+      _auth: AuthContext,
+      _uploadId: string,
+      type: 'allure' | 'html' | 'junit',
+      filePath?: string,
+    ) => {
+      saved.push({ filePath, type });
+    }) as typeof ApiGateway.downloadReportGeneric;
+  });
+
+  afterEach(() => {
+    ApiGateway.downloadReportGeneric = realDownload;
+  });
+
+  const download = (
+    reportType: 'allure' | 'html' | 'html-detailed' | 'junit',
+    paths: { allurePath?: string; htmlPath?: string; junitPath?: string } = {},
+  ) =>
+    new ReportDownloadService().downloadReports({
+      apiUrl: 'https://api.example.com',
+      auth: TEST_AUTH,
+      reportType,
+      uploadId: 'u1',
+      ...paths,
+    });
+
+  it('saves html and html-detailed reports to ./report.zip', async () => {
+    await download('html');
+    await download('html-detailed');
+
+    const zip = path.resolve(process.cwd(), 'report.zip');
+    expect(saved).to.deep.equal([
+      { filePath: zip, type: 'html' },
+      { filePath: zip, type: 'html' },
+    ]);
+  });
+
+  it('keeps an explicit --html-path exactly as given', async () => {
+    await download('html', { htmlPath: 'out/report.html' });
+    expect(saved[0].filePath).to.equal(path.resolve(process.cwd(), 'out/report.html'));
+  });
+
+  it('leaves the junit and allure defaults alone', async () => {
+    await download('junit');
+    await download('allure');
+
+    expect(saved.map((s) => s.filePath)).to.deep.equal([
+      path.resolve(process.cwd(), 'report.xml'),
+      path.resolve(process.cwd(), 'report.html'),
+    ]);
   });
 });

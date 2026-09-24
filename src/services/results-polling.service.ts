@@ -8,6 +8,7 @@ import {
 import { formatDurationSeconds } from '../methods.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { paths } from '../types/generated/schema.types.js';
+import { isDefinitiveAuthFailure, refreshAuth } from '../utils/auth.js';
 import { checkInternetConnectivity } from '../utils/connectivity.js';
 import { isCI } from '../utils/ci.js';
 import { ux } from '../utils/progress.js';
@@ -25,6 +26,18 @@ export class RunFailedError extends Error {
   constructor(public result: PollingResult) {
     super('RUN_FAILED');
     this.name = 'RunFailedError';
+  }
+}
+
+/**
+ * The `dcd login` session behind a poll expired and only a new login can fix
+ * it, so the poll stops at once instead of spending its retry budget — meant
+ * for network blips — on a failure that can't clear.
+ */
+export class PollingAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PollingAuthError';
   }
 }
 
@@ -193,7 +206,10 @@ export class ResultsPollingService {
     options: PollingOptions,
     testMetadata?: Record<string, TestMetadata>,
   ): Promise<PollingResult> {
-    const { apiUrl, auth, uploadId, consoleUrl, quiet = false, json = false, debug = false, logger } = options;
+    const { apiUrl, uploadId, consoleUrl, quiet = false, json = false, debug = false, logger } = options;
+    // Re-checked before every poll: a run can outlast a `dcd login` access
+    // token (about an hour). API-key auth passes through unchanged.
+    let { auth } = options;
 
     this.initializePollingDisplay(json, logger);
 
@@ -307,6 +323,7 @@ export class ResultsPollingService {
           nextPollAt = null;
           renderStatus();
 
+          auth = await this.refreshPollingAuth(auth, uploadId, subscription, debug, logger);
           const updatedResults = await this.fetchAndLogResults(apiUrl, auth, uploadId, debug, logger);
 
           const { summary } = this.calculateStatusSummary(updatedResults);
@@ -338,8 +355,9 @@ export class ResultsPollingService {
           renderStatus();
           await waitForNextPoll(pollIntervalMs);
         } catch (error) {
-          // Re-throw RunFailedError immediately (test failures, not polling errors)
-          if (error instanceof RunFailedError) {
+          // Re-throw RunFailedError immediately (test failures, not polling
+          // errors), and an expired login no retry can fix.
+          if (error instanceof RunFailedError || error instanceof PollingAuthError) {
             throw error;
           }
 
@@ -562,6 +580,53 @@ export class ResultsPollingService {
     }
 
     return updatedResults;
+  }
+
+  /**
+   * Swap in a fresh `dcd login` token when the current one is about to
+   * expire, and hand it to the realtime socket too; API-key auth comes back
+   * as-is. A transient refresh failure is thrown as-is, to be retried like
+   * any failed poll; one only `dcd login` can fix becomes a PollingAuthError.
+   * @param auth The credential the previous poll used
+   * @param uploadId Upload being polled, for the reconnect hint
+   * @param subscription Realtime subscription to pass a new token to
+   * @param debug Whether debug logging is enabled
+   * @param logger Optional logger function
+   * @returns The credential for the next poll
+   */
+  private async refreshPollingAuth(
+    auth: AuthContext,
+    uploadId: string,
+    subscription: RealtimeResultsSubscription | undefined,
+    debug: boolean,
+    logger?: (message: string) => void,
+  ): Promise<AuthContext> {
+    let next: AuthContext;
+    try {
+      next = await refreshAuth(auth);
+    } catch (error) {
+      if (isDefinitiveAuthFailure(error)) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new PollingAuthError(
+          `Your dcd login session expired and could not be refreshed: ${reason}\n\n` +
+            `The test is still running in the cloud. Run \`dcd login\`, then reconnect with:\n  dcd status --upload-id ${uploadId}`,
+        );
+      }
+
+      throw error;
+    }
+
+    if (next !== auth) {
+      if (debug && logger) {
+        logger('[DEBUG] Refreshed the dcd login session for polling');
+      }
+
+      if (next.accessToken && next.accessToken !== auth.accessToken) {
+        subscription?.updateAccessToken(next.accessToken);
+      }
+    }
+
+    return next;
   }
 
   private filterLatestResults(results: TestResult[]): TestResult[] {

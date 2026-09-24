@@ -76,12 +76,15 @@ export const deviceFlags = {
     type: 'boolean',
     default: false,
     description:
-      '[Android only] Force cold boot instead of using snapshot boot. This is automatically enabled for API 35+ but can be used to force cold boot on older API levels.',
+      '[Android only] Force cold boot instead of using snapshot boot. This is automatically enabled for API 34+ but can be used to force cold boot on older API levels.',
   },
+  // No default: an unset flag must be distinguishable from --no-disable-animations
+  // so the platform's disableAnimations in config.yaml applies only when unset.
   'disable-animations': {
     type: 'boolean',
-    default: false,
     description:
-      'Disable device animations during test execution. On Android, disables system animation scales. On iOS, enables Reduce Motion. Reduces CPU load and may improve test reliability.',
+      'Disable device animations during test execution. On Android, disables system animation scales. On iOS, enables Reduce Motion. Reduces CPU load and may improve test reliability. Overrides platform.ios/android.disableAnimations in config.yaml.',
+    negativeDescription:
+      'Keep device animations on, even where config.yaml sets platform.ios/android.disableAnimations',
   },
 } as const satisfies ArgsDef;
