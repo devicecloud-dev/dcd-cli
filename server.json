@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "dev.devicecloud/dcd",
   "description": "Run Maestro mobile app tests on devicecloud.dev: submit flows, check status, download artifacts.",
-  "version": "5.5.0",
+  "version": "5.6.0",
   "repository": {
     "url": "https://github.com/devicecloud-dev/dcd-cli",
     "source": "github"
@@ -11,7 +11,7 @@
     {
       "registryType": "npm",
       "identifier": "@devicecloud.dev/dcd",
-      "version": "5.5.0",
+      "version": "5.6.0",
       "runtimeHint": "npx",
       "runtimeArguments": [
         {
