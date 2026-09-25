@@ -1,5 +1,39 @@
 # Changelog
 
+## [5.6.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0...v5.6.0) (2026-09-24)
+
+
+### Features
+
+* **cloud:** add --cancel-previous to supersede the previous CI run ([#164](https://github.com/devicecloud-dev/dcd-cli/issues/164)) ([169036d](https://github.com/devicecloud-dev/dcd-cli/commit/169036deef348b5955ca2c2a70169c876829eca3))
+* **cloud:** validate devices and OS versions against live API data ([#190](https://github.com/devicecloud-dev/dcd-cli/issues/190)) ([3fcd962](https://github.com/devicecloud-dev/dcd-cli/commit/3fcd96250ca0e40222f0e39709f31ec4000df6e2))
+* **config:** add includedPaths to ship non-flow files ([#178](https://github.com/devicecloud-dev/dcd-cli/issues/178)) ([aaf91a1](https://github.com/devicecloud-dev/dcd-cli/commit/aaf91a1ee5688bfbd261f3360d5ec4ca8e5ceb0d))
+* **device:** add the iPhone 17/18 Pro/Air and M5 iPads, drop two pha… ([#187](https://github.com/devicecloud-dev/dcd-cli/issues/187)) ([bd0ad45](https://github.com/devicecloud-dev/dcd-cli/commit/bd0ad455bbd203312a182cdb0f3a1873d3a0ab9c))
+* **device:** add the iPhone 17/18 Pro/Air and M5 iPads, drop two phantom slugs ([bd0ad45](https://github.com/devicecloud-dev/dcd-cli/commit/bd0ad455bbd203312a182cdb0f3a1873d3a0ab9c))
+
+
+### Bug Fixes
+
+* **auth:** refresh login sessions in the MCP server and long cloud runs ([#192](https://github.com/devicecloud-dev/dcd-cli/issues/192)) ([e1bd2b2](https://github.com/devicecloud-dev/dcd-cli/commit/e1bd2b2269166901c00f0f72152a256e8ae01201))
+* **cloud:** default HTML reports to report.zip; fix animations and help ([#193](https://github.com/devicecloud-dev/dcd-cli/issues/193)) ([a73689b](https://github.com/devicecloud-dev/dcd-cli/commit/a73689b1243c1060004b66a04b8dcbf775208416))
+* **cloud:** drop the stale result id from the superseded-by link ([#166](https://github.com/devicecloud-dev/dcd-cli/issues/166)) ([a781e4c](https://github.com/devicecloud-dev/dcd-cli/commit/a781e4c87e96100e83309b5b68785aa1a8ca4e15))
+* **mcp:** correct the npx setup command ([#191](https://github.com/devicecloud-dev/dcd-cli/issues/191)) ([72eb5bf](https://github.com/devicecloud-dev/dcd-cli/commit/72eb5bfcf6d3e0f5a73ed943469cc18effa3f604))
+* **upload:** honour DCD_ENCRYPT like dcd cloud does ([#195](https://github.com/devicecloud-dev/dcd-cli/issues/195)) ([f269271](https://github.com/devicecloud-dev/dcd-cli/commit/f2692717086768548ff12fc91ec05923edb46eec))
+* v5 release blockers — installer, binary version, repeated flags, upgrade, CI output ([80eafc6](https://github.com/devicecloud-dev/dcd-cli/commit/80eafc671fdbf87e5efb3416d48b300b16b71bb4))
+* **whoami:** say when an API key overrides the stored session ([#194](https://github.com/devicecloud-dev/dcd-cli/issues/194)) ([bbe3f60](https://github.com/devicecloud-dev/dcd-cli/commit/bbe3f60a80aa13a4496ef35ac6ced8ad1fea388d))
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 6 updates ([#188](https://github.com/devicecloud-dev/dcd-cli/issues/188)) ([5f74ce5](https://github.com/devicecloud-dev/dcd-cli/commit/5f74ce5bf867804fba21eb24e12e31c00c519bd5))
+
+
+### Miscellaneous
+
+* pin the 5.6.0 promotion ([fab949e](https://github.com/devicecloud-dev/dcd-cli/commit/fab949ee1f0395d66a0f98d73723740f6fc35f3b))
+* re-anchor the beta line and pin the next beta to 5.6.0-beta.1 ([#170](https://github.com/devicecloud-dev/dcd-cli/issues/170)) ([d089531](https://github.com/devicecloud-dev/dcd-cli/commit/d089531a50c0c239ce95c136f403b06892afe638))
+* re-cut the beta to verify npm trusted publishing ([#180](https://github.com/devicecloud-dev/dcd-cli/issues/180)) ([6e720fb](https://github.com/devicecloud-dev/dcd-cli/commit/6e720fbf4d596ba3d0f9000a049ed2343f166466))
+
 ## [5.5.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.4.1...v5.5.0) (2026-09-15)
 
 
