@@ -24,7 +24,6 @@ import {
   type BinaryEnvelope,
   encryptFileToPath,
   generateDek,
-  isEncryptionEnabled,
   resolveKekPublicKey,
   wrapDek,
 } from './utils/envelope.js';
@@ -139,18 +138,17 @@ interface UploadBinaryConfig {
   debug?: boolean;
   /**
    * Encrypt the binary before upload (client-side envelope encryption, #1138).
-   * Defaults to `DCD_ENCRYPT` / `DCD_ENCRYPT_BINARIES` when unset (see
-   * {@link isEncryptionEnabled}).
+   * Required: callers pass the decision from `resolveEncryption`, so nothing
+   * here falls back to a default of its own.
    */
-  encrypt?: boolean;
+  encrypt: boolean;
   filePath: string;
   ignoreShaCheck?: boolean;
   log?: boolean;
 }
 
 export const uploadBinary = async (config: UploadBinaryConfig) => {
-  const { filePath, apiUrl, auth, ignoreShaCheck = false, log = true, debug = false } = config;
-  const encrypt = isEncryptionEnabled(config.encrypt);
+  const { filePath, apiUrl, auth, encrypt, ignoreShaCheck = false, log = true, debug = false } = config;
   if (log) {
     ux.action.start(colors.bold('Checking and uploading binary'), colors.dim('Initializing'), {
       stdout: true,
@@ -280,8 +278,8 @@ async function encryptUploadSource(
   const kek = resolveKekPublicKey(apiUrl);
   if (!kek) {
     throw new Error(
-      'Binary encryption was requested but no KEK public key is configured for this environment. ' +
-        'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64> or pin one in src/config/environments.ts.',
+      'Encryption is on (from --encrypt, DCD_ENCRYPT or the organization default) but no KEK public key is configured for this API. ' +
+        'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64>, or pass --no-encrypt to upload without encryption.',
     );
   }
 
@@ -500,7 +498,7 @@ async function checkExistingUpload(
     if (exists && lookup.encrypted && encrypted !== true) {
       if (debug) {
         console.log(
-          '[DEBUG] Ignoring dedup hit: encryption was requested but the matched binary is not encrypted',
+          '[DEBUG] Ignoring dedup hit: encryption is on but the matched binary is not encrypted',
         );
       }
 

@@ -52,18 +52,58 @@ export interface EnvEnvelope extends BinaryEnvelope {
   ciphertext: string;
 }
 
+/** What decided whether a run encrypts (dcd#1138); recorded in telemetry. */
+export type EncryptionSource = 'env' | 'flag' | 'off' | 'server';
+
+export interface EncryptionDecision {
+  enabled: boolean;
+  source: EncryptionSource;
+}
+
+/** `1`/`true` is on and `0`/`false` is off, in any case; anything else is unset. */
+function parseEncryptEnv(value: string | undefined): boolean | undefined {
+  switch (value?.trim().toLowerCase()) {
+    case '1':
+    case 'true': {
+      return true;
+    }
+
+    case '0':
+    case 'false': {
+      return false;
+    }
+
+    default: {
+      return undefined;
+    }
+  }
+}
+
 /**
- * Whether client-side envelope encryption is on. Explicit `flag` (the
- * `--encrypt` CLI flag) wins; otherwise `DCD_ENCRYPT=1` enables it for binary,
- * flow, and env, and the legacy `DCD_ENCRYPT_BINARIES=1` is kept as an alias.
+ * Whether client-side envelope encryption is on, and what decided it. The
+ * first of these that is set wins:
+ *   1. `flag`: `--encrypt` / `--no-encrypt`, or the MCP tool's `encrypt` input.
+ *   2. `DCD_ENCRYPT`, then its legacy alias `DCD_ENCRYPT_BINARIES`.
+ *   3. `serverDefault`: `encryption.defaultOn` from the compatibility data,
+ *      which the API turns on for orgs in the `client_encryption` beta.
+ *   4. Off. An API too old to send `encryption` ends up here.
  * When on, the binary, the flow zip, and the env map are each encrypted with
  * their **own** per-upload DEK (all wrapped under the same per-env KEK).
  */
-export function isEncryptionEnabled(flag?: boolean): boolean {
-  if (flag !== undefined) return flag;
-  return (
-    process.env.DCD_ENCRYPT === '1' || process.env.DCD_ENCRYPT_BINARIES === '1'
-  );
+export function resolveEncryption(opts: {
+  env?: NodeJS.ProcessEnv;
+  flag?: boolean;
+  serverDefault?: boolean;
+}): EncryptionDecision {
+  const { env = process.env, flag, serverDefault } = opts;
+  if (flag !== undefined) return { enabled: flag, source: 'flag' };
+
+  const fromEnv =
+    parseEncryptEnv(env.DCD_ENCRYPT) ?? parseEncryptEnv(env.DCD_ENCRYPT_BINARIES);
+  if (fromEnv !== undefined) return { enabled: fromEnv, source: 'env' };
+
+  if (serverDefault === true) return { enabled: true, source: 'server' };
+  return { enabled: false, source: 'off' };
 }
 
 /** Pinned KEK public key (base64 raw 32-byte X25519) + version, per env. */

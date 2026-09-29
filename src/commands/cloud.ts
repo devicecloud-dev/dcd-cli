@@ -34,7 +34,7 @@ import {
   matrixIsIos,
   parseDeviceMatrix,
 } from '../utils/device-matrix.js';
-import { isEncryptionEnabled } from '../utils/envelope.js';
+import { resolveEncryption } from '../utils/envelope.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -191,12 +191,11 @@ export const cloudCommand = defineCommand({
       const cancelPrevious = Boolean(args['cancel-previous']);
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
-      // Single opt-in for client-side envelope encryption of every sensitive
-      // artifact — the binary (#1138), the flow zip (#1151), and env vars
-      // (#1152). Flag wins; otherwise DCD_ENCRYPT / DCD_ENCRYPT_BINARIES.
-      const encrypt = isEncryptionEnabled(
-        args['encrypt'] ? true : undefined,
-      );
+      // Client-side envelope encryption of every sensitive artifact: the
+      // binary (#1138), the flow zip (#1151), and env vars (#1152). Kept as
+      // given (--no-encrypt is an explicit false) and resolved once the
+      // compatibility data, which carries the org's default, is in.
+      const encryptFlag = args.encrypt as boolean | undefined;
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
       );
@@ -378,6 +377,15 @@ export const cloudCommand = defineCommand({
 
       if (debug) {
         out(`[DEBUG] API URL: ${apiUrl}`);
+      }
+
+      const encryption = resolveEncryption({
+        flag: encryptFlag,
+        serverDefault: compatibilityData.encryption?.defaultOn,
+      });
+      const encrypt = encryption.enabled;
+      if (debug) {
+        out(`[DEBUG] Encryption: ${encrypt ? 'on' : 'off'} (${encryption.source})`);
       }
 
       const resolvedMaestroVersion = versionService.resolveMaestroVersion(
@@ -770,6 +778,10 @@ export const cloudCommand = defineCommand({
         }
 
         return;
+      }
+
+      if (encrypt && encryption.source === 'server') {
+        out(ui.note('Encrypting uploads (beta); opt out with --no-encrypt'));
       }
 
       if (!finalBinaryId) {

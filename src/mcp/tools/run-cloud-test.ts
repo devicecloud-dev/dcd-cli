@@ -14,7 +14,7 @@ import { uploadBinary, uploadFlowZip, verifyAppZip } from '../../methods.js';
 import { refreshAuth } from '../../utils/auth.js';
 import { getCliVersion } from '../../utils/cli.js';
 import { fetchCompatibilityData } from '../../utils/compatibility.js';
-import { isEncryptionEnabled } from '../../utils/envelope.js';
+import { resolveEncryption } from '../../utils/envelope.js';
 import { getConsoleUrl } from '../../utils/styling.js';
 import { getContext, logStderr } from '../context.js';
 import { jsonResult, runTool } from '../helpers.js';
@@ -88,6 +88,12 @@ export function registerRunCloudTest(server: McpServer): void {
           .optional()
           .describe('Force re-upload of the binary even if an identical one exists'),
         dryRun: z.boolean().optional().describe('Preview flows that would run without submitting'),
+        encrypt: z
+          .boolean()
+          .optional()
+          .describe(
+            'true encrypts the binary, flow zip and env vars client-side before upload; false never does. Omit to follow DCD_ENCRYPT, then the organization default.',
+          ),
         wait: z
           .boolean()
           .optional()
@@ -188,9 +194,16 @@ export function registerRunCloudTest(server: McpServer): void {
           });
         }
 
-        // Client-side envelope encryption (binary/flow/env). No MCP flag, so
-        // it's env-driven: DCD_ENCRYPT / DCD_ENCRYPT_BINARIES.
-        const encrypt = isEncryptionEnabled();
+        // Client-side envelope encryption (binary/flow/env), in the same order
+        // as `dcd cloud`: the encrypt input, DCD_ENCRYPT, then the org default.
+        const encryption = resolveEncryption({
+          flag: args.encrypt,
+          serverDefault: compatibilityData.encryption?.defaultOn,
+        });
+        const encrypt = encryption.enabled;
+        if (encrypt && encryption.source === 'server') {
+          logStderr('Encrypting uploads (beta); opt out with encrypt: false');
+        }
 
         // Resolve the binary: existing id, or upload the local file.
         let appBinaryId = args.appBinaryId;
