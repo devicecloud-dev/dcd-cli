@@ -50,6 +50,6 @@ export const executionFlags = {
     type: 'string',
     default: 'default',
     description:
-      '[experimental] The type of runner to use (options: default, m4, m1, gpu1, cpu1) - note: anything other than default or cpu1 will incur premium pricing tiers, see https://docs.devicecloud.dev/configuration/runner-type for more information.',
+      '[experimental] The type of runner to use (options: default, m4, m1, gpu1, cpu1) - note: anything other than default or cpu1 will incur premium pricing tiers; gpu1 is deprecated and will be removed on 9 November 2026 (gpu1 runs will then use cpu1). See https://docs.devicecloud.dev/configuration/runner-type for more information.',
   },
 } as const satisfies ArgsDef;

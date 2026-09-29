@@ -414,14 +414,6 @@ export const cloudCommand = defineCommand({
         );
       }
 
-      if (runnerType === 'gpu1') {
-        out(
-          ui.info(
-            'runnerType gpu1 is Android-only (all devices, API level 34+), available to all users.',
-          ),
-        );
-      }
-
       const firstFile = args.firstFile as string | undefined;
       const secondFile = args.secondFile as string | undefined;
       let finalBinaryId = appBinaryId;
@@ -499,6 +491,9 @@ export const cloudCommand = defineCommand({
           // customer relied on the default), so a notice can target either.
           maestro_version: resolvedMaestroVersion,
           requested_maestro_version: maestroVersion,
+          // As requested ('default' when not passed), not as the API resolves
+          // it: the gpu1 retirement notice is aimed at runs that ask for gpu1.
+          runner_type: runnerType,
           cli_version: cliVersion,
           ci_provider: ciContext.provider,
           ci_wrapper_version: ciContext.wrapperVersion,
