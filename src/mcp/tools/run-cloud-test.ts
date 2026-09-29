@@ -14,7 +14,7 @@ import { uploadBinary, uploadFlowZip, verifyAppZip } from '../../methods.js';
 import { refreshAuth } from '../../utils/auth.js';
 import { getCliVersion } from '../../utils/cli.js';
 import { fetchCompatibilityData } from '../../utils/compatibility.js';
-import { resolveEncryption } from '../../utils/envelope.js';
+import { checkKekForEncryption, resolveEncryption } from '../../utils/envelope.js';
 import { getConsoleUrl } from '../../utils/styling.js';
 import { getContext, logStderr } from '../context.js';
 import { jsonResult, runTool } from '../helpers.js';
@@ -196,11 +196,15 @@ export function registerRunCloudTest(server: McpServer): void {
 
         // Client-side envelope encryption (binary/flow/env), in the same order
         // as `dcd cloud`: the encrypt input, DCD_ENCRYPT, then the org default.
-        const encryption = resolveEncryption({
-          flag: args.encrypt,
-          serverDefault: compatibilityData.encryption?.defaultOn,
-        });
+        const encryption = checkKekForEncryption(
+          resolveEncryption({
+            flag: args.encrypt,
+            serverDefault: compatibilityData.encryption?.defaultOn,
+          }),
+          apiUrl,
+        );
         const encrypt = encryption.enabled;
+        if (encryption.notice) logStderr(encryption.notice);
         if (encrypt && encryption.source === 'server') {
           logStderr('Encrypting uploads (beta); opt out with encrypt: false');
         }

@@ -34,7 +34,7 @@ import {
   matrixIsIos,
   parseDeviceMatrix,
 } from '../utils/device-matrix.js';
-import { resolveEncryption } from '../utils/envelope.js';
+import { checkKekForEncryption, resolveEncryption } from '../utils/envelope.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -379,11 +379,15 @@ export const cloudCommand = defineCommand({
         out(`[DEBUG] API URL: ${apiUrl}`);
       }
 
-      const encryption = resolveEncryption({
-        flag: encryptFlag,
-        serverDefault: compatibilityData.encryption?.defaultOn,
-      });
+      const encryption = checkKekForEncryption(
+        resolveEncryption({
+          flag: encryptFlag,
+          serverDefault: compatibilityData.encryption?.defaultOn,
+        }),
+        apiUrl,
+      );
       const encrypt = encryption.enabled;
+      if (encryption.notice) out(ui.note(encryption.notice));
       if (debug) {
         out(`[DEBUG] Encryption: ${encrypt ? 'on' : 'off'} (${encryption.source})`);
       }

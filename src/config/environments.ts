@@ -76,6 +76,27 @@ export function inferEnvFromApiUrl(apiUrl: string): DcdEnvName {
 }
 
 /**
+ * The environment whose pinned KEK may encrypt uploads to `apiUrl` (dcd#1138),
+ * or undefined when the URL isn't a known one. Stricter than
+ * {@link inferEnvFromApiUrl}, which falls back to prod for any URL: that is
+ * harmless for picking a console link, but an upload encrypted for a KEK its
+ * API can't unwrap is unusable. Known means the host of a pinned `apiUrl`, or
+ * `localhost`, which runs against dev.
+ */
+export function kekEnvForApiUrl(apiUrl: string): DcdEnvName | undefined {
+  let host: string;
+  try {
+    host = new URL(apiUrl).hostname;
+  } catch {
+    return undefined;
+  }
+
+  if (host === 'localhost') return 'dev';
+  const names = Object.keys(ENVIRONMENTS) as DcdEnvName[];
+  return names.find((name) => new URL(ENVIRONMENTS[name].apiUrl).hostname === host);
+}
+
+/**
  * Frontend URL to open for a given API URL. Same as
  * `ENVIRONMENTS[inferEnvFromApiUrl(apiUrl)].frontendUrl`, except that when the
  * API is running on localhost we assume the frontend is too (vite dev server).

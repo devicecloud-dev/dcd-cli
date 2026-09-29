@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { uploadCommand } from '../../src/commands/upload.js';
+import { telemetry } from '../../src/services/telemetry.service.js';
 import { clearCompatibilityCache } from '../../src/utils/compatibility.js';
 
 /**
@@ -17,12 +18,15 @@ import { clearCompatibilityCache } from '../../src/utils/compatibility.js';
  * (`{ shaPlain, encrypted: true }`), a plaintext one sends `{ sha }`.
  */
 const API = 'http://localhost:9999';
+/** Not a devicecloud.dev API, so no pinned KEK applies. */
+const UNKNOWN_API = 'https://api.example.com';
 const APK = path.join(process.cwd(), 'test/fixtures/wikipedia.apk');
 
 describe('dcd upload encryption', () => {
   const ORIGINAL_ENV = { ...process.env };
   const realFetch = globalThis.fetch;
   const realExit = process.exit;
+  const realFlushSync = telemetry.flushSync;
   let lookups: Array<Record<string, unknown>>;
   /** The `encryption` field the mocked compatibility endpoint returns, if any. */
   let compatEncryption: { defaultOn: boolean } | undefined;
@@ -77,15 +81,18 @@ describe('dcd upload encryption', () => {
       });
     }) as typeof fetch;
 
-    // A failure must fail the test, not end the mocha process.
+    // A failure must fail the test, not end the mocha process, and must not
+    // ship failure telemetry to the real API on its way out.
     process.exit = ((code?: number) => {
       throw new Error(`process.exit(${code})`);
     }) as typeof process.exit;
+    telemetry.flushSync = () => {};
   });
 
   afterEach(() => {
     globalThis.fetch = realFetch;
     process.exit = realExit;
+    telemetry.flushSync = realFlushSync;
     process.env = { ...ORIGINAL_ENV };
     clearCompatibilityCache();
     fs.rmSync(tempDir, { force: true, recursive: true });
@@ -177,5 +184,53 @@ describe('dcd upload encryption', () => {
     expect(await run({ encrypt: true })).to.not.contain('(beta)');
     process.env.DCD_ENCRYPT = '1';
     expect(await run({})).to.not.contain('(beta)');
+  });
+
+  describe('against an API URL with no pinned KEK', () => {
+    beforeEach(() => {
+      delete process.env.DCD_BINARY_KEK_PUBLIC;
+    });
+
+    it('skips the org default, with a notice, and uploads in plaintext', async () => {
+      compatEncryption = { defaultOn: true };
+      expect(await upload({ 'api-url': UNKNOWN_API })).to.equal('plain-binary');
+      const out = await run({ 'api-url': UNKNOWN_API });
+      expect(out).to.contain(`Not encrypting uploads: ${UNKNOWN_API}`);
+      expect(out).to.not.contain('(beta)');
+    });
+
+    it('skips DCD_ENCRYPT=1 the same way', async () => {
+      process.env.DCD_ENCRYPT = '1';
+      expect(await upload({ 'api-url': UNKNOWN_API })).to.equal('plain-binary');
+    });
+
+    it('refuses --encrypt before uploading anything', async () => {
+      let stderr = '';
+      const original = process.stderr.write.bind(process.stderr);
+      process.stderr.write = ((chunk: string) => {
+        stderr += chunk;
+        return true;
+      }) as typeof process.stderr.write;
+      try {
+        await run({ 'api-url': UNKNOWN_API, encrypt: true });
+        expect.fail('dcd upload --encrypt should have failed');
+      } catch (error) {
+        expect((error as Error).message).to.equal('process.exit(1)');
+      } finally {
+        process.stderr.write = original;
+      }
+
+      expect(stderr).to.contain('--encrypt needs the KEK public key');
+      expect(lookups).to.have.lengthOf(0);
+    });
+
+    it('encrypts with --encrypt once DCD_BINARY_KEK_PUBLIC names a key', async () => {
+      const { publicKey } = generateKeyPairSync('x25519');
+      const raw = publicKey.export({ format: 'der', type: 'spki' }).subarray(12);
+      process.env.DCD_BINARY_KEK_PUBLIC = `1:${raw.toString('base64')}`;
+      expect(await upload({ 'api-url': UNKNOWN_API, encrypt: true })).to.equal(
+        'encrypted-binary',
+      );
+    });
   });
 });

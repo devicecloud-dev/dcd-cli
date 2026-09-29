@@ -10,7 +10,7 @@ import { detectCiContext } from '../utils/ci.js';
 import { CliError, getCliVersion, logger } from '../utils/cli.js';
 import { fetchCompatibilityData } from '../utils/compatibility.js';
 import { resolveApiUrl } from '../utils/config-store.js';
-import { resolveEncryption } from '../utils/envelope.js';
+import { checkKekForEncryption, resolveEncryption } from '../utils/envelope.js';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo.js';
 import { colors, formatId } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
@@ -74,7 +74,11 @@ export const uploadCommand = defineCommand({
         }
       }
 
-      const encryption = resolveEncryption({ flag: encryptFlag, serverDefault });
+      const encryption = checkKekForEncryption(
+        resolveEncryption({ flag: encryptFlag, serverDefault }),
+        apiUrl,
+      );
+      if (encryption.notice) out(ui.note(encryption.notice));
 
       let resolvedFile: string | undefined = appUrl ?? positional;
       if (!resolvedFile) {
