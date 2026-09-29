@@ -1,11 +1,13 @@
 version: 2
+# No `target-branch`: Dependabot targets the default branch (`dev`), which is
+# what we want. Setting it explicitly also stops security-update PRs from
+# using the groups and commit prefixes below.
 updates:
   # npm / pnpm dependencies.
   - package-ecosystem: npm
     directory: "/"
     schedule:
       interval: weekly
-    target-branch: dev
     open-pull-requests-limit: 10
     commit-message:
       # Conventional Commit prefix so the squashed PR title matches our PR-title
@@ -23,12 +25,15 @@ updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
-    target-branch: dev
+      interval: monthly
+    # Wait a week after an action release before proposing it (supply-chain
+    # margin: a compromised tag is usually caught and pulled within days).
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: ci
     groups:
-      # One PR per week for ALL action bumps (including majors). Actions are
+      # One PR a month for ALL action bumps (including majors). Actions are
       # low-risk and quick to eyeball together; no need for a PR each.
       actions:
         patterns:
