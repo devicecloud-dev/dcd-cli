@@ -9,4 +9,9 @@ export type TAppMetadata = {
    * release the DEK and decrypt. Absent = legacy plaintext upload.
    */
   enc?: BinaryEnvelope;
+  /**
+   * Whether an encrypted APK ships the Flutter engine (dcd#1138). The API
+   * detects this itself for plaintext binaries, so it is only sent with `enc`.
+   */
+  usesFlutterEngine?: boolean;
 };

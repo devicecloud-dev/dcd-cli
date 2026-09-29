@@ -17,7 +17,10 @@ import * as yazl from 'yazl';
 import { inferEnvFromApiUrl } from './config/environments.js';
 import { ApiError, ApiGateway } from './gateways/api-gateway.js';
 import { SupabaseGateway } from './gateways/supabase-gateway.js';
-import { MetadataExtractorService } from './services/metadata-extractor.service.js';
+import {
+  detectFlutterEngine,
+  MetadataExtractorService,
+} from './services/metadata-extractor.service.js';
 import { TAppMetadata } from './types.js';
 import type { AuthContext } from './types/domain/auth.types.js';
 import {
@@ -830,6 +833,18 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
   const metadata = await extractBinaryMetadata(filePath, debug);
   if (enc) {
     metadata.enc = enc;
+    // The API can only look for the Flutter engine in a plaintext APK, so an
+    // encrypted one carries the verdict the API would have reached itself.
+    if (metadata.platform === 'android') {
+      const usesFlutterEngine = await detectFlutterEngine(filePath);
+      if (usesFlutterEngine !== undefined) {
+        metadata.usesFlutterEngine = usesFlutterEngine;
+      }
+
+      if (debug) {
+        console.log(`[DEBUG] Flutter engine: ${usesFlutterEngine ?? 'unknown'}`);
+      }
+    }
   }
 
   const env = inferEnvFromApiUrl(apiUrl);
