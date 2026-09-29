@@ -79,7 +79,9 @@ export function registerRunCloudTest(server: McpServer): void {
         runnerType: z
           .enum(['default', 'm4', 'm1', 'gpu1', 'cpu1'])
           .optional()
-          .describe('Runner type (default "default")'),
+          .describe(
+            'Runner type (default "default"). gpu1 is deprecated and will be removed on 9 November 2026; prefer cpu1.',
+          ),
         configFile: z.string().optional().describe('Path to a workspace config.yaml'),
         ignoreShaCheck: z
           .boolean()
