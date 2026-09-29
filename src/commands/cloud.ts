@@ -388,6 +388,7 @@ export const cloudCommand = defineCommand({
       );
       const encrypt = encryption.enabled;
       if (encryption.notice) out(ui.note(encryption.notice));
+      telemetry.recordEncryption({ source: encryption.source });
       if (debug) {
         out(`[DEBUG] Encryption: ${encrypt ? 'on' : 'off'} (${encryption.source})`);
       }
@@ -809,6 +810,7 @@ export const cloudCommand = defineCommand({
           log: !json,
         });
         finalBinaryId = binaryId;
+        telemetry.recordEncryption({ binary: encrypt });
 
         if (debug) {
           out(`[DEBUG] Binary uploaded with ID: ${binaryId}`);
@@ -865,6 +867,7 @@ export const cloudCommand = defineCommand({
         disableAnimations,
         renderEngine,
       });
+      telemetry.recordEncryption({ env: encrypt && env.length > 0, flow: encrypt });
 
       // Device-matrix cost preview: the server prices the exact fan-out (quote
       // == charge) so the user sees the cell count and estimated cost before the

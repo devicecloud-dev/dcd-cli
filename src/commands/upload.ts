@@ -5,6 +5,7 @@ import { apiFlags } from '../config/flags/api.flags.js';
 import { binaryFlags } from '../config/flags/binary.flags.js';
 import { outputFlags } from '../config/flags/output.flags.js';
 import { uploadBinary, verifyAppZip } from '../methods.js';
+import { telemetry } from '../services/telemetry.service.js';
 import { resolveAuth } from '../utils/auth.js';
 import { detectCiContext } from '../utils/ci.js';
 import { CliError, getCliVersion, logger } from '../utils/cli.js';
@@ -79,6 +80,7 @@ export const uploadCommand = defineCommand({
         apiUrl,
       );
       if (encryption.notice) out(ui.note(encryption.notice));
+      telemetry.recordEncryption({ source: encryption.source });
 
       let resolvedFile: string | undefined = appUrl ?? positional;
       if (!resolvedFile) {
@@ -133,6 +135,7 @@ export const uploadCommand = defineCommand({
         ignoreShaCheck,
         log: !json,
       });
+      telemetry.recordEncryption({ binary: encryption.enabled });
 
       if (json) {
         // eslint-disable-next-line no-console

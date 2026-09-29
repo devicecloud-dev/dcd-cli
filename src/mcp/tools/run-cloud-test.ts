@@ -8,6 +8,7 @@ import { plan } from '../../services/execution-plan.service.js';
 import { computeCommonRoot, buildTestMetadataMap } from '../../services/flow-paths.js';
 import { DeviceValidationService } from '../../services/device-validation.service.js';
 import { platformFromAppFile } from '../../services/notices.service.js';
+import type { EncryptionTelemetry } from '../../services/telemetry.service.js';
 import { TestSubmissionService } from '../../services/test-submission.service.js';
 import { VersionService } from '../../services/version.service.js';
 import { uploadBinary, uploadFlowZip, verifyAppZip } from '../../methods.js';
@@ -114,7 +115,7 @@ export function registerRunCloudTest(server: McpServer): void {
       },
     },
     async (args) =>
-      runTool('dcd_run_cloud_test', async () => {
+      runTool('dcd_run_cloud_test', async (telemetryExtra) => {
         if (args.appFile && args.appBinaryId) {
           throw new Error('Provide only one of appFile or appBinaryId, not both.');
         }
@@ -205,6 +206,14 @@ export function registerRunCloudTest(server: McpServer): void {
         );
         const encrypt = encryption.enabled;
         if (encryption.notice) logStderr(encryption.notice);
+        // Filled in as each part is encrypted; sent on this call's telemetry.
+        const encryptTelemetry: EncryptionTelemetry = {
+          binary: false,
+          env: false,
+          flow: false,
+          source: encryption.source,
+        };
+        telemetryExtra.encrypt = encryptTelemetry;
         if (encrypt && encryption.source === 'server') {
           logStderr('Encrypting uploads (beta); opt out with encrypt: false');
         }
@@ -231,6 +240,7 @@ export function registerRunCloudTest(server: McpServer): void {
             ignoreShaCheck: Boolean(args.ignoreShaCheck),
             log: false,
           });
+          encryptTelemetry.binary = encrypt;
         }
 
         const { continueOnFailure = true } = executionPlan.sequence ?? {};
@@ -258,6 +268,8 @@ export function registerRunCloudTest(server: McpServer): void {
           retry: args.retry,
           logger: logStderr,
         });
+        encryptTelemetry.flow = encrypt;
+        encryptTelemetry.env = encrypt && (args.env?.length ?? 0) > 0;
 
         // New path: upload the zip to storage, then submit a JSON test
         // referencing it. Older API deployments lack these endpoints (404/405);

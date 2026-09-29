@@ -20,6 +20,7 @@ import { join } from 'node:path';
 
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { getCliVersion, getInstallMethod } from '../utils/cli.js';
+import type { EncryptionSource } from '../utils/envelope.js';
 
 export type TelemetryLevel = 'log' | 'info' | 'warn' | 'error';
 
@@ -29,6 +30,14 @@ interface TelemetryEvent {
   context: string;
   message: string;
   extra?: Record<string, unknown>;
+}
+
+/** What a run encrypted, and what decided it (dcd#1138). */
+export interface EncryptionTelemetry {
+  binary: boolean;
+  env: boolean;
+  flow: boolean;
+  source: EncryptionSource;
 }
 
 interface TelemetryConfig {
@@ -43,6 +52,7 @@ class Telemetry {
   private buffer: TelemetryEvent[] = [];
   private config: TelemetryConfig | null = null;
   private command: string = inferCommandFromArgv();
+  private encryption: EncryptionTelemetry | null = null;
   private sessionId: string = randomUUID();
   private startedAt: number = Date.now();
   private readonly disabled: boolean = !!process.env.DCD_TELEMETRY_DISABLED;
@@ -84,26 +94,56 @@ class Telemetry {
     this.enqueue('info', 'cli.mcp', 'mcp tool invoked', { tool });
   }
 
-  recordMcpToolSuccess(tool: string, durationMs: number) {
+  recordMcpToolSuccess(
+    tool: string,
+    durationMs: number,
+    extra: Record<string, unknown> = {},
+  ) {
     this.enqueue('info', 'cli.mcp', 'mcp tool completed', {
       tool,
       duration_ms: durationMs,
+      ...extra,
     });
   }
 
-  recordMcpToolFailure(tool: string, error: unknown, durationMs: number) {
+  recordMcpToolFailure(
+    tool: string,
+    error: unknown,
+    durationMs: number,
+    extra: Record<string, unknown> = {},
+  ) {
     this.enqueue('error', 'cli.mcp', 'mcp tool failed', {
       tool,
       duration_ms: durationMs,
       error_message: error instanceof Error ? error.message : String(error),
       error_name: error instanceof Error ? error.name : 'Error',
+      ...extra,
     });
+  }
+
+  /**
+   * Record what this command encrypts (dcd#1138), sent as `encrypt` on its
+   * `command completed` / `command failed` event. Merged into what is already
+   * recorded, so a command can fill each part in as it happens. On the event
+   * rather than in `meta`, because the API's `/cli/logs` proxy forwards only
+   * the meta fields it knows, but forwards every event's `extra`.
+   */
+  recordEncryption(update: Partial<EncryptionTelemetry>) {
+    this.encryption = {
+      binary: false,
+      env: false,
+      flow: false,
+      source: 'off',
+      ...this.encryption,
+      ...update,
+    };
   }
 
   recordCommandSuccess() {
     this.enqueue('info', 'cli.lifecycle', 'command completed', {
       duration_ms: Date.now() - this.startedAt,
       exit_code: 0,
+      ...this.encryptionExtra(),
     });
   }
 
@@ -121,7 +161,12 @@ class Telemetry {
         opts.error instanceof Error ? opts.error.name : 'CliError',
       error_stack:
         opts.error instanceof Error ? opts.error.stack : undefined,
+      ...this.encryptionExtra(),
     });
+  }
+
+  private encryptionExtra(): { encrypt?: EncryptionTelemetry } {
+    return this.encryption ? { encrypt: this.encryption } : {};
   }
 
   private enqueue(
