@@ -63,6 +63,39 @@ export class AndroidMetadataExtractor implements IMetadataExtractor {
 }
 
 /**
+ * The entry that marks an APK as shipping the Flutter engine: the x86_64
+ * build, the one an emulator loads. Must match FLUTTER_ENGINE_ENTRY in the
+ * dcd API (api/src/apps/uploads/flutter-detection.ts).
+ */
+export const FLUTTER_ENGINE_ENTRY = 'lib/x86_64/libflutter.so';
+
+/**
+ * Whether the APK at `apkPath` ships the Flutter engine, read from the zip's
+ * central directory. The API works this out itself for a plaintext binary
+ * but can't see inside an encrypted one, so an encrypted upload sends the
+ * verdict in its metadata (dcd#1138). Without it a Flutter app runs on the
+ * lavapipe renderer, which crashes it.
+ *
+ * Same rule as the API, which byte-searches the central directory for the
+ * entry name, so a name that contains it counts too: an APK then gets the
+ * same renderer whether or not it was encrypted. Undefined when the APK
+ * can't be read, which the API also treats as unknown.
+ */
+export async function detectFlutterEngine(
+  apkPath: string,
+): Promise<boolean | undefined> {
+  const zip = new StreamZip.async({ file: apkPath });
+  try {
+    const names = Object.keys(await zip.entries());
+    return names.some((name) => name.includes(FLUTTER_ENGINE_ENTRY));
+  } catch {
+    return undefined;
+  } finally {
+    await zip.close().catch(() => {});
+  }
+}
+
+/**
  * Extracts metadata from iOS .app directories
  */
 export class IosAppMetadataExtractor implements IMetadataExtractor {

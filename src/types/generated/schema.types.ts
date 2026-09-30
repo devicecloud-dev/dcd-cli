@@ -1007,6 +1007,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/frontend/uploads/{uploadId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["FrontendController_downloadUpload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/frontend/results/{resultId}/env": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["FrontendController_getResultEnv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/frontend/artifact-download-url": {
         parameters: {
             query?: never;
@@ -1665,7 +1697,7 @@ export interface components {
             workspaceConfig?: string;
             flowMetadata?: string;
             testFileOverrides?: string;
-            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-7","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
+            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-8","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
             deviceMatrix?: string;
             /** @description SHA-256 hash of the flow ZIP file */
             sha?: string;
@@ -1707,7 +1739,7 @@ export interface components {
             workspaceConfig?: string;
             flowMetadata?: string;
             testFileOverrides?: string;
-            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-7","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
+            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-8","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
             deviceMatrix?: string;
             /** @description SHA-256 hash of the flow ZIP file */
             sha?: string;
@@ -1760,7 +1792,7 @@ export interface components {
             workspaceConfig?: string;
             flowMetadata?: string;
             testFileOverrides?: string;
-            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-7","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
+            /** @description JSON array of explicit device configs forming the upload device matrix. Every flow that does not name its own device runs once per entry. Each entry names exactly one validated cell and must match the binary platform — there is no cross-product expansion. iOS: {"iOSDevice":"iphone-16","iOSVersion":"18"}. Android: {"androidDevice":"pixel-8","androidApiLevel":"34","googlePlay":true}. Omit for single-device (legacy) behaviour. */
             deviceMatrix?: string;
             /** @description SHA-256 hash of the flow ZIP file */
             sha?: string;
@@ -2238,7 +2270,15 @@ export interface operations {
                      *       ]
                      *     }
                      */
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        /**
+                         * Format: uuid
+                         * @description Present only when a newer run from the same CI context (`dcd cloud --cancel-previous`) superseded this one by cancelling its queued tests: the id of that newer upload. `status` still rolls up to FAILED for such a run (its queued tests were cancelled), so check this field before failing a CI job on `status`.
+                         */
+                        supersededBy?: string;
+                    } & {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
@@ -2593,6 +2633,7 @@ export interface operations {
             content: {
                 "application/json": {
                     orgId: string;
+                    /** @description Overage allowed on top of the plan’s included credits, rounded down to a whole number. 0 allows no overage: usage is capped at the included credits. Negative values are rejected. */
                     overageLimit: number;
                 };
             };
@@ -3079,6 +3120,13 @@ export interface operations {
                      *         "androidPlay": {
                      *           "pixel-7": [
                      *             "34"
+                     *           ],
+                     *           "pixel-8": [
+                     *             "34"
+                     *           ],
+                     *           "pixel-10": [
+                     *             "36",
+                     *             "37"
                      *           ]
                      *         },
                      *         "maestro": {
@@ -3098,6 +3146,9 @@ export interface operations {
                      *           ],
                      *           "defaultVersion": "2.2.0",
                      *           "latestVersion": "2.10.0"
+                     *         },
+                     *         "encryption": {
+                     *           "defaultOn": false
                      *         }
                      *       }
                      *     }
@@ -3112,6 +3163,11 @@ export interface operations {
                                 supportedVersions?: string[];
                                 defaultVersion?: string;
                                 latestVersion?: string;
+                            };
+                            /** @description The org's client-side encryption default (#1138). An API that predates it omits the field, which a client must read as `defaultOn: false`. */
+                            encryption?: {
+                                /** @description Encrypt uploads unless the caller opts out (`--no-encrypt` / `DCD_ENCRYPT=0`). True only for orgs in the `client_encryption` beta, and forced false by `CLIENT_ENCRYPTION_DEFAULT=off` on the API. */
+                                defaultOn: boolean;
                             };
                         };
                     };
@@ -3793,16 +3849,16 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Signed download URL for the binary; `dek` (base64) is present when the binary is encrypted */
+            /** @description Signed download URL for the stored binary. `encrypted` is present (true) when that object is ciphertext; download it through GET /frontend/binaries/{binaryId}/download instead. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        url?: string;
-                        encrypted?: boolean;
-                        dek?: string;
+                        url: string;
+                        /** @enum {boolean} */
+                        encrypted?: true;
                     };
                 };
             };
@@ -3810,9 +3866,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": Record<string, never>;
-                };
+                content?: never;
             };
             /** @description Binary not found or not accessible */
             400: {
@@ -3832,8 +3886,13 @@ export interface operations {
             query: {
                 orgId: number;
             };
-            header: {
-                authorization: string;
+            header?: {
+                /** @description The @devicecloud.dev staff member a back-office request acts for; recorded as the key-release actor. */
+                "x-staff-email"?: string;
+                /** @description Back-office service key (BACKOFFICE_API_KEY), in place of a JWT. Requires x-staff-email. */
+                "x-backoffice-key"?: string;
+                /** @description Bearer <Supabase JWT>. Omit when sending x-backoffice-key. */
+                authorization?: string;
             };
             path: {
                 binaryId: string;
@@ -3842,8 +3901,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Binary bytes (decrypted if encrypted) */
+            /** @description Encrypted binary: the stream-decrypted plaintext bytes */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Plaintext binary: redirect to a signed storage URL */
+            302: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3851,6 +3917,118 @@ export interface operations {
             };
             /** @description Binary not found or not accessible */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid JWT or back-office key, or not an org member */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FrontendController_downloadUpload: {
+        parameters: {
+            query: {
+                orgId: number;
+            };
+            header?: {
+                /** @description The @devicecloud.dev staff member a back-office request acts for; recorded as the key-release actor. */
+                "x-staff-email"?: string;
+                /** @description Back-office service key (BACKOFFICE_API_KEY), in place of a JWT. Requires x-staff-email. */
+                "x-backoffice-key"?: string;
+                /** @description Bearer <Supabase JWT>. Omit when sending x-backoffice-key. */
+                authorization?: string;
+            };
+            path: {
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Encrypted flow upload: the stream-decrypted zip */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Plaintext flow upload: redirect to a signed storage URL */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Upload not found or not accessible */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No valid JWT or back-office key, or not an org member */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    FrontendController_getResultEnv: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The @devicecloud.dev staff member a back-office request acts for; recorded as the key-release actor. */
+                "x-staff-email"?: string;
+                /** @description Back-office service key (BACKOFFICE_API_KEY), in place of a JWT. Requires x-staff-email. */
+                "x-backoffice-key"?: string;
+                /** @description Bearer <Supabase JWT>. Omit when sending x-backoffice-key. */
+                authorization?: string;
+            };
+            path: {
+                resultId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The result's env. `encrypted` says whether it was stored encrypted; `env` is the (decrypted) KEY -> VALUE map, or null when the result has none. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        encrypted: boolean;
+                        env: {
+                            [key: string]: string;
+                        } | null;
+                    };
+                };
+            };
+            /** @description No valid JWT or back-office key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The JWT is not a staff account */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Result not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

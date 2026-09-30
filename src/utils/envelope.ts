@@ -7,8 +7,7 @@ import {
   randomBytes,
 } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
-import { inferEnvFromApiUrl } from '../config/environments.js';
-import { ENVIRONMENTS } from '../config/environments.js';
+import { ENVIRONMENTS, kekEnvForApiUrl } from '../config/environments.js';
 
 /**
  * Client-side envelope encryption of app binaries before upload (dcd#1138).
@@ -52,18 +51,88 @@ export interface EnvEnvelope extends BinaryEnvelope {
   ciphertext: string;
 }
 
+/** What decided whether a run encrypts (dcd#1138); recorded in telemetry. */
+export type EncryptionSource = 'env' | 'flag' | 'off' | 'server';
+
+export interface EncryptionDecision {
+  enabled: boolean;
+  /** Kept when encryption is skipped, so telemetry shows what asked for it. */
+  source: EncryptionSource;
+  /** One line for the user when encryption was wanted but is skipped. */
+  notice?: string;
+}
+
+/** `1`/`true` is on and `0`/`false` is off, in any case; anything else is unset. */
+function parseEncryptEnv(value: string | undefined): boolean | undefined {
+  switch (value?.trim().toLowerCase()) {
+    case '1':
+    case 'true': {
+      return true;
+    }
+
+    case '0':
+    case 'false': {
+      return false;
+    }
+
+    default: {
+      return undefined;
+    }
+  }
+}
+
 /**
- * Whether client-side envelope encryption is on. Explicit `flag` (the
- * `--encrypt` CLI flag) wins; otherwise `DCD_ENCRYPT=1` enables it for binary,
- * flow, and env, and the legacy `DCD_ENCRYPT_BINARIES=1` is kept as an alias.
+ * Whether client-side envelope encryption is on, and what decided it. The
+ * first of these that is set wins:
+ *   1. `flag`: `--encrypt` / `--no-encrypt`, or the MCP tool's `encrypt` input.
+ *   2. `DCD_ENCRYPT`, then its legacy alias `DCD_ENCRYPT_BINARIES`.
+ *   3. `serverDefault`: `encryption.defaultOn` from the compatibility data,
+ *      which the API turns on for orgs in the `client_encryption` beta.
+ *   4. Off. An API too old to send `encryption` ends up here.
  * When on, the binary, the flow zip, and the env map are each encrypted with
  * their **own** per-upload DEK (all wrapped under the same per-env KEK).
  */
-export function isEncryptionEnabled(flag?: boolean): boolean {
-  if (flag !== undefined) return flag;
-  return (
-    process.env.DCD_ENCRYPT === '1' || process.env.DCD_ENCRYPT_BINARIES === '1'
-  );
+export function resolveEncryption(opts: {
+  env?: NodeJS.ProcessEnv;
+  flag?: boolean;
+  serverDefault?: boolean;
+}): EncryptionDecision {
+  const { env = process.env, flag, serverDefault } = opts;
+  if (flag !== undefined) return { enabled: flag, source: 'flag' };
+
+  const fromEnv =
+    parseEncryptEnv(env.DCD_ENCRYPT) ?? parseEncryptEnv(env.DCD_ENCRYPT_BINARIES);
+  if (fromEnv !== undefined) return { enabled: fromEnv, source: 'env' };
+
+  if (serverDefault === true) return { enabled: true, source: 'server' };
+  return { enabled: false, source: 'off' };
+}
+
+/**
+ * Check that `apiUrl` has a KEK before a run encrypts against it: either
+ * `DCD_BINARY_KEK_PUBLIC` is set or the URL is a known devicecloud.dev API
+ * (see kekEnvForApiUrl). Without one, an explicit `--encrypt` is an error,
+ * while encryption from DCD_ENCRYPT or the org default is skipped with a
+ * notice, so a run against another API URL uploads in plaintext as before.
+ */
+export function checkKekForEncryption(
+  decision: EncryptionDecision,
+  apiUrl: string,
+): EncryptionDecision {
+  if (!decision.enabled || resolveKekPublicKey(apiUrl)) return decision;
+
+  if (decision.source === 'flag') {
+    throw new Error(
+      `--encrypt needs the KEK public key of the API it uploads to, and ${apiUrl} is not a devicecloud.dev API this CLI has one for. ` +
+        'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64> to encrypt against it, or drop --encrypt.',
+    );
+  }
+
+  return {
+    enabled: false,
+    notice: `Not encrypting uploads: ${apiUrl} is not a devicecloud.dev API this CLI has a key for. Set DCD_BINARY_KEK_PUBLIC to encrypt against it.`,
+    source: decision.source,
+  };
 }
 
 /** Pinned KEK public key (base64 raw 32-byte X25519) + version, per env. */
@@ -83,8 +152,9 @@ function x25519PublicFromRaw(raw: Buffer) {
 /**
  * Resolve the KEK public key for the environment behind `apiUrl`. Order:
  *   1. `DCD_BINARY_KEK_PUBLIC` env override (`<version>:<base64>`, e.g. `1:AAAA…`)
- *      — lets the feature be exercised before keys are pinned in the release.
- *   2. the pinned `ENVIRONMENTS[env].kekPublicKey`.
+ *      — lets the feature be exercised before keys are pinned in the release,
+ *      or against an API URL that isn't a known one.
+ *   2. the pinned `ENVIRONMENTS[env].kekPublicKey`, only for a known API URL.
  * Returns null when no key is available (encryption cannot proceed).
  */
 export function resolveKekPublicKey(apiUrl: string): KekPublicKey | null {
@@ -101,7 +171,8 @@ export function resolveKekPublicKey(apiUrl: string): KekPublicKey | null {
     );
   }
 
-  const env = inferEnvFromApiUrl(apiUrl);
+  const env = kekEnvForApiUrl(apiUrl);
+  if (!env) return null;
   const pinned = ENVIRONMENTS[env].kekPublicKey;
   if (!pinned) return null;
   const keyRaw = Buffer.from(pinned.key, 'base64');

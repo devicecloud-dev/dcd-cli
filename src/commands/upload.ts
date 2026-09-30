@@ -5,10 +5,13 @@ import { apiFlags } from '../config/flags/api.flags.js';
 import { binaryFlags } from '../config/flags/binary.flags.js';
 import { outputFlags } from '../config/flags/output.flags.js';
 import { uploadBinary, verifyAppZip } from '../methods.js';
+import { telemetry } from '../services/telemetry.service.js';
 import { resolveAuth } from '../utils/auth.js';
-import { CliError, logger } from '../utils/cli.js';
+import { detectCiContext } from '../utils/ci.js';
+import { CliError, getCliVersion, logger } from '../utils/cli.js';
+import { fetchCompatibilityData } from '../utils/compatibility.js';
 import { resolveApiUrl } from '../utils/config-store.js';
-import { isEncryptionEnabled } from '../utils/envelope.js';
+import { checkKekForEncryption, resolveEncryption } from '../utils/envelope.js';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo.js';
 import { colors, formatId } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
@@ -44,14 +47,40 @@ export const uploadCommand = defineCommand({
       const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
       const appUrl = args['app-url'] as string | undefined;
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
-      // Same rule as `dcd cloud`: the flag turns encryption on, and without it
-      // DCD_ENCRYPT decides. Passing `false` here used to mean "explicitly
-      // off", which silently beat DCD_ENCRYPT=1 for every `dcd upload`.
-      const encryptBinary = isEncryptionEnabled(args['encrypt'] ? true : undefined);
+      // Kept as given, so --no-encrypt is an explicit false and a missing flag
+      // leaves DCD_ENCRYPT and then the org's default to decide.
+      const encryptFlag = args.encrypt as boolean | undefined;
       const debug = Boolean(args.debug);
       const positional = args.appFile as string | undefined;
 
       const auth = await resolveAuth({ apiKeyFlag });
+
+      // Same order as `dcd cloud`, whose compatibility fetch carries the org's
+      // encryption default. `dcd upload` never needed that data before, so a
+      // failed fetch leaves the default off rather than failing the upload.
+      let serverDefault: boolean | undefined;
+      try {
+        const ciContext = detectCiContext();
+        const compatibilityData = await fetchCompatibilityData(apiUrl, auth, {
+          cliVersion: getCliVersion(),
+          ciProvider: ciContext.provider,
+          ciWrapperVersion: ciContext.wrapperVersion,
+        });
+        serverDefault = compatibilityData.encryption?.defaultOn;
+      } catch (error) {
+        if (debug) {
+          out(
+            `[DEBUG] Failed to fetch compatibility data, so the org's encryption default is off: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+
+      const encryption = checkKekForEncryption(
+        resolveEncryption({ flag: encryptFlag, serverDefault }),
+        apiUrl,
+      );
+      if (encryption.notice) out(ui.note(encryption.notice));
+      telemetry.recordEncryption({ source: encryption.source });
 
       let resolvedFile: string | undefined = appUrl ?? positional;
       if (!resolvedFile) {
@@ -88,17 +117,25 @@ export const uploadCommand = defineCommand({
       }
 
       out(ui.section('Uploading app binary'));
-      out(ui.branch(ui.fields([['file', colors.highlight(resolvedFile)]])));
+      out(
+        ui.branch([
+          ...ui.fields([['file', colors.highlight(resolvedFile)]]),
+          ...(encryption.enabled && encryption.source === 'server'
+            ? [ui.note('Encrypting uploads (beta); opt out with --no-encrypt')]
+            : []),
+        ]),
+      );
 
       const appBinaryId = await uploadBinary({
         auth,
         apiUrl,
         debug,
-        encrypt: encryptBinary,
+        encrypt: encryption.enabled,
         filePath: resolvedFile,
         ignoreShaCheck,
         log: !json,
       });
+      telemetry.recordEncryption({ binary: encryption.enabled });
 
       if (json) {
         // eslint-disable-next-line no-console

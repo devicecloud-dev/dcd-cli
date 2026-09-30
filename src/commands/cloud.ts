@@ -34,7 +34,7 @@ import {
   matrixIsIos,
   parseDeviceMatrix,
 } from '../utils/device-matrix.js';
-import { isEncryptionEnabled } from '../utils/envelope.js';
+import { checkKekForEncryption, resolveEncryption } from '../utils/envelope.js';
 import { detectCiContext, isCI } from '../utils/ci.js';
 import {
   CliError,
@@ -191,12 +191,11 @@ export const cloudCommand = defineCommand({
       const cancelPrevious = Boolean(args['cancel-previous']);
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
-      // Single opt-in for client-side envelope encryption of every sensitive
-      // artifact — the binary (#1138), the flow zip (#1151), and env vars
-      // (#1152). Flag wins; otherwise DCD_ENCRYPT / DCD_ENCRYPT_BINARIES.
-      const encrypt = isEncryptionEnabled(
-        args['encrypt'] ? true : undefined,
-      );
+      // Client-side envelope encryption of every sensitive artifact: the
+      // binary (#1138), the flow zip (#1151), and env vars (#1152). Kept as
+      // given (--no-encrypt is an explicit false) and resolved once the
+      // compatibility data, which carries the org's default, is in.
+      const encryptFlag = args.encrypt as boolean | undefined;
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
       );
@@ -378,6 +377,20 @@ export const cloudCommand = defineCommand({
 
       if (debug) {
         out(`[DEBUG] API URL: ${apiUrl}`);
+      }
+
+      const encryption = checkKekForEncryption(
+        resolveEncryption({
+          flag: encryptFlag,
+          serverDefault: compatibilityData.encryption?.defaultOn,
+        }),
+        apiUrl,
+      );
+      const encrypt = encryption.enabled;
+      if (encryption.notice) out(ui.note(encryption.notice));
+      telemetry.recordEncryption({ source: encryption.source });
+      if (debug) {
+        out(`[DEBUG] Encryption: ${encrypt ? 'on' : 'off'} (${encryption.source})`);
       }
 
       const resolvedMaestroVersion = versionService.resolveMaestroVersion(
@@ -772,6 +785,10 @@ export const cloudCommand = defineCommand({
         return;
       }
 
+      if (encrypt && encryption.source === 'server') {
+        out(ui.note('Encrypting uploads (beta); opt out with --no-encrypt'));
+      }
+
       if (!finalBinaryId) {
         if (!finalAppFile) {
           throw new CliError(
@@ -793,6 +810,7 @@ export const cloudCommand = defineCommand({
           log: !json,
         });
         finalBinaryId = binaryId;
+        telemetry.recordEncryption({ binary: encrypt });
 
         if (debug) {
           out(`[DEBUG] Binary uploaded with ID: ${binaryId}`);
@@ -849,6 +867,7 @@ export const cloudCommand = defineCommand({
         disableAnimations,
         renderEngine,
       });
+      telemetry.recordEncryption({ env: encrypt && env.length > 0, flow: encrypt });
 
       // Device-matrix cost preview: the server prices the exact fan-out (quote
       // == charge) so the user sees the cell count and estimated cost before the

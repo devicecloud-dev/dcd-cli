@@ -46,9 +46,10 @@ export interface TestSubmissionConfig {
   /**
    * Encrypt the flow zip and env vars before upload (#1151/#1152), each with its
    * own per-upload DEK wrapped under the environment KEK. Requires `apiUrl` to
-   * resolve the pinned KEK public key.
+   * resolve the pinned KEK public key. Required, like `uploadBinary`'s: callers
+   * pass the decision from `resolveEncryption`.
    */
-  encrypt?: boolean;
+  encrypt: boolean;
   env?: string[];
   executionPlan: IExecutionPlan;
   flowFile: string;
@@ -98,7 +99,7 @@ export class TestSubmissionService {
       apiUrl,
       appBinaryId,
       appPlatform,
-      encrypt = false,
+      encrypt,
       flowFile,
       executionPlan,
       commonRoot,
@@ -232,8 +233,8 @@ export class TestSubmissionService {
       const kek = resolveKekPublicKey(apiUrl);
       if (!kek) {
         throw new Error(
-          'Encryption was requested but no KEK public key is configured for this environment. ' +
-            'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64> or pin one in src/config/environments.ts.',
+          'Encryption is on (from --encrypt, DCD_ENCRYPT or the organization default) but no KEK public key is configured for this API. ' +
+            'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64>, or pass --no-encrypt to upload without encryption.',
         );
       }
       const flow = encryptFlowBuffer(plaintextZip, kek);

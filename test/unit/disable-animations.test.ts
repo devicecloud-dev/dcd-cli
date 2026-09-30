@@ -50,6 +50,7 @@ describe('disableAnimations', () => {
       appBinaryId: 'binary-1',
       cliVersion: '0.0.0-test',
       commonRoot: workspace,
+      encrypt: false,
       executionPlan,
       flowFile,
       maestroVersion: '2.10.0',
