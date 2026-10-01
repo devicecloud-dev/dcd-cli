@@ -1,5 +1,25 @@
 # Changelog
 
+## [5.7.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.6.0...v5.7.0) (2026-10-01)
+
+
+### Features
+
+* Add support for encryption beta ([#202](https://github.com/devicecloud-dev/dcd-cli/issues/202)) ([d5828f4](https://github.com/devicecloud-dev/dcd-cli/commit/d5828f46a09648c9d7a9fbe09d79754103a2591f))
+* **cloud:** send runner_type in the notice context for the gpu1 reti… ([#201](https://github.com/devicecloud-dev/dcd-cli/issues/201)) ([3d0b720](https://github.com/devicecloud-dev/dcd-cli/commit/3d0b720529df92838a9e712fe2b31dcfc96b43fb))
+* **cloud:** send runner_type in the notice context for the gpu1 retirement ([3d0b720](https://github.com/devicecloud-dev/dcd-cli/commit/3d0b720529df92838a9e712fe2b31dcfc96b43fb))
+
+
+### Dependencies
+
+* bump the minor-and-patch group across 1 directory with 7 updates ([#198](https://github.com/devicecloud-dev/dcd-cli/issues/198)) ([404e7e5](https://github.com/devicecloud-dev/dcd-cli/commit/404e7e52f5f288b05812143d04c8433ed6ca1793))
+* patch fast-uri and ip-address advisories ([#200](https://github.com/devicecloud-dev/dcd-cli/issues/200)) ([3c146d7](https://github.com/devicecloud-dev/dcd-cli/commit/3c146d794fc8617e029922f5b265dae44b5d368b))
+
+
+### Miscellaneous
+
+* pin the 5.7.0 promotion ([56539df](https://github.com/devicecloud-dev/dcd-cli/commit/56539df66c6c63646f7aeac39e9ceb62355cf47b))
+
 ## [5.6.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.5.0...v5.6.0) (2026-09-24)
 
 
