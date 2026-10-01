@@ -25,21 +25,24 @@ export function errorResult(message: string): CallToolResult {
 /**
  * Wrap a tool handler: emit start/success/failure telemetry, flush it
  * (fire-and-forget — the process outlives the call), and translate thrown
- * errors into an `isError` result instead of rejecting.
+ * errors into an `isError` result instead of rejecting. Fields the handler
+ * puts on `telemetryExtra` ride on that call's completed or failed event; it
+ * is per call, since one long-lived server can run several tools at once.
  */
 export async function runTool(
   name: string,
-  fn: () => Promise<CallToolResult>,
+  fn: (telemetryExtra: Record<string, unknown>) => Promise<CallToolResult>,
 ): Promise<CallToolResult> {
   const start = Date.now();
+  const telemetryExtra: Record<string, unknown> = {};
   telemetry.recordMcpToolStart(name);
   try {
-    const result = await fn();
-    telemetry.recordMcpToolSuccess(name, Date.now() - start);
+    const result = await fn(telemetryExtra);
+    telemetry.recordMcpToolSuccess(name, Date.now() - start, telemetryExtra);
     void telemetry.flush();
     return result;
   } catch (error) {
-    telemetry.recordMcpToolFailure(name, error, Date.now() - start);
+    telemetry.recordMcpToolFailure(name, error, Date.now() - start, telemetryExtra);
     void telemetry.flush();
     return errorResult(error instanceof Error ? error.message : String(error));
   }
