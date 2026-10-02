@@ -1,15 +1,10 @@
 import { parseBuffer } from 'bplist-parser';
-import nodeApk from 'node-apk';
 import { readFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import StreamZip from 'node-stream-zip';
 import { parse } from 'plist';
 
-// node-apk is CJS with no `exports` map; Node's named-export detection for CJS
-// (cjs-module-lexer) is version-dependent, so destructure off the default import
-// instead — that interop is guaranteed on every Node version. bplist-parser 0.5
-// is a real ESM/CJS dual package with named exports, so it imports directly.
-const { Apk } = nodeApk;
+import { readManifestPackage } from '../utils/android-manifest.js';
 
 export interface TAppMetadata {
   appId: string;
@@ -52,12 +47,12 @@ export class AndroidMetadataExtractor implements IMetadataExtractor {
   }
 
   async extract(filePath: string): Promise<TAppMetadata> {
-    const apk = new Apk(filePath);
+    const zip = new StreamZip.async({ file: filePath });
     try {
-      const manifest = await apk.getManifestInfo();
-      return { appId: manifest.package, platform: 'android' };
+      const manifest = await zip.entryData('AndroidManifest.xml');
+      return { appId: readManifestPackage(manifest), platform: 'android' };
     } finally {
-      apk.close();
+      await zip.close().catch(() => {});
     }
   }
 }

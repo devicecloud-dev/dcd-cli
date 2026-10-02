@@ -16,7 +16,11 @@ jobs:
     #  - Dependabot / forks: no CLAUDE_CODE_OAUTH_TOKEN, so the action would fail.
     #  - release-please release PRs: just version bumps + changelog — nothing to
     #    review, and it must never block a release.
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'release-please--') }}
+    #  - Back-merge PRs (production -> dev, opened by release-please.yml): only
+    #    carry code already reviewed on its way through dev, and the action
+    #    rejects their bot actor ("Workflow initiated by non-human actor"),
+    #    which blocks the merge since claude-review is a required check.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && !startsWith(github.head_ref, 'release-please--') && !startsWith(github.head_ref, 'chore/back-merge-') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
