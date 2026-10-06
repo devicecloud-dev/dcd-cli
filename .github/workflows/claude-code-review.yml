@@ -32,6 +32,9 @@ jobs:
       id-token: write
 
     steps:
+      - name: Record start time
+        run: echo "REVIEW_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
@@ -55,7 +58,29 @@ jobs:
           # doesn't reach the inline-comment MCP tool: PR #9's review hit 46
           # permission denials and posted nothing despite finding issues.
           claude_args: |
-            --model claude-opus-5-5 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"
+            --model claude-opus-5-5 --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)" --append-system-prompt "You are running non-interactively. Never run subagents in the background and never schedule wakeups: ending your turn ends the session. Wait for every reviewer to finish, then post the review comment before you stop."
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 
+      # The action exits green even when Claude ends its turn before posting
+      # anything (e.g. it backgrounded its reviewer subagents and stopped to
+      # "wait" for them). Fail loudly instead of leaving a silent green check.
+      - name: Check a review comment was posted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          count=$(
+            {
+              gh api "repos/$REPO/issues/$PR/comments" --paginate \
+                --jq ".[] | select(.user.login == \"claude[bot]\" and .created_at >= \"$REVIEW_STARTED_AT\") | .id"
+              gh api "repos/$REPO/pulls/$PR/comments" --paginate \
+                --jq ".[] | select(.user.login == \"claude[bot]\" and .created_at >= \"$REVIEW_STARTED_AT\") | .id"
+            } | wc -l
+          )
+          if [ "$count" -eq 0 ]; then
+            echo "::error::Claude finished without posting a review comment on this PR."
+            exit 1
+          fi
+          echo "Claude posted $count comment(s)."
