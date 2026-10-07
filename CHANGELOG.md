@@ -1,5 +1,23 @@
 # Changelog
 
+## [5.7.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.7.0...v5.7.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **deps:** clear pnpm audit (MCP SDK, source-map-js, braces) ([#214](https://github.com/devicecloud-dev/dcd-cli/issues/214)) ([f0ae9af](https://github.com/devicecloud-dev/dcd-cli/commit/f0ae9af2f7bfd51005d0e8522e6f6dee56cd001e))
+* **deps:** drop node-apk to remove vulnerable node-forge ([#211](https://github.com/devicecloud-dev/dcd-cli/issues/211)) ([12fc601](https://github.com/devicecloud-dev/dcd-cli/commit/12fc601e81b5e8ae1d7c8aecd8b937d1d533a810))
+
+
+### Dependencies
+
+* bump the minor-and-patch group across 1 directory with 6 updates ([#215](https://github.com/devicecloud-dev/dcd-cli/issues/215)) ([c55d091](https://github.com/devicecloud-dev/dcd-cli/commit/c55d0919eead9f220d3a946da748d195cbdd30c5))
+
+
+### Miscellaneous
+
+* pin the 5.7.1 promotion ([7198259](https://github.com/devicecloud-dev/dcd-cli/commit/7198259e920eb23fb7867d8c1cf8070b7cbb0e55))
+
 ## [5.7.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.6.0...v5.7.0) (2026-10-01)
 
 
