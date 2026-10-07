@@ -6,7 +6,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.6.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@supabase/supabase-js": "^2.108.2",
     "bplist-parser": "^0.5.0",
     "chalk": "^6.0.0",
@@ -111,12 +111,14 @@
       "qs@<6.16.0": "6.16.0",
       "fast-uri@>=3.0.0 <3.1.8": "3.1.8",
       "hono@>=4.0.0 <4.13.7": "4.13.7",
+      "source-map-js@<1.2.2": "1.2.2",
       "micromatch>picomatch": "^2.3.2",
       "tinyglobby>picomatch": "^4.0.4"
     },
     "auditConfig": {
       "ignoreGhsas": [
-        "GHSA-frvp-7c67-39w9"
+        "GHSA-frvp-7c67-39w9",
+        "GHSA-vfj7-8cjw-p6xm"
       ]
     }
   }
