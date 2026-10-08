@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 
-import { ApiGateway } from '../gateways/api-gateway.js';
+import { ApiGateway, type ResultsPollCache } from '../gateways/api-gateway.js';
 import {
   RealtimeResultsGateway,
   type RealtimeResultsSubscription,
@@ -215,6 +215,10 @@ export class ResultsPollingService {
 
     let sequentialPollFailures = 0;
 
+    // The last result set and its ETag, so a poll that finds nothing changed
+    // gets an empty 304 instead of the whole set again.
+    const resultsCache: ResultsPollCache = {};
+
     const pollIntervalMs =
       auth.mode === 'bearer'
         ? this.BEARER_POLL_INTERVAL_MS
@@ -324,7 +328,14 @@ export class ResultsPollingService {
           renderStatus();
 
           auth = await this.refreshPollingAuth(auth, uploadId, subscription, debug, logger);
-          const updatedResults = await this.fetchAndLogResults(apiUrl, auth, uploadId, debug, logger);
+          const updatedResults = await this.fetchAndLogResults(
+            apiUrl,
+            auth,
+            uploadId,
+            resultsCache,
+            debug,
+            logger,
+          );
 
           const { summary } = this.calculateStatusSummary(updatedResults);
           if (!json) {
@@ -547,6 +558,7 @@ export class ResultsPollingService {
    * @param apiUrl API base URL
    * @param auth AuthContext carrying request headers
    * @param uploadId Upload ID to fetch results for
+   * @param cache The poll loop's results cache, for ETag revalidation
    * @param debug Whether debug logging is enabled
    * @param logger Optional logger function
    * @returns Promise resolving to test results
@@ -555,6 +567,7 @@ export class ResultsPollingService {
     apiUrl: string,
     auth: AuthContext,
     uploadId: string,
+    cache: ResultsPollCache,
     debug: boolean,
     logger?: (message: string) => void,
   ): Promise<TestResult[]> {
@@ -562,8 +575,11 @@ export class ResultsPollingService {
       logger(`[DEBUG] Polling for results: ${uploadId}`);
     }
 
-    const { results: updatedResults } =
-      await ApiGateway.getResultsForUpload(apiUrl, auth, uploadId);
+    // A 304 hands back the cached body itself; a 200 is always a new object.
+    const cachedBody = cache.body;
+    const response = await ApiGateway.getResultsForUpload(apiUrl, auth, uploadId, cache);
+    const notModified = cachedBody !== undefined && response === cachedBody;
+    const { results: updatedResults } = response;
 
     // An empty array would otherwise read as "all complete, all passed".
     if (!updatedResults || updatedResults.length === 0) {
@@ -571,7 +587,11 @@ export class ResultsPollingService {
     }
 
     if (debug && logger) {
-      logger(`[DEBUG] Poll received ${updatedResults.length} results`);
+      logger(
+        notModified
+          ? `[DEBUG] Poll not modified (304), reusing ${updatedResults.length} cached results`
+          : `[DEBUG] Poll received ${updatedResults.length} results`,
+      );
       for (const result of updatedResults) {
         logger(
           `[DEBUG] Result status: ${result.test_file_name} - ${result.status}`,
