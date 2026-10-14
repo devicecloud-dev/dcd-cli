@@ -62,6 +62,13 @@ export interface TestSubmissionConfig {
   metadata?: string[];
   name?: string;
   orientation?: string;
+  /**
+   * Where this upload sits among the org's own queued runs. Like
+   * `cancelPrevious`, sent as its own field rather than inside `config`: it is
+   * a scheduling directive for the whole upload, not run configuration. Only
+   * reorders the org's own queue; it never moves the org ahead of others.
+   */
+  priority?: 'low' | 'normal' | 'high';
   raw?: unknown;
   /**
    * Which emulator software renderer to boot with (Android only). Omitted
@@ -118,6 +125,7 @@ export class TestSubmissionService {
       maestroVersion,
       deviceLocale,
       orientation,
+      priority,
       retry,
       continueOnFailure = true,
       renderEngine,
@@ -359,6 +367,12 @@ export class TestSubmissionService {
     // unchanged and the flag is simply ignored by an older API.
     if (cancelPrevious) {
       fields.cancelPrevious = 'true';
+    }
+
+    // Same reasoning: 'normal' is the default and is never sent, so the
+    // default path's wire shape is unchanged and an older API never sees it.
+    if (priority && priority !== 'normal') {
+      fields.priority = priority;
     }
 
     this.setOptionalFields(fields, {
