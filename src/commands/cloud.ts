@@ -80,6 +80,7 @@ const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
 const REPORT_OPTIONS = ['allure', 'html', 'html-detailed', 'junit'] as const;
 const ORIENTATION_OPTIONS = ['0', '90'] as const;
 const RUNNER_TYPE_OPTIONS = ['default', 'm4', 'm1', 'gpu1', 'cpu1'] as const;
+const PRIORITY_OPTIONS = ['low', 'normal', 'high'] as const;
 const RENDER_ENGINE_OPTIONS = ['lavapipe', 'swiftshader'] as const;
 
 /**
@@ -229,6 +230,12 @@ export const cloudCommand = defineCommand({
         ORIENTATION_OPTIONS,
         'orientation',
       );
+      const priority =
+        validateEnum(
+          args.priority as string | undefined,
+          PRIORITY_OPTIONS,
+          'priority',
+        ) ?? 'normal';
       let quiet = Boolean(args.quiet);
       const report = validateEnum(
         args.report as string | undefined,
@@ -858,6 +865,7 @@ export const cloudCommand = defineCommand({
         metadata: mergedMetadata,
         name,
         orientation,
+        priority,
         raw: [],
         report,
         retry,

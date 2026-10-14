@@ -83,6 +83,12 @@ export function registerRunCloudTest(server: McpServer): void {
           .describe(
             'Runner type (default "default"). gpu1 is deprecated and will be removed on 9 November 2026; prefer cpu1.',
           ),
+        priority: z
+          .enum(['low', 'normal', 'high'])
+          .optional()
+          .describe(
+            'Run priority within the organization (default "normal"). Reorders only the queued runs of this organization, for every flow in this upload; it never moves them ahead of other customers. Runs queued over 6 hours are promoted first, so low runs are never starved.',
+          ),
         configFile: z.string().optional().describe('Path to a workspace config.yaml'),
         ignoreShaCheck: z
           .boolean()
@@ -263,6 +269,7 @@ export function registerRunCloudTest(server: McpServer): void {
           iOSDevice: args.iosDevice,
           iOSVersion: args.iosVersion,
           name: args.name,
+          priority: args.priority,
           runnerType: args.runnerType ?? 'default',
           maestroVersion: resolvedMaestroVersion,
           retry: args.retry,

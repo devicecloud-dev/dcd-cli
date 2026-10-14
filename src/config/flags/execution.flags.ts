@@ -41,6 +41,12 @@ export const executionFlags = {
     description:
       'Maestro version to run your flow against. Use "latest" for the most recent version. See https://docs.devicecloud.dev/configuration/maestro-versions for supported versions.',
   },
+  priority: {
+    type: 'string',
+    default: 'normal',
+    description:
+      'Run priority within your organization (options: low, normal, high). Reorders only your own queued runs across your concurrency pool, for every flow in this upload; it never moves them ahead of other customers. Runs queued longer than 6 hours are promoted first, so low runs are never starved. Retries keep the same priority.',
+  },
   retry: {
     type: 'string',
     description:
