@@ -3,10 +3,13 @@ import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { ApiError, ApiGateway } from '../../src/gateways/api-gateway.js';
+import { SessionRefreshError } from '../../src/gateways/cli-auth-gateway.js';
 import {
   isRetryableSubmitError,
+  SUBMIT_RETRY_BUDGET_MS,
   submitWithRetry,
 } from '../../src/services/flow-submit.service.js';
+import { CliError } from '../../src/utils/cli.js';
 import type { AuthContext } from '../../src/types/domain/auth.types.js';
 
 /**
@@ -227,6 +230,71 @@ describe('flow submit: retry while the outcome is unknown', () => {
     });
 
     expect(slept).to.deep.equal([2000, 5000]);
+  });
+
+  it('reports each attempt before it is sent, so a failure carries the count too', async () => {
+    replies.push({ body: {}, status: 502 }, { body: { message: 'bad' }, status: 400 });
+    const seen: number[] = [];
+
+    await submitWithRetry({
+      fallback: () => Promise.reject(new Error('must not fall back')),
+      onAttempt: (attempt) => seen.push(attempt),
+      sleep: noSleep,
+      submit,
+    }).catch(() => undefined);
+
+    expect(seen).to.deep.equal([1, 2]);
+  });
+
+  it('starts no attempt after the time budget is spent', async () => {
+    // Every attempt "takes" 60s of fake time; the budget allows two waits.
+    let clock = 0;
+    let calls = 0;
+    const error = await submitWithRetry({
+      budgetMs: 150_000,
+      delaysMs: [1000, 1000, 1000, 1000],
+      fallback: () => Promise.reject(new Error('must not fall back')),
+      now: () => clock,
+      sleep: (ms) => {
+        clock += ms;
+        return Promise.resolve();
+      },
+      submit() {
+        calls += 1;
+        clock += 60_000;
+        return Promise.reject(new ApiError('upstream error', 502));
+      },
+    }).catch((error_: unknown) => error_);
+
+    expect((error as ApiError).status).to.equal(502);
+    // Attempts start at 0s, 61s and 122s; a fourth would start at 183s.
+    expect(calls).to.equal(3);
+  });
+
+  it('keeps the worst case to minutes, not a quarter of an hour', () => {
+    // The last attempt starts inside the budget and is cut by its own timeout.
+    const worstCaseMs = SUBMIT_RETRY_BUDGET_MS + ApiGateway.submitAttemptTimeoutMs;
+    expect(worstCaseMs).to.be.at.most(7 * 60_000);
+  });
+
+  it('does not send again when the session cannot be refreshed', async () => {
+    for (const refusal of [
+      new SessionRefreshError('refresh token revoked', true),
+      new CliError('No stored session. Run `dcd login`.'),
+    ]) {
+      let calls = 0;
+      const error = await submitWithRetry({
+        fallback: () => Promise.reject(new Error('must not fall back')),
+        sleep: noSleep,
+        submit() {
+          calls += 1;
+          return Promise.reject(refusal);
+        },
+      }).catch((error_: unknown) => error_);
+
+      expect(error).to.equal(refusal);
+      expect(calls).to.equal(1);
+    }
   });
 
   describe('isRetryableSubmitError', () => {

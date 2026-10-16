@@ -32,7 +32,7 @@ import { telemetry } from '../services/telemetry.service.js';
 import { TestSubmissionService } from '../services/test-submission.service.js';
 import { VersionService } from '../services/version.service.js';
 import { isIosMatrixConfig } from '../types/domain/device.types.js';
-import { resolveAuth } from '../utils/auth.js';
+import { refreshAuth, resolveAuth } from '../utils/auth.js';
 import {
   assertMatrixSupported,
   matrixIsIos,
@@ -965,15 +965,22 @@ export const cloudCommand = defineCommand({
         // The same body on every attempt: its upload id is what lets the API
         // answer a repeat with the run it already created (dcd#1617 follow-up).
         const submitBody = { ...fields, ...storageRef };
+        // The retries can outlast a `dcd login` access token, so each attempt
+        // re-checks it, as the poll loop does.
+        let submitAuth = auth;
         const submitted = await submitWithRetry({
           fallback: (error) => submitMultipart(error.status),
+          // Recorded before each attempt, so `command failed` carries it too.
+          onAttempt: (attempt) => telemetry.recordSubmitAttempts(attempt),
           onRetry: ({ attempt, attempts, delayMs, reason }) =>
             warnOut(
               `Could not confirm the test submission (${reason}); sending it again in ${delayMs / 1000}s (attempt ${attempt}/${attempts}). It will not run twice.`,
             ),
-          submit: () => ApiGateway.submitFlowTest(apiUrl, auth, submitBody),
+          async submit() {
+            submitAuth = await refreshAuth(submitAuth);
+            return ApiGateway.submitFlowTest(apiUrl, submitAuth, submitBody);
+          },
         });
-        telemetry.recordSubmitAttempts(submitted.attempts);
         return submitted.response;
       };
 

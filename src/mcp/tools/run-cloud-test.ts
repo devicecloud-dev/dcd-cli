@@ -306,15 +306,24 @@ export function registerRunCloudTest(server: McpServer): void {
           // Re-sent while its outcome is unknown, always with the same body;
           // see submitWithRetry (dcd#1617 follow-up).
           const submitBody = { ...fields, ...storageRef };
+          // The retries can outlast a `dcd login` access token, so each
+          // attempt re-checks it, as the wait loop below does.
+          let submitAuth = auth;
           const submitted = await submitWithRetry({
             fallback: submitMultipart,
+            // Recorded before each attempt, so a failed tool call carries it.
+            onAttempt: (attempt) => {
+              telemetryExtra.submitAttempts = attempt;
+            },
             onRetry: ({ attempt, attempts, delayMs, reason }) =>
               logStderr(
                 `Could not confirm the test submission (${reason}); sending it again in ${delayMs / 1000}s (attempt ${attempt}/${attempts}). It will not run twice.`,
               ),
-            submit: () => ApiGateway.submitFlowTest(apiUrl, auth, submitBody),
+            async submit() {
+              submitAuth = await refreshAuth(submitAuth);
+              return ApiGateway.submitFlowTest(apiUrl, submitAuth, submitBody);
+            },
           });
-          telemetryExtra.submitAttempts = submitted.attempts;
           return submitted.response;
         };
 

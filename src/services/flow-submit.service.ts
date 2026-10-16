@@ -1,4 +1,5 @@
 import { ApiError } from '../gateways/api-gateway.js';
+import { isDefinitiveAuthFailure } from '../utils/auth.js';
 
 /**
  * Submitting a flow test when the response may be lost (dcd#1617 follow-up).
@@ -22,6 +23,13 @@ export const SUBMIT_RETRY_DELAYS_MS: readonly number[] = [
 ];
 
 /**
+ * No attempt starts more than this long after the first. Each attempt can take
+ * up to its 90s timeout, so without a cap every attempt timing out would hold
+ * the command for about 16 minutes; with it, the worst case is about 6.5.
+ */
+export const SUBMIT_RETRY_BUDGET_MS = 5 * 60_000;
+
+/**
  * Statuses that leave the outcome unknown (502/503/504 from the edge or the
  * API), say the API could not finish (500), or say the first attempt is still
  * creating the run (409 SUBMISSION_IN_PROGRESS). Re-sending is only safe
@@ -38,6 +46,9 @@ const RETRYABLE_STATUSES = new Set([409, 500, 502, 503, 504]);
  */
 export function isRetryableSubmitError(error: unknown): boolean {
   if (error instanceof ApiError) return RETRYABLE_STATUSES.has(error.status);
+  // The session can't be refreshed (refused, or logged out): only `dcd login`
+  // fixes that, so another attempt would fail the same way.
+  if (isDefinitiveAuthFailure(error)) return false;
   return true;
 }
 
@@ -81,13 +92,23 @@ export interface SubmitRetryNotice {
  * error when it is not retryable or the attempts run out.
  */
 export async function submitWithRetry<T>(opts: {
+  budgetMs?: number;
   delaysMs?: readonly number[];
   fallback: (error: ApiError) => Promise<T>;
+  now?: () => number;
+  /**
+   * Called before each attempt with its number, counting from 1, so a caller
+   * can record how many were made whether the submit succeeds or not.
+   */
+  onAttempt?: (attempt: number) => void;
   onRetry?: (notice: SubmitRetryNotice) => void;
   sleep?: (ms: number) => Promise<void>;
   submit: () => Promise<T>;
 }): Promise<{ attempts: number; response: T }> {
   const delaysMs = opts.delaysMs ?? SUBMIT_RETRY_DELAYS_MS;
+  const budgetMs = opts.budgetMs ?? SUBMIT_RETRY_BUDGET_MS;
+  const now = opts.now ?? Date.now;
+  const startedAt = now();
   const sleep =
     opts.sleep ??
     ((ms: number) =>
@@ -97,6 +118,7 @@ export async function submitWithRetry<T>(opts: {
   const attempts = delaysMs.length + 1;
 
   for (let attempt = 1; ; attempt++) {
+    opts.onAttempt?.(attempt);
     try {
       return { attempts: attempt, response: await opts.submit() };
     } catch (error) {
@@ -108,7 +130,13 @@ export async function submitWithRetry<T>(opts: {
       }
 
       const delayMs = delaysMs[attempt - 1];
-      if (delayMs === undefined || !isRetryableSubmitError(error)) throw error;
+      if (
+        delayMs === undefined ||
+        !isRetryableSubmitError(error) ||
+        now() - startedAt + delayMs > budgetMs
+      ) {
+        throw error;
+      }
 
       opts.onRetry?.({
         attempt: attempt + 1,
