@@ -14,6 +14,10 @@ import {
 import { DeviceValidationService } from '../services/device-validation.service.js';
 import { plan } from '../services/execution-plan.service.js';
 import {
+  isSubmitEndpointMissing,
+  submitWithRetry,
+} from '../services/flow-submit.service.js';
+import {
   buildTestMetadataMap,
   computeCommonRoot,
 } from '../services/flow-paths.js';
@@ -929,9 +933,27 @@ export const cloudCommand = defineCommand({
       // 404s (route undefined), some proxies 405 (path/method not allowed); in
       // either case fall back to the legacy multipart POST /uploads/flow, which
       // is byte-identical bar the storage reference.
-      let response: Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>;
-      try {
-        const storageRef = await uploadFlowZip({ apiUrl, auth, buffer, debug });
+      const submitMultipart = (status: number) => {
+        if (debug) {
+          out(
+            `[DEBUG] Client-direct flow upload unavailable (HTTP ${status}); falling back to multipart ${apiUrl}/uploads/flow`,
+          );
+        }
+
+        const testFormData = testSubmissionService.buildFormData(fields, buffer);
+        return ApiGateway.uploadFlow(apiUrl, auth, testFormData);
+      };
+
+      const submitFlows = async (): Promise<
+        Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>
+      > => {
+        let storageRef: Awaited<ReturnType<typeof uploadFlowZip>>;
+        try {
+          storageRef = await uploadFlowZip({ apiUrl, auth, buffer, debug });
+        } catch (error) {
+          if (!isSubmitEndpointMissing(error)) throw error;
+          return submitMultipart((error as ApiError).status);
+        }
 
         if (debug) {
           out(
@@ -940,27 +962,22 @@ export const cloudCommand = defineCommand({
           out(`[DEBUG] Submitting flow test to ${apiUrl}/uploads/submitFlowTest`);
         }
 
-        response = await ApiGateway.submitFlowTest(apiUrl, auth, {
-          ...fields,
-          ...storageRef,
+        // The same body on every attempt: its upload id is what lets the API
+        // answer a repeat with the run it already created (dcd#1617 follow-up).
+        const submitBody = { ...fields, ...storageRef };
+        const submitted = await submitWithRetry({
+          fallback: (error) => submitMultipart(error.status),
+          onRetry: ({ attempt, attempts, delayMs, reason }) =>
+            warnOut(
+              `Could not confirm the test submission (${reason}); sending it again in ${delayMs / 1000}s (attempt ${attempt}/${attempts}). It will not run twice.`,
+            ),
+          submit: () => ApiGateway.submitFlowTest(apiUrl, auth, submitBody),
         });
-      } catch (error) {
-        if (
-          error instanceof ApiError &&
-          (error.status === 404 || error.status === 405)
-        ) {
-          if (debug) {
-            out(
-              `[DEBUG] Client-direct flow upload unavailable (HTTP ${error.status}); falling back to multipart ${apiUrl}/uploads/flow`,
-            );
-          }
+        telemetry.recordSubmitAttempts(submitted.attempts);
+        return submitted.response;
+      };
 
-          const testFormData = testSubmissionService.buildFormData(fields, buffer);
-          response = await ApiGateway.uploadFlow(apiUrl, auth, testFormData);
-        } else {
-          throw error;
-        }
-      }
+      const response = await submitFlows();
 
       const { message, results } = response;
 

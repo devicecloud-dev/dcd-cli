@@ -3,8 +3,12 @@ import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { ApiError, ApiGateway } from '../../gateways/api-gateway.js';
+import { ApiGateway } from '../../gateways/api-gateway.js';
 import { plan } from '../../services/execution-plan.service.js';
+import {
+  isSubmitEndpointMissing,
+  submitWithRetry,
+} from '../../services/flow-submit.service.js';
 import { computeCommonRoot, buildTestMetadataMap } from '../../services/flow-paths.js';
 import { DeviceValidationService } from '../../services/device-validation.service.js';
 import { platformFromAppFile } from '../../services/notices.service.js';
@@ -282,27 +286,39 @@ export function registerRunCloudTest(server: McpServer): void {
         // referencing it. Older API deployments lack these endpoints (404/405);
         // fall back to the legacy multipart POST /uploads/flow. Mirrors
         // `dcd cloud`.
-        let response: Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>;
-        try {
-          const storageRef = await uploadFlowZip({ apiUrl, auth, buffer });
-          response = await ApiGateway.submitFlowTest(apiUrl, auth, {
-            ...fields,
-            ...storageRef,
-          });
-        } catch (error) {
-          if (
-            error instanceof ApiError &&
-            (error.status === 404 || error.status === 405)
-          ) {
-            const testFormData = testSubmissionService.buildFormData(
-              fields,
-              buffer,
-            );
-            response = await ApiGateway.uploadFlow(apiUrl, auth, testFormData);
-          } else {
-            throw error;
+        const submitMultipart = () =>
+          ApiGateway.uploadFlow(
+            apiUrl,
+            auth,
+            testSubmissionService.buildFormData(fields, buffer),
+          );
+        const submitFlows = async (): Promise<
+          Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>
+        > => {
+          let storageRef: Awaited<ReturnType<typeof uploadFlowZip>>;
+          try {
+            storageRef = await uploadFlowZip({ apiUrl, auth, buffer });
+          } catch (error) {
+            if (!isSubmitEndpointMissing(error)) throw error;
+            return submitMultipart();
           }
-        }
+
+          // Re-sent while its outcome is unknown, always with the same body;
+          // see submitWithRetry (dcd#1617 follow-up).
+          const submitBody = { ...fields, ...storageRef };
+          const submitted = await submitWithRetry({
+            fallback: submitMultipart,
+            onRetry: ({ attempt, attempts, delayMs, reason }) =>
+              logStderr(
+                `Could not confirm the test submission (${reason}); sending it again in ${delayMs / 1000}s (attempt ${attempt}/${attempts}). It will not run twice.`,
+              ),
+            submit: () => ApiGateway.submitFlowTest(apiUrl, auth, submitBody),
+          });
+          telemetryExtra.submitAttempts = submitted.attempts;
+          return submitted.response;
+        };
+
+        const response = await submitFlows();
 
         const { message, results } = response;
         if (!results?.length) {
