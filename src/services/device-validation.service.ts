@@ -80,6 +80,22 @@ export class DeviceValidationService {
       : compatibilityData.android;
     const argNames = options.argNames ?? CLI_ARG_NAMES;
 
+    // With Google Play the API does not give an omitted half the global
+    // default (no longer a Play cell): it picks one that makes the pair a Play
+    // cell, and only rejects when none exists (resolveAndroidTarget in
+    // compatibility.service.ts). Fill it the same way so a pair the API will
+    // run is not refused here.
+    let device = androidDevice;
+    let apiLevel = androidApiLevel;
+    if (googlePlay && device && !apiLevel) {
+      apiLevel = versionsFor(lookup, device)[0];
+    } else if (googlePlay && apiLevel && !device) {
+      const level = apiLevel;
+      device = offeredDevices(lookup).find((d) =>
+        versionsFor(lookup, d).includes(level),
+      );
+    }
+
     this.validateDevice({
       debugLines: (deviceID, version, supportedVersions) => [
         `[DEBUG] Android device: ${deviceID}`,
@@ -88,11 +104,11 @@ export class DeviceValidationService {
         `[DEBUG] Supported Android versions: ${supportedVersions.join(', ')}`,
       ],
       // Mirrors the API, which applies these same global defaults to a
-      // request that omits either half (test-request-validator.service.ts)
+      // request that omits either half (execution-planner.service.ts)
       // and then rejects an incompatible pair.
       defaultDevice: 'pixel-7',
-      defaultVersion: '34',
-      device: androidDevice,
+      defaultVersion: '36',
+      device,
       deviceArg: argNames.androidDevice,
       deviceKind: googlePlay ? 'Google Play' : 'Android',
       formatVersion: (version) => `API level ${version}`,
@@ -109,7 +125,7 @@ export class DeviceValidationService {
         `${deviceID} ${
           googlePlay ? '(Play Store) ' : ''
         }only supports these Android API levels: ${supportedVersions.join(', ')}`,
-      version: androidApiLevel,
+      version: apiLevel,
       versionArg: argNames.androidApiLevel,
       versionName: 'Android API level',
     });

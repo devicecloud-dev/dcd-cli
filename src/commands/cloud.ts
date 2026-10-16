@@ -14,6 +14,10 @@ import {
 import { DeviceValidationService } from '../services/device-validation.service.js';
 import { plan } from '../services/execution-plan.service.js';
 import {
+  isSubmitEndpointMissing,
+  submitWithRetry,
+} from '../services/flow-submit.service.js';
+import {
   buildTestMetadataMap,
   computeCommonRoot,
 } from '../services/flow-paths.js';
@@ -28,7 +32,7 @@ import { telemetry } from '../services/telemetry.service.js';
 import { TestSubmissionService } from '../services/test-submission.service.js';
 import { VersionService } from '../services/version.service.js';
 import { isIosMatrixConfig } from '../types/domain/device.types.js';
-import { resolveAuth } from '../utils/auth.js';
+import { refreshAuth, resolveAuth } from '../utils/auth.js';
 import {
   assertMatrixSupported,
   matrixIsIos,
@@ -80,6 +84,7 @@ const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
 const REPORT_OPTIONS = ['allure', 'html', 'html-detailed', 'junit'] as const;
 const ORIENTATION_OPTIONS = ['0', '90'] as const;
 const RUNNER_TYPE_OPTIONS = ['default', 'm4', 'm1', 'gpu1', 'cpu1'] as const;
+const PRIORITY_OPTIONS = ['low', 'normal', 'high'] as const;
 const RENDER_ENGINE_OPTIONS = ['lavapipe', 'swiftshader'] as const;
 
 /**
@@ -229,6 +234,12 @@ export const cloudCommand = defineCommand({
         ORIENTATION_OPTIONS,
         'orientation',
       );
+      const priority =
+        validateEnum(
+          args.priority as string | undefined,
+          PRIORITY_OPTIONS,
+          'priority',
+        ) ?? 'normal';
       let quiet = Boolean(args.quiet);
       const report = validateEnum(
         args.report as string | undefined,
@@ -858,6 +869,7 @@ export const cloudCommand = defineCommand({
         metadata: mergedMetadata,
         name,
         orientation,
+        priority,
         raw: [],
         report,
         retry,
@@ -921,9 +933,27 @@ export const cloudCommand = defineCommand({
       // 404s (route undefined), some proxies 405 (path/method not allowed); in
       // either case fall back to the legacy multipart POST /uploads/flow, which
       // is byte-identical bar the storage reference.
-      let response: Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>;
-      try {
-        const storageRef = await uploadFlowZip({ apiUrl, auth, buffer, debug });
+      const submitMultipart = (status: number) => {
+        if (debug) {
+          out(
+            `[DEBUG] Client-direct flow upload unavailable (HTTP ${status}); falling back to multipart ${apiUrl}/uploads/flow`,
+          );
+        }
+
+        const testFormData = testSubmissionService.buildFormData(fields, buffer);
+        return ApiGateway.uploadFlow(apiUrl, auth, testFormData);
+      };
+
+      const submitFlows = async (): Promise<
+        Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>
+      > => {
+        let storageRef: Awaited<ReturnType<typeof uploadFlowZip>>;
+        try {
+          storageRef = await uploadFlowZip({ apiUrl, auth, buffer, debug });
+        } catch (error) {
+          if (!isSubmitEndpointMissing(error)) throw error;
+          return submitMultipart((error as ApiError).status);
+        }
 
         if (debug) {
           out(
@@ -932,27 +962,29 @@ export const cloudCommand = defineCommand({
           out(`[DEBUG] Submitting flow test to ${apiUrl}/uploads/submitFlowTest`);
         }
 
-        response = await ApiGateway.submitFlowTest(apiUrl, auth, {
-          ...fields,
-          ...storageRef,
+        // The same body on every attempt: its upload id is what lets the API
+        // answer a repeat with the run it already created (dcd#1617 follow-up).
+        const submitBody = { ...fields, ...storageRef };
+        // The retries can outlast a `dcd login` access token, so each attempt
+        // re-checks it, as the poll loop does.
+        let submitAuth = auth;
+        const submitted = await submitWithRetry({
+          fallback: (error) => submitMultipart(error.status),
+          // Recorded before each attempt, so `command failed` carries it too.
+          onAttempt: (attempt) => telemetry.recordSubmitAttempts(attempt),
+          onRetry: ({ attempt, attempts, delayMs, reason }) =>
+            warnOut(
+              `Could not confirm the test submission (${reason}); sending it again in ${delayMs / 1000}s (attempt ${attempt}/${attempts}). It will not run twice.`,
+            ),
+          async submit() {
+            submitAuth = await refreshAuth(submitAuth);
+            return ApiGateway.submitFlowTest(apiUrl, submitAuth, submitBody);
+          },
         });
-      } catch (error) {
-        if (
-          error instanceof ApiError &&
-          (error.status === 404 || error.status === 405)
-        ) {
-          if (debug) {
-            out(
-              `[DEBUG] Client-direct flow upload unavailable (HTTP ${error.status}); falling back to multipart ${apiUrl}/uploads/flow`,
-            );
-          }
+        return submitted.response;
+      };
 
-          const testFormData = testSubmissionService.buildFormData(fields, buffer);
-          response = await ApiGateway.uploadFlow(apiUrl, auth, testFormData);
-        } else {
-          throw error;
-        }
-      }
+      const response = await submitFlows();
 
       const { message, results } = response;
 

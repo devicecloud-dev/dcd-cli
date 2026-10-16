@@ -3,8 +3,12 @@ import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-import { ApiError, ApiGateway } from '../../gateways/api-gateway.js';
+import { ApiGateway } from '../../gateways/api-gateway.js';
 import { plan } from '../../services/execution-plan.service.js';
+import {
+  isSubmitEndpointMissing,
+  submitWithRetry,
+} from '../../services/flow-submit.service.js';
 import { computeCommonRoot, buildTestMetadataMap } from '../../services/flow-paths.js';
 import { DeviceValidationService } from '../../services/device-validation.service.js';
 import { platformFromAppFile } from '../../services/notices.service.js';
@@ -82,6 +86,12 @@ export function registerRunCloudTest(server: McpServer): void {
           .optional()
           .describe(
             'Runner type (default "default"). gpu1 is deprecated and will be removed on 9 November 2026; prefer cpu1.',
+          ),
+        priority: z
+          .enum(['low', 'normal', 'high'])
+          .optional()
+          .describe(
+            'Run priority within the organization (default "normal"). Reorders only the queued runs of this organization, for every flow in this upload; it never moves them ahead of other customers. Runs queued over 6 hours are promoted first, so low runs are never starved.',
           ),
         configFile: z.string().optional().describe('Path to a workspace config.yaml'),
         ignoreShaCheck: z
@@ -263,6 +273,7 @@ export function registerRunCloudTest(server: McpServer): void {
           iOSDevice: args.iosDevice,
           iOSVersion: args.iosVersion,
           name: args.name,
+          priority: args.priority,
           runnerType: args.runnerType ?? 'default',
           maestroVersion: resolvedMaestroVersion,
           retry: args.retry,
@@ -275,27 +286,48 @@ export function registerRunCloudTest(server: McpServer): void {
         // referencing it. Older API deployments lack these endpoints (404/405);
         // fall back to the legacy multipart POST /uploads/flow. Mirrors
         // `dcd cloud`.
-        let response: Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>;
-        try {
-          const storageRef = await uploadFlowZip({ apiUrl, auth, buffer });
-          response = await ApiGateway.submitFlowTest(apiUrl, auth, {
-            ...fields,
-            ...storageRef,
-          });
-        } catch (error) {
-          if (
-            error instanceof ApiError &&
-            (error.status === 404 || error.status === 405)
-          ) {
-            const testFormData = testSubmissionService.buildFormData(
-              fields,
-              buffer,
-            );
-            response = await ApiGateway.uploadFlow(apiUrl, auth, testFormData);
-          } else {
-            throw error;
+        const submitMultipart = () =>
+          ApiGateway.uploadFlow(
+            apiUrl,
+            auth,
+            testSubmissionService.buildFormData(fields, buffer),
+          );
+        const submitFlows = async (): Promise<
+          Awaited<ReturnType<typeof ApiGateway.submitFlowTest>>
+        > => {
+          let storageRef: Awaited<ReturnType<typeof uploadFlowZip>>;
+          try {
+            storageRef = await uploadFlowZip({ apiUrl, auth, buffer });
+          } catch (error) {
+            if (!isSubmitEndpointMissing(error)) throw error;
+            return submitMultipart();
           }
-        }
+
+          // Re-sent while its outcome is unknown, always with the same body;
+          // see submitWithRetry (dcd#1617 follow-up).
+          const submitBody = { ...fields, ...storageRef };
+          // The retries can outlast a `dcd login` access token, so each
+          // attempt re-checks it, as the wait loop below does.
+          let submitAuth = auth;
+          const submitted = await submitWithRetry({
+            fallback: submitMultipart,
+            // Recorded before each attempt, so a failed tool call carries it.
+            onAttempt: (attempt) => {
+              telemetryExtra.submitAttempts = attempt;
+            },
+            onRetry: ({ attempt, attempts, delayMs, reason }) =>
+              logStderr(
+                `Could not confirm the test submission (${reason}); sending it again in ${delayMs / 1000}s (attempt ${attempt}/${attempts}). It will not run twice.`,
+              ),
+            async submit() {
+              submitAuth = await refreshAuth(submitAuth);
+              return ApiGateway.submitFlowTest(apiUrl, submitAuth, submitBody);
+            },
+          });
+          return submitted.response;
+        };
+
+        const response = await submitFlows();
 
         const { message, results } = response;
         if (!results?.length) {
