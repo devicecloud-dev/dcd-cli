@@ -3,6 +3,7 @@
  * `dcd login` (after the PKCE claim returns a session) and `dcd switch-org`.
  */
 import * as p from '@clack/prompts';
+import type { Writable } from 'node:stream';
 
 import { CliError } from './cli.js';
 
@@ -34,6 +35,7 @@ export async function fetchOrgs(
 export async function pickOrg(
   orgs: OrgListItem[],
   message = 'Pick an organization',
+  output?: Writable,
 ): Promise<OrgListItem> {
   if (orgs.length === 0) {
     throw new CliError('No organizations found for this user.');
@@ -42,6 +44,7 @@ export async function pickOrg(
 
   const picked = await p.select({
     message,
+    output,
     options: orgs.map((o) => ({ value: o.id, label: o.name })),
   });
   if (p.isCancel(picked)) throw new CliError('Cancelled.');

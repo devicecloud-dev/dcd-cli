@@ -1,13 +1,14 @@
-import { defineCommand } from 'citty';
+import { type CommandMeta, defineCommand } from 'citty';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 import { resolveFrontendUrl } from '../config/environments.js';
 import { apiFlags } from '../config/flags/api.flags.js';
+import { jsonFlag } from '../config/flags/output.flags.js';
 import { ApiGateway } from '../gateways/api-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type { LiveSession } from '../types/domain/live.types.js';
 import { resolveAuth } from '../utils/auth.js';
-import { CliError, logger, validateEnum } from '../utils/cli.js';
+import { CliError, logger, validateEnum, wantsJson } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import { colors, formatUrl } from '../utils/styling.js';
 import { type Field, ui } from '../utils/ui.js';
@@ -20,6 +21,13 @@ const READY_POLL_MS = 2_000;
 
 async function requireAuth(keyFlag: string | undefined): Promise<AuthContext> {
   return resolveAuth({ apiKeyFlag: keyFlag });
+}
+
+/** Human output, dropped under --json so stdout carries only the result. */
+function humanLog(json: boolean): (m: string) => void {
+  return (m) => {
+    if (!json) logger.log(m);
+  };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -36,6 +44,7 @@ async function waitForReady(
   apiUrl: string,
   auth: AuthContext,
   sessionName: string,
+  log: (m: string) => void = (m) => logger.log(m),
   timeoutMs = READY_TIMEOUT_MS,
 ): Promise<LiveSession> {
   const deadline = Date.now() + timeoutMs;
@@ -51,7 +60,7 @@ async function waitForReady(
       session.device_state?.phase_label ?? session.device_state?.phase ?? session.status;
     if (phase && phase !== lastPhase) {
       lastPhase = phase;
-      logger.log(`   ${colors.dim(phase)}`);
+      log(`   ${colors.dim(phase)}`);
     }
 
     if (Date.now() >= deadline) {
@@ -103,7 +112,20 @@ function readFlowFile(filePath: string): string {
   }
 }
 
-function printExecResult(result: { error?: string; output?: string; success: boolean }): void {
+function printExecResult(
+  result: { error?: string; output?: string; success: boolean },
+  json: boolean,
+  extra: Record<string, unknown> = {},
+): void {
+  if (json) {
+    logger.json({
+      success: result.success,
+      ...(result.output && { output: result.output }),
+      ...(result.error && { error: result.error }),
+      ...extra,
+    });
+    return;
+  }
   logger.log(
     result.success
       ? ui.success('Command executed successfully')
@@ -150,6 +172,7 @@ const startSub = defineCommand({
       default: false,
       description: 'Block until the device is ready to accept commands',
     },
+    json: jsonFlag,
   },
   async run({ args }) {
     const auth = await requireAuth(args['api-key'] as string | undefined);
@@ -171,15 +194,18 @@ const startSub = defineCommand({
       throw new CliError('--android-device and --android-api-level must be provided together.');
     }
 
-    logger.log(ui.warn(colors.bold('Live is in beta')));
-    logger.log(
+    const json = Boolean(args.json);
+    const out = humanLog(json);
+
+    out(ui.warn(colors.bold('Live is in beta')));
+    out(
       ui.branch([
         'Live device sessions are a beta feature, billed at $0.03/min.',
         `${colors.dim('Not enrolled?')} Contact support to request access.`,
       ]),
     );
 
-    logger.log(ui.running(`Starting ${platform} live session…`));
+    out(ui.running(`Starting ${platform} live session…`));
 
     const session = await ApiGateway.startLiveSession(apiUrl, auth, {
       binaryUploadId: binaryId,
@@ -190,25 +216,37 @@ const startSub = defineCommand({
     });
 
     const frontendUrl = resolveFrontendUrl(apiUrl);
+    const consoleUrl = `${frontendUrl}/live?session=${session.session_name}`;
 
-    logger.log(ui.success('Live session started'));
-    logger.log(
+    out(ui.success('Live session started'));
+    out(
       ui.branch(
         ui.fields([
           ['session', colors.highlight(session.session_name)],
           ['platform', session.platform],
           ['status', session.status],
-          ['console', formatUrl(`${frontendUrl}/live?session=${session.session_name}`)],
+          ['console', formatUrl(consoleUrl)],
         ]),
       ),
     );
 
+    let ready: LiveSession | undefined;
     if (args.wait) {
-      logger.log(ui.running('Waiting for the device to be ready…'));
-      const ready = await waitForReady(apiUrl, auth, session.session_name);
-      logger.log(
-        ui.success(`Device ready${ready.device_model ? ` (${ready.device_model})` : ''}`),
-      );
+      out(ui.running('Waiting for the device to be ready…'));
+      ready = await waitForReady(apiUrl, auth, session.session_name, out);
+      out(ui.success(`Device ready${ready.device_model ? ` (${ready.device_model})` : ''}`));
+    }
+
+    if (json) {
+      logger.json({
+        session_name: session.session_name,
+        platform: session.platform,
+        status: ready?.status ?? session.status,
+        ready: Boolean(ready?.ready),
+        consoleUrl,
+        ...(ready?.device_model && { device_model: ready.device_model }),
+      });
+      return;
     }
 
     logger.log(ui.section('Next steps'));
@@ -230,6 +268,7 @@ const installSub = defineCommand({
   args: {
     ...apiFlags,
     session: { type: 'string', required: true, description: 'Live session name' },
+    json: jsonFlag,
     'app-binary-id': {
       type: 'string',
       required: true,
@@ -246,8 +285,10 @@ const installSub = defineCommand({
     const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const sessionName = args.session as string;
     const binaryId = args['app-binary-id'] as string;
+    const json = Boolean(args.json);
+    const out = humanLog(json);
 
-    logger.log(
+    out(
       ui.running(
         `Installing binary ${colors.highlight(binaryId)} on session ${colors.highlight(sessionName)}…`,
       ),
@@ -255,12 +296,21 @@ const installSub = defineCommand({
 
     await ApiGateway.installLiveBinary(apiUrl, auth, sessionName, binaryId);
 
-    logger.log(ui.success('Binary installed successfully'));
+    out(ui.success('Binary installed successfully'));
 
     if (args.wait) {
-      logger.log(ui.running('Waiting for the device to be ready…'));
-      await waitForReady(apiUrl, auth, sessionName);
-      logger.log(ui.success('Device ready'));
+      out(ui.running('Waiting for the device to be ready…'));
+      await waitForReady(apiUrl, auth, sessionName, out);
+      out(ui.success('Device ready'));
+    }
+
+    if (json) {
+      logger.json({
+        status: 'SUCCESS',
+        session: sessionName,
+        appBinaryId: binaryId,
+        ready: Boolean(args.wait),
+      });
     }
   },
 });
@@ -270,6 +320,7 @@ const execSub = defineCommand({
   args: {
     ...apiFlags,
     session: { type: 'string', required: true, description: 'Live session name' },
+    json: jsonFlag,
     yaml: { type: 'string', description: 'Maestro YAML commands to execute' },
     file: {
       type: 'string',
@@ -296,16 +347,17 @@ const execSub = defineCommand({
       throw new CliError('Provide commands to execute via --yaml or --file.');
     }
 
+    const json = Boolean(args.json);
+    const out = humanLog(json);
+
     if (args.wait) {
-      await waitForReady(apiUrl, auth, sessionName);
+      await waitForReady(apiUrl, auth, sessionName, out);
     }
 
-    logger.log(
-      ui.running(`Executing commands on session ${colors.highlight(sessionName)}…`),
-    );
+    out(ui.running(`Executing commands on session ${colors.highlight(sessionName)}…`));
 
     const result = await ApiGateway.execLiveYaml(apiUrl, auth, sessionName, yaml);
-    printExecResult(result);
+    printExecResult(result, json);
   },
 });
 
@@ -317,6 +369,7 @@ const runSub = defineCommand({
   args: {
     ...apiFlags,
     session: { type: 'string', required: true, description: 'Live session name' },
+    json: jsonFlag,
     wait: {
       type: 'boolean',
       default: false,
@@ -345,11 +398,26 @@ const runSub = defineCommand({
       throw new CliError(`Flow file '${flowFile}' has no commands to run.`);
     }
 
+    const json = Boolean(args.json);
+    const out = humanLog(json);
+
+    // Print the result, then fail with exit 2 if the flow failed. Under --json
+    // the result object is the output, so exit without printing a second one.
+    const finish = (
+      result: { error?: string; output?: string; success: boolean },
+      extra: Record<string, unknown> = {},
+    ): void => {
+      printExecResult(result, json, extra);
+      if (result.success) return;
+      if (json) logger.fail(result.error || 'Flow failed.', 2);
+      throw new CliError(result.error || 'Flow failed.', 2);
+    };
+
     if (args.wait) {
-      await waitForReady(apiUrl, auth, sessionName);
+      await waitForReady(apiUrl, auth, sessionName, out);
     }
 
-    logger.log(
+    out(
       ui.running(
         `Running ${colors.highlight(flowFile)} on session ${colors.highlight(sessionName)}…`,
       ),
@@ -363,8 +431,7 @@ const runSub = defineCommand({
     });
 
     if (!submitted.commandId) {
-      printExecResult(submitted);
-      if (!submitted.success) throw new CliError(submitted.error || 'Flow failed.', 2);
+      finish(submitted);
       return;
     }
 
@@ -374,8 +441,7 @@ const runSub = defineCommand({
     for (;;) {
       const status = await ApiGateway.getLiveCommand(apiUrl, auth, sessionName, commandId);
       if (status.done) {
-        printExecResult(status);
-        if (!status.success) throw new CliError(status.error || 'Flow failed.', 2);
+        finish(status, { commandId });
         return;
       }
       if (Date.now() >= deadline) {
@@ -404,6 +470,7 @@ const screenshotSub = defineCommand({
   args: {
     ...apiFlags,
     session: { type: 'string', required: true, description: 'Live session name' },
+    json: jsonFlag,
     output: {
       type: 'string',
       alias: ['o'],
@@ -432,6 +499,19 @@ const screenshotSub = defineCommand({
 
     writeFileSync(output, Buffer.from(base64, 'base64'));
 
+    if (args.json) {
+      logger.json({
+        status: 'SUCCESS',
+        path: output,
+        format: ext,
+        ...(session.hierarchy && {
+          width: session.hierarchy.width,
+          height: session.hierarchy.height,
+        }),
+      });
+      return;
+    }
+
     logger.log(ui.success(`Screenshot saved to ${colors.highlight(output)}`));
     if (session.hierarchy) {
       logger.log(
@@ -453,7 +533,11 @@ const hierarchySub = defineCommand({
   args: {
     ...apiFlags,
     session: { type: 'string', required: true, description: 'Live session name' },
-    json: { type: 'boolean', description: 'Output the raw hierarchy as JSON' },
+    json: {
+      type: 'boolean',
+      description:
+        'Output the raw hierarchy as JSON (with --output, the file gets the hierarchy and stdout gets { status, path })',
+    },
     output: {
       type: 'string',
       alias: ['o'],
@@ -477,13 +561,11 @@ const hierarchySub = defineCommand({
     }
 
     if (json) {
-      const out = JSON.stringify(hierarchy, null, 2);
       if (output) {
-        writeFileSync(output, out);
-        logger.log(ui.success(`Hierarchy written to ${colors.highlight(output)}`));
+        writeFileSync(output, JSON.stringify(hierarchy, null, 2));
+        logger.json({ status: 'SUCCESS', path: output });
       } else {
-        // eslint-disable-next-line no-console
-        console.log(out);
+        logger.json(hierarchy);
       }
       return;
     }
@@ -520,16 +602,23 @@ const stopSub = defineCommand({
   args: {
     ...apiFlags,
     session: { type: 'string', required: true, description: 'Live session name' },
+    json: jsonFlag,
   },
   async run({ args }) {
     const auth = await requireAuth(args['api-key'] as string | undefined);
     const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const sessionName = args.session as string;
 
-    logger.log(ui.running(`Stopping session ${colors.highlight(sessionName)}…`));
+    const json = Boolean(args.json);
+
+    humanLog(json)(ui.running(`Stopping session ${colors.highlight(sessionName)}…`));
 
     await ApiGateway.stopLiveSession(apiUrl, auth, sessionName);
 
+    if (json) {
+      logger.json({ status: 'SUCCESS', session: sessionName });
+      return;
+    }
     logger.log(ui.success('Session stopped'));
   },
 });
@@ -539,6 +628,7 @@ const statusSub = defineCommand({
   args: {
     ...apiFlags,
     session: { type: 'string', required: true, description: 'Live session name' },
+    json: jsonFlag,
   },
   async run({ args }) {
     const auth = await requireAuth(args['api-key'] as string | undefined);
@@ -546,6 +636,14 @@ const statusSub = defineCommand({
     const sessionName = args.session as string;
 
     const session = await ApiGateway.getLiveSession(apiUrl, auth, sessionName);
+
+    if (args.json) {
+      // The screenshot and hierarchy are large; `screenshot` / `hierarchy`
+      // are the commands for those.
+      const { hierarchy: _hierarchy, screenshot_data_url: _screenshot, ...rest } = session;
+      logger.json(rest);
+      return;
+    }
 
     const fields: Field[] = [
       ['session', colors.highlight(session.session_name)],
@@ -576,38 +674,41 @@ const statusSub = defineCommand({
   },
 });
 
+const subCommands = {
+  start: startSub,
+  install: installSub,
+  exec: execSub,
+  run: runSub,
+  screenshot: screenshotSub,
+  hierarchy: hierarchySub,
+  stop: stopSub,
+  status: statusSub,
+};
+
 export const liveCommand = defineCommand({
   meta: {
     name: 'live',
     description: 'Start and interact with a live device session',
   },
-  subCommands: {
-    start: startSub,
-    install: installSub,
-    exec: execSub,
-    run: runSub,
-    screenshot: screenshotSub,
-    hierarchy: hierarchySub,
-    stop: stopSub,
-    status: statusSub,
-  },
+  subCommands,
   // citty's runCommand does not early-return after dispatching to a
   // subcommand — it still invokes the parent `run` afterwards. So when a
   // subcommand was matched, bail out here; otherwise the menu would print
   // after every successful subcommand.
   run({ rawArgs }) {
-    const subNames = new Set([
-      'start',
-      'install',
-      'exec',
-      'run',
-      'screenshot',
-      'hierarchy',
-      'stop',
-      'status',
-    ]);
+    const subNames = new Set(Object.keys(subCommands));
     const firstPositional = rawArgs.find((arg) => !arg.startsWith('-'));
     if (firstPositional && subNames.has(firstPositional)) return;
+
+    if (wantsJson(rawArgs)) {
+      logger.json({
+        commands: Object.entries(subCommands).map(([name, sub]) => ({
+          name,
+          description: (sub.meta as CommandMeta).description,
+        })),
+      });
+      return;
+    }
 
     logger.log(ui.section('Live Session Commands'));
     logger.log(

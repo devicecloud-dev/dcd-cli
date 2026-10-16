@@ -26,8 +26,8 @@ rows beneath them.
    need a shape that isn't there, add it to `ui` so every command gets it.
 
 2. **Print through the logger.** Use `logger` from `src/utils/cli.ts`
-   (`logger.log` / `logger.warn` / `logger.error`). Never `console.log` directly
-   except for the single `JSON.stringify` line in `--json` mode.
+   (`logger.log` / `logger.warn` / `logger.error`, and `logger.json` for the
+   `--json` result). Never `console.log` directly.
 
 3. **Sections then branches.** A screen is one or more `ui.section(title)`
    headings, each followed by a `ui.branch([...])` group of detail rows. Key/
@@ -48,9 +48,16 @@ rows beneath them.
    field labels are dim; colour is reserved for status and for emphasising a
    value (IDs via `formatId`, URLs via `formatUrl`). Don't colour a label.
 
-7. **`--json` suppresses everything else.** When `--json` is set, emit only the
-   single serialized object and gate all other output behind the flag (the
-   `out()` wrapper pattern in `cloud.ts`/`upload.ts`).
+7. **`--json` suppresses everything else.** Every command takes `--json`
+   (`jsonFlag` from `output.flags.ts`). When it is set, stdout carries exactly
+   one object, printed with `logger.json`. Gate all other output behind the
+   flag (the `out()` wrapper pattern in `cloud.ts`/`upload.ts`). Warnings stay
+   on stderr. Interactive commands (`login`, `switch-org`) draw their prompts
+   and the login URL on stderr instead. Thrown errors need no handling: the
+   top-level handler in `index.ts` prints `{ "status": "FAILED", "error" }`
+   whenever `--json` is in argv. If a command has already printed its result
+   and still has to exit non-zero, use `logger.fail` so a second object isn't
+   printed.
 
 8. **No full-width rulers.** The 80-char `dividers` and `box` are deprecated;
    the tree provides the structure. Status words are lowercase.

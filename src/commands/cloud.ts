@@ -1027,8 +1027,7 @@ export const cloudCommand = defineCommand({
         }
 
         if (json) {
-          // eslint-disable-next-line no-console
-          console.log(JSON.stringify(jsonOutput, null, 2));
+          logger.json(jsonOutput);
           return;
         }
 
@@ -1168,8 +1167,7 @@ export const cloudCommand = defineCommand({
       }
 
       if (output) {
-        // eslint-disable-next-line no-console
-        console.log(JSON.stringify(output, null, 2));
+        logger.json(output);
       }
     }
 

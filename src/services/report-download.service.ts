@@ -25,6 +25,14 @@ export interface ReportDownloadOptions extends DownloadOptions {
   reportType: 'allure' | 'html' | 'html-detailed' | 'junit';
 }
 
+/** What one download attempt did; failures are warned about, not thrown. */
+export interface DownloadResult {
+  error?: string;
+  ok: boolean;
+  path: string;
+  type: 'allure' | 'artifacts' | 'html' | 'junit';
+}
+
 /**
  * Service for downloading test artifacts and reports
  */
@@ -32,11 +40,11 @@ export class ReportDownloadService {
   /**
    * Download test artifacts as a zip file
    * @param options Download configuration
-   * @returns Promise that resolves when download is complete
+   * @returns What the download did
    */
   public async downloadArtifacts(
     options: ArtifactsDownloadOptions,
-  ): Promise<void> {
+  ): Promise<DownloadResult> {
     const {
       apiUrl,
       auth,
@@ -69,6 +77,8 @@ export class ReportDownloadService {
           `Test artifacts have been downloaded to ${artifactsPath}`,
         );
       }
+
+      return { ok: true, path: artifactsPath, type: 'artifacts' };
     } catch (error) {
       if (debug && logger) {
         logger(`[DEBUG] Error downloading artifacts: ${error}`);
@@ -80,17 +90,19 @@ export class ReportDownloadService {
         'No artifacts found for this upload. Make sure your tests generated results.',
         error,
       );
+
+      return { error: errorText(error), ok: false, path: artifactsPath, type: 'artifacts' };
     }
   }
 
   /**
    * Handle downloading reports based on the report type specified
    * @param options Report download configuration
-   * @returns Promise that resolves when download is complete
+   * @returns What the download did, or undefined for an unknown report type
    */
   public async downloadReports(
     options: ReportDownloadOptions,
-  ): Promise<void> {
+  ): Promise<DownloadResult | undefined> {
     const {
       reportType,
       junitPath,
@@ -103,20 +115,18 @@ export class ReportDownloadService {
     switch (reportType) {
       case 'junit': {
         const reportPath = path.resolve(process.cwd(), junitPath || 'report.xml');
-        await this.downloadReport('junit', reportPath, {
+        return this.downloadReport('junit', reportPath, {
           ...downloadOptions,
           warnLogger,
         });
-        break;
       }
 
       case 'allure': {
         const reportPath = path.resolve(process.cwd(), allurePath || 'report.html');
-        await this.downloadReport('allure', reportPath, {
+        return this.downloadReport('allure', reportPath, {
           ...downloadOptions,
           warnLogger,
         });
-        break;
       }
 
       case 'html':
@@ -124,17 +134,18 @@ export class ReportDownloadService {
         // The HTML report is a ZIP (report.html plus its screenshots and
         // assets), so the default name says so. An explicit path is kept as-is.
         const htmlReportPath = path.resolve(process.cwd(), htmlPath || 'report.zip');
-        await this.downloadReport('html', htmlReportPath, {
+        return this.downloadReport('html', htmlReportPath, {
           ...downloadOptions,
           warnLogger,
         });
-        break;
       }
 
       default: {
         if (warnLogger) {
           warnLogger(`Unknown report type: ${reportType}`);
         }
+
+        return undefined;
       }
     }
   }
@@ -144,13 +155,13 @@ export class ReportDownloadService {
    * @param type Report type to download
    * @param filePath Path where report should be saved
    * @param options Download configuration
-   * @returns Promise that resolves when download is complete
+   * @returns What the download did
    */
   private async downloadReport(
     type: 'allure' | 'html' | 'junit',
     filePath: string,
     options: DownloadOptions,
-  ): Promise<void> {
+  ): Promise<DownloadResult> {
     const { apiUrl, auth, uploadId, debug = false, logger, warnLogger } = options;
 
     try {
@@ -172,6 +183,8 @@ export class ReportDownloadService {
           `${type.toUpperCase()} test report has been downloaded to ${filePath}`,
         );
       }
+
+      return { ok: true, path: filePath, type };
     } catch (error) {
       if (debug && logger) {
         logger(`[DEBUG] Error downloading ${type.toUpperCase()} report: ${error}`);
@@ -183,6 +196,8 @@ export class ReportDownloadService {
         `No ${type.toUpperCase()} reports found for this upload. Make sure your tests generated results.`,
         error,
       );
+
+      return { error: errorText(error), ok: false, path: filePath, type };
     }
   }
 
@@ -205,7 +220,7 @@ export class ReportDownloadService {
       return;
     }
 
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = errorText(error);
     warnLogger(`Failed to download ${subject}: ${errorMessage}`);
 
     if (errorMessage.includes('404')) {
@@ -216,4 +231,8 @@ export class ReportDownloadService {
       warnLogger('Directory does not exist. Make sure you have write access to the current directory.');
     }
   }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -8,6 +8,7 @@
 import { defineCommand } from 'citty';
 
 import { apiFlags } from '../config/flags/api.flags.js';
+import { jsonFlag } from '../config/flags/output.flags.js';
 import { apiKeyOverride } from '../utils/auth.js';
 import { logger } from '../utils/cli.js';
 import { readConfig } from '../utils/config-store.js';
@@ -25,10 +26,27 @@ export const whoamiCommand = defineCommand({
       description:
         'An API key as you would pass it to other commands; whoami says that it takes precedence over the stored session',
     },
+    json: jsonFlag,
   },
   run({ args }) {
     const config = readConfig();
     const keySource = apiKeyOverride(args['api-key'] as string | undefined);
+
+    if (args.json) {
+      logger.json({
+        status: 'SUCCESS',
+        loggedIn: Boolean(config?.session),
+        ...(config?.session && {
+          user: config.session.user_email,
+          org: config.current_org_id
+            ? { id: config.current_org_id, name: config.current_org_name ?? null }
+            : null,
+          env: config.env,
+        }),
+        apiKeySource: keySource ?? null,
+      });
+      return;
+    }
     const keyName = colors.highlight(keySource ?? '');
 
     if (!config?.session) {

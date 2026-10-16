@@ -34,6 +34,7 @@ import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 
 import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments.js';
+import { jsonFlag } from '../config/flags/output.flags.js';
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, writeConfig } from '../utils/config-store.js';
 import { fetchOrgs, pickOrg } from '../utils/orgs.js';
@@ -76,11 +77,20 @@ export const loginCommand = defineCommand({
       default: true,
       description: 'Open the login URL in a browser (pass --no-browser to just print it)',
     },
+    json: jsonFlag,
   },
   async run({ args }) {
     const apiUrl = (args['api-url'] as string).replace(/\/$/, '');
     const frontendOverride = args['frontend-url'] as string | undefined;
     const noBrowser = args.browser === false;
+    const json = Boolean(args.json);
+    // Login is interactive, so under --json the human rows and prompts move to
+    // stderr (the user still needs the URL) and stdout gets only the result.
+    const say = (m: string) => {
+      if (json) process.stderr.write(`${m}\n`);
+      else logger.log(m);
+    };
+    const promptOutput = json ? process.stderr : undefined;
 
     // If there's an existing stored session, make the user confirm before we
     // overwrite it. Silent clobber is fine for power users but surprising if
@@ -92,7 +102,7 @@ export const loginCommand = defineCommand({
     if (existing?.session) {
       const now = Math.floor(Date.now() / 1000);
       if (existing.session.expires_at <= now) {
-        logger.log(
+        say(
           ui.info(
             `Your session for ${existing.session.user_email} has expired — signing in again.`,
           ),
@@ -105,9 +115,14 @@ export const loginCommand = defineCommand({
             (currentOrg ? ` (org ${currentOrg})` : '') +
             `. Sign out and log in again?`,
           initialValue: true,
+          output: promptOutput,
         });
         if (p.isCancel(ok) || !ok) {
-          logger.log(ui.info('Keeping existing session.'));
+          if (json) {
+            logger.json({ status: 'UNCHANGED', user: existing.session.user_email });
+          } else {
+            logger.log(ui.info('Keeping existing session.'));
+          }
           return;
         }
       }
@@ -123,7 +138,7 @@ export const loginCommand = defineCommand({
 
     const loginUrl = `${frontendUrl}/cli-login?state=${state}&code_challenge=${codeChallenge}`;
 
-    logger.log(ui.section('Signing in to devicecloud.dev'));
+    say(ui.section('Signing in to devicecloud.dev'));
 
     const rows: string[] = [];
     if (noBrowser) {
@@ -142,7 +157,7 @@ export const loginCommand = defineCommand({
       }
     }
     rows.push(ui.note('Waiting for login to complete…'));
-    logger.log(ui.branch(rows));
+    say(ui.branch(rows));
 
     try {
       const payload = await pollForClaim(apiUrl, state, codeVerifier);
@@ -175,7 +190,7 @@ export const loginCommand = defineCommand({
         ].filter(Boolean);
         throw new CliError(`${(err as Error).message} [${parts.join(' | ')}]`);
       }
-      const chosen = await pickOrg(orgs);
+      const chosen = await pickOrg(orgs, undefined, promptOutput);
 
       writeConfig({
         version: 1,
@@ -193,6 +208,16 @@ export const loginCommand = defineCommand({
         current_org_name: chosen.name,
       });
 
+      if (json) {
+        logger.json({
+          status: 'SUCCESS',
+          user: payload.user_email,
+          org: { id: chosen.id, name: chosen.name },
+          env,
+        });
+        return;
+      }
+
       logger.log(ui.success(`Logged in as ${colors.highlight(payload.user_email)}`));
       logger.log(
         ui.branch([
@@ -203,7 +228,7 @@ export const loginCommand = defineCommand({
         ]),
       );
     } catch (error) {
-      logger.error(error as Error, { exit: 1 });
+      logger.error(error as Error, { exit: 1, json });
     }
   },
 });
