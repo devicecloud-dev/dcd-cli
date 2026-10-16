@@ -1,6 +1,15 @@
 import type { ArgsDef } from 'citty';
 
 /**
+ * Generic `--json` flag for commands outside `cloud`. With it, stdout carries
+ * exactly one JSON object; failures print `{ status: 'FAILED', error }`.
+ */
+export const jsonFlag = {
+  type: 'boolean',
+  description: 'Output the result as a single JSON object on stdout',
+} as const satisfies ArgsDef[string];
+
+/**
  * Output format and artifact download flags
  */
 export const outputFlags = {

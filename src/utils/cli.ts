@@ -7,6 +7,7 @@
  *   sites ported from oclif keep working.
  */
 import { readFileSync } from 'node:fs';
+import { stripVTControlCharacters } from 'node:util';
 
 import { telemetry } from '../services/telemetry.service.js';
 
@@ -61,8 +62,10 @@ export class CliError extends Error {
 export interface Logger {
   log(message: string): void;
   warn(message: string): void;
+  json(value: unknown): void;
   error(message: Error | string, opts?: { exit?: number; json?: boolean }): never;
   exit(code?: number): never;
+  fail(message: Error | string, exitCode: number): never;
 }
 
 export const logger: Logger = {
@@ -74,6 +77,11 @@ export const logger: Logger = {
     // eslint-disable-next-line no-console
     console.warn(symbols.warning + ' ' + message);
   },
+  json(value: unknown): void {
+    // The one stdout write under --json; everything else is gated off.
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(value, null, 2));
+  },
   error(
     message: Error | string,
     opts: { exit?: number; json?: boolean } = {},
@@ -82,26 +90,38 @@ export const logger: Logger = {
     if (opts.json) {
       // When --json is active, emit failures as JSON on stdout so that
       // scripts consuming the output never need to parse stderr too.
-      // eslint-disable-next-line no-console
-      console.log(JSON.stringify({ status: 'FAILED', error: text }, null, 2));
+      // citty colours some of its messages; JSON consumers want plain text.
+      logger.json({ status: 'FAILED', error: stripVTControlCharacters(text) });
     } else {
       // The literal "Error:" prefix is important for tests and for grep-friendly
       // CI logs — it survives color stripping and matches /error/i assertions.
       // eslint-disable-next-line no-console
       console.error(symbols.error + ' Error: ' + text);
     }
-    // process.exit bypasses beforeExit, so async fetch in telemetry.flush()
-    // would be killed mid-flight. flushSync uses curl to ship synchronously
-    // before we exit; it's a no-op if telemetry never reached configure().
-    const exitCode = opts.exit ?? 1;
-    telemetry.recordCommandFailure({ error: message, exitCode });
-    telemetry.flushSync();
-    process.exit(exitCode);
+    return logger.fail(message, opts.exit ?? 1);
   },
   exit(code: number = 0): never {
     process.exit(code);
   },
+  // Exit as a failure without printing anything — for --json paths that have
+  // already written their result object and must not print a second one.
+  fail(message: Error | string, exitCode: number): never {
+    // process.exit bypasses beforeExit, so async fetch in telemetry.flush()
+    // would be killed mid-flight. flushSync uses curl to ship synchronously
+    // before we exit; it's a no-op if telemetry never reached configure().
+    telemetry.recordCommandFailure({ error: message, exitCode });
+    telemetry.flushSync();
+    process.exit(exitCode);
+  },
 };
+
+/**
+ * Whether the invocation asked for JSON output. Read from raw argv so the
+ * top-level error handler can honour it even when citty never parsed args.
+ */
+export function wantsJson(rawArgs: string[]): boolean {
+  return rawArgs.some((a) => a === '--json' || a === '--json=true');
+}
 
 /**
  * Validate that a string flag value is one of the allowed options.

@@ -138,8 +138,7 @@ export const uploadCommand = defineCommand({
       telemetry.recordEncryption({ binary: encryption.enabled });
 
       if (json) {
-        // eslint-disable-next-line no-console
-        console.log(JSON.stringify({ appBinaryId }, null, 2));
+        logger.json({ appBinaryId });
         return;
       }
 

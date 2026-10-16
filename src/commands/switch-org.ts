@@ -7,6 +7,7 @@
  */
 import { defineCommand } from 'citty';
 
+import { jsonFlag } from '../config/flags/output.flags.js';
 import { apiKeyOverride, resolveAuth } from '../utils/auth.js';
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, resolveApiUrl, writeConfig } from '../utils/config-store.js';
@@ -29,6 +30,7 @@ export const switchOrgCommand = defineCommand({
       required: false,
       description: 'Org name to switch to (omit for an interactive picker)',
     },
+    json: jsonFlag,
   },
   async run({ args }) {
     const config = readConfig();
@@ -40,6 +42,7 @@ export const switchOrgCommand = defineCommand({
     // a dev Bearer token to the prod API.
     const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
     const target = args.org as string | undefined;
+    const json = Boolean(args.json);
 
     // sessionOnly: an exported DEVICE_CLOUD_API_KEY must not shadow the
     // browser session this command requires.
@@ -51,7 +54,8 @@ export const switchOrgCommand = defineCommand({
     if (target) {
       chosen = matchOrg(orgs, target);
     } else {
-      chosen = await pickOrg(orgs);
+      // Under --json the picker draws on stderr so stdout stays pure JSON.
+      chosen = await pickOrg(orgs, undefined, json ? process.stderr : undefined);
     }
 
     writeConfig({
@@ -60,10 +64,21 @@ export const switchOrgCommand = defineCommand({
       current_org_name: chosen.name,
     });
 
+    // The switch only changes the stored session; an exported key still wins.
+    const keyOverride = apiKeyOverride() === 'DEVICE_CLOUD_API_KEY';
+
+    if (json) {
+      logger.json({
+        status: 'SUCCESS',
+        org: { id: chosen.id, name: chosen.name, slug: chosen.slug ?? null },
+        apiKeyOverride: keyOverride,
+      });
+      return;
+    }
+
     logger.log(ui.success(`Switched to ${colors.highlight(chosen.name)}`));
 
-    // The switch only changes the stored session; an exported key still wins.
-    if (apiKeyOverride() === 'DEVICE_CLOUD_API_KEY') {
+    if (keyOverride) {
       logger.log(
         ui.warn(
           `${colors.highlight('DEVICE_CLOUD_API_KEY')} is set, so other dcd commands still authenticate with that API key and its org, not ${chosen.name}. Unset it to use the session.`,

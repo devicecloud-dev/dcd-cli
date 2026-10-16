@@ -15,7 +15,7 @@ import { upgradeCommand } from './commands/upgrade.js';
 import { uploadCommand } from './commands/upload.js';
 import { whoamiCommand } from './commands/whoami.js';
 import { telemetry } from './services/telemetry.service.js';
-import { CliError, getCliVersion, logger } from './utils/cli.js';
+import { CliError, getCliVersion, logger, wantsJson } from './utils/cli.js';
 import { withoutHiddenArgs } from './utils/help.js';
 
 // @clack/prompts ships the US spelling ("Canceled") for its built-in
@@ -103,9 +103,13 @@ async function run(): Promise<void> {
     telemetry.recordCommandSuccess();
     await telemetry.flush();
   } catch (error) {
+    // Under --json, stdout must stay a single JSON object: no help text, and
+    // the error itself is printed as `{ status: 'FAILED', error }`.
+    const json = wantsJson(rawArgs);
+
     // citty throws CLIError (by name — the class isn't exported) for usage
     // problems like unknown commands or missing required args.
-    if (error instanceof Error && error.name === 'CLIError') {
+    if (!json && error instanceof Error && error.name === 'CLIError') {
       await showHelp(rawArgs);
     }
 
@@ -114,6 +118,7 @@ async function run(): Promise<void> {
     // synchronously, and exits with the given code.
     logger.error(error instanceof Error ? error : String(error), {
       exit: exitCode,
+      json,
     });
   }
 }
