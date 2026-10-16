@@ -82,9 +82,14 @@ export const ApiGateway = {
     message += `  • Verify API URL is correct: ${origin}\n`;
     message += `  • Check for proxy/VPN interference\n`;
     message += `  • Try again in a few moments if server is temporarily down\n\n`;
-    message += `Original error: ${error.message}`;
+    // undici puts the real reason on `cause` (UND_ERR_HEADERS_TIMEOUT,
+    // ECONNRESET, ENOTFOUND, …); without it a timeout, a reset and a DNS
+    // failure all read as the same "fetch failed".
+    const cause = (error as { cause?: unknown }).cause;
+    const code = (cause as { code?: unknown } | undefined)?.code;
+    message += `Original error: ${error.message}${typeof code === 'string' ? ` (${code})` : ''}`;
 
-    const enhancedError = new Error(message);
+    const enhancedError = new Error(message, { cause: cause ?? error });
     enhancedError.name = 'NetworkError';
     enhancedError.stack = error.stack;
     return enhancedError;
@@ -761,6 +766,7 @@ export const ApiGateway = {
           ...auth.headers,
         },
         method: 'POST',
+        signal: AbortSignal.timeout(this.submitAttemptTimeoutMs),
       });
       if (!res.ok) {
         await this.handleApiError(res, 'Failed to submit test flows');
@@ -776,9 +782,28 @@ export const ApiGateway = {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/submitFlowTest`);
       }
 
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        const timeout = new Error(
+          `Failed to submit test flows: no response from the API within ${this.submitAttemptTimeoutMs / 1000}s`,
+          { cause: error },
+        );
+        timeout.name = 'SubmitTimeoutError';
+        throw timeout;
+      }
+
       throw error;
     }
   },
+
+  /**
+   * How long one submit attempt may take (dcd#1617 follow-up). A submit
+   * normally answers in a second or two; one held by a Supabase stall is
+   * abandoned and re-sent by `submitWithRetry`, which is safe because the API
+   * answers a repeat with the run it already created. Well under the 300s at
+   * which Railway's edge would cut it with a 502. Settable so tests can
+   * shorten it.
+   */
+  submitAttemptTimeoutMs: 90_000,
 
   /**
    * Dry-run cost + cell-count estimate for a (possibly device-matrix)

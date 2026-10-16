@@ -53,6 +53,7 @@ class Telemetry {
   private config: TelemetryConfig | null = null;
   private command: string = inferCommandFromArgv();
   private encryption: EncryptionTelemetry | null = null;
+  private submitAttempts: number | undefined;
   private sessionId: string = randomUUID();
   private startedAt: number = Date.now();
   private readonly disabled: boolean = !!process.env.DCD_TELEMETRY_DISABLED;
@@ -139,11 +140,22 @@ class Telemetry {
     };
   }
 
+  /**
+   * Record how many attempts the flow submit took (dcd#1617 follow-up), sent
+   * as `submit_attempts` on `command completed` / `command failed`. Anything
+   * above 1 means a response was lost and the submit was sent again, which is
+   * what to count when judging how often the API stalls under the CLI.
+   */
+  recordSubmitAttempts(attempts: number) {
+    this.submitAttempts = attempts;
+  }
+
   recordCommandSuccess() {
     this.enqueue('info', 'cli.lifecycle', 'command completed', {
       duration_ms: Date.now() - this.startedAt,
       exit_code: 0,
       ...this.encryptionExtra(),
+      ...this.submitExtra(),
     });
   }
 
@@ -162,11 +174,18 @@ class Telemetry {
       error_stack:
         opts.error instanceof Error ? opts.error.stack : undefined,
       ...this.encryptionExtra(),
+      ...this.submitExtra(),
     });
   }
 
   private encryptionExtra(): { encrypt?: EncryptionTelemetry } {
     return this.encryption ? { encrypt: this.encryption } : {};
+  }
+
+  private submitExtra(): { submit_attempts?: number } {
+    return this.submitAttempts === undefined
+      ? {}
+      : { submit_attempts: this.submitAttempts };
   }
 
   private enqueue(
