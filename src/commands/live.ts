@@ -233,7 +233,27 @@ const startSub = defineCommand({
     let ready: LiveSession | undefined;
     if (args.wait) {
       out(ui.running('Waiting for the device to be ready…'));
-      ready = await waitForReady(apiUrl, auth, session.session_name, out);
+      try {
+        ready = await waitForReady(apiUrl, auth, session.session_name, out);
+      } catch (error) {
+        // The session exists and is billing. Under --json the name was never
+        // printed, so the top-level `{ status, error }` would leave a script
+        // with no way to `dcd live stop` it. Report the name with the error.
+        if (!json) throw error;
+        logger.json({
+          status: 'FAILED',
+          error: error instanceof Error ? error.message : String(error),
+          session_name: session.session_name,
+          platform: session.platform,
+          ready: false,
+          consoleUrl,
+        });
+        logger.fail(
+          error instanceof Error ? error : String(error),
+          error instanceof CliError ? error.exitCode : 1,
+        );
+      }
+
       out(ui.success(`Device ready${ready.device_model ? ` (${ready.device_model})` : ''}`));
     }
 
