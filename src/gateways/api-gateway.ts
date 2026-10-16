@@ -44,6 +44,20 @@ async function parseJsonResponse<T>(res: Response, operation: string): Promise<T
   }
 }
 
+type ResultsResponse =
+  paths['/results/{uploadId}']['get']['responses']['200']['content']['application/json'];
+
+/**
+ * The last results body a poll loop received and the ETag it came with, so
+ * the next poll can revalidate with `If-None-Match` and get an empty 304 back
+ * when nothing changed. Create one per poll loop; `getResultsForUpload` fills
+ * and clears it.
+ */
+export interface ResultsPollCache {
+  body?: ResultsResponse;
+  etag?: string;
+}
+
 export const ApiGateway = {
   /**
    * Enhances generic "fetch failed" errors with more specific diagnostic information
@@ -68,9 +82,14 @@ export const ApiGateway = {
     message += `  • Verify API URL is correct: ${origin}\n`;
     message += `  • Check for proxy/VPN interference\n`;
     message += `  • Try again in a few moments if server is temporarily down\n\n`;
-    message += `Original error: ${error.message}`;
+    // undici puts the real reason on `cause` (UND_ERR_HEADERS_TIMEOUT,
+    // ECONNRESET, ENOTFOUND, …); without it a timeout, a reset and a DNS
+    // failure all read as the same "fetch failed".
+    const cause = (error as { cause?: unknown }).cause;
+    const code = (cause as { code?: unknown } | undefined)?.code;
+    message += `Original error: ${error.message}${typeof code === 'string' ? ` (${code})` : ''}`;
 
-    const enhancedError = new Error(message);
+    const enhancedError = new Error(message, { cause: cause ?? error });
     enhancedError.name = 'NetworkError';
     enhancedError.stack = error.stack;
     return enhancedError;
@@ -465,26 +484,86 @@ export const ApiGateway = {
     }
   },
 
+  /**
+   * Fetch the result rows for an upload, for the `dcd cloud` poll loop.
+   *
+   * Asks for `?view=summary`, which leaves out `result_files` and the rest of
+   * the columns the CLI never reads. An API that predates the view ignores
+   * the parameter and returns the full rows, a superset, so this works
+   * against either.
+   *
+   * With a `cache`, a repeat poll revalidates with `If-None-Match` and a 304
+   * hands back the cached body.
+   * @param baseUrl API base URL
+   * @param auth AuthContext carrying request headers
+   * @param uploadId Upload ID to fetch results for
+   * @param cache Optional per-poll-loop cache, filled and cleared here
+   * @returns The results response body
+   */
   async getResultsForUpload(
     baseUrl: string,
     auth: AuthContext,
     uploadId: string,
+    cache?: ResultsPollCache,
   ) {
     // TODO: merge with getUploadStatus
+    const url = `${baseUrl}/results/${uploadId}?view=summary`;
     try {
-      const res = await fetch(`${baseUrl}/results/${uploadId}`, {
-        headers: { ...auth.headers },
-      });
+      const headers: Record<string, string> = { ...auth.headers };
+      if (cache?.body && cache.etag) {
+        headers['if-none-match'] = cache.etag;
+        // Per the Fetch spec, undici appends `Cache-Control: no-cache` to any
+        // request that carries a conditional header and no Cache-Control of
+        // its own, and Express's `fresh` never answers 304 to a no-cache
+        // request. So every poll would get a full 200. max-age=0 still asks
+        // for revalidation, and keeps undici from adding no-cache.
+        headers['cache-control'] = 'max-age=0';
+      }
+
+      const res = await fetch(url, { headers });
+
+      // Before the `!res.ok` check, since a 304 is not `ok`.
+      if (res.status === 304) {
+        if (cache?.body) {
+          return cache.body;
+        }
+
+        // We sent no If-None-Match, so there is nothing to reuse. Start over
+        // with an unconditional request on the next poll.
+        if (cache) {
+          delete cache.body;
+          delete cache.etag;
+        }
+
+        throw new Error(
+          'Failed to get results: API returned 304 Not Modified to an unconditional request',
+        );
+      }
+
       if (!res.ok) {
         await this.handleApiError(res, 'Failed to get results');
       }
 
-      return await parseJsonResponse<
-        paths['/results/{uploadId}']['get']['responses']['200']['content']['application/json']
-      >(res, 'Failed to get results');
+      const body = await parseJsonResponse<ResultsResponse>(res, 'Failed to get results');
+
+      if (cache) {
+        // Only pin a real result set. The API reports some errors as a 200
+        // with a `{ statusCode, message }` envelope, and an empty set is
+        // rejected by the poll loop; caching either would replay it on 304.
+        const etag = res.headers.get('etag');
+        if (etag && Array.isArray(body.results) && body.results.length > 0) {
+          cache.body = body;
+          cache.etag = etag;
+        } else {
+          delete cache.body;
+          delete cache.etag;
+        }
+      }
+
+      return body;
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
-        throw this.enhanceFetchError(error, `${baseUrl}/results/${uploadId}`);
+        throw this.enhanceFetchError(error, url);
       }
 
       throw error;
@@ -687,6 +766,7 @@ export const ApiGateway = {
           ...auth.headers,
         },
         method: 'POST',
+        signal: AbortSignal.timeout(this.submitAttemptTimeoutMs),
       });
       if (!res.ok) {
         await this.handleApiError(res, 'Failed to submit test flows');
@@ -702,9 +782,28 @@ export const ApiGateway = {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/submitFlowTest`);
       }
 
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        const timeout = new Error(
+          `Failed to submit test flows: no response from the API within ${this.submitAttemptTimeoutMs / 1000}s`,
+          { cause: error },
+        );
+        timeout.name = 'SubmitTimeoutError';
+        throw timeout;
+      }
+
       throw error;
     }
   },
+
+  /**
+   * How long one submit attempt may take (dcd#1617 follow-up). A submit
+   * normally answers in a second or two; one held by a Supabase stall is
+   * abandoned and re-sent by `submitWithRetry`, which is safe because the API
+   * answers a repeat with the run it already created. Well under the 300s at
+   * which Railway's edge would cut it with a 502. Settable so tests can
+   * shorten it.
+   */
+  submitAttemptTimeoutMs: 90_000,
 
   /**
    * Dry-run cost + cell-count estimate for a (possibly device-matrix)
