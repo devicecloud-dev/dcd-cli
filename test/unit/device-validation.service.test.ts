@@ -130,7 +130,7 @@ describe('DeviceValidationService', () => {
   });
 
   // The API fills an omitted half from the same global defaults (iphone-14 /
-  // iOS 17, pixel-7 / API 34) and rejects an incompatible pair, so the CLI
+  // iOS 17, pixel-7 / API 36) and rejects an incompatible pair, so the CLI
   // mirrors that — but must tell the user to pass the other half.
   describe('requests that rely on a default', () => {
     it('tells a device-only iOS request to pass the version explicitly', () => {
@@ -140,14 +140,15 @@ describe('DeviceValidationService', () => {
     });
 
     it('tells a device-only Android request to pass the API level explicitly', () => {
-      expect(() => android(undefined, 'pixel-10')).to.throw(
-        'pixel-10 only supports these Android API levels: 36, 37. No Android API level was given, so the default (34) was checked: pass one of those explicitly with --android-api-level',
+      expect(() => android(undefined, 'pixel-12')).to.throw(
+        'pixel-12 only supports these Android API levels: 38. No Android API level was given, so the default (36) was checked: pass one of those explicitly with --android-api-level',
       );
     });
 
     it('accepts a device-only request when the default version fits', () => {
       expect(() => ios(undefined, 'iphone-14')).to.not.throw();
       expect(() => android(undefined, 'pixel-7')).to.not.throw();
+      expect(() => android(undefined, 'pixel-10')).to.not.throw();
     });
 
     it('names the MCP tool parameters when asked to', () => {
@@ -186,6 +187,32 @@ describe('DeviceValidationService', () => {
         android: { 'pixel-10': ['36', '37'] },
       };
       expect(() => android('36', undefined, false, withoutPixel7)).to.not.throw();
+    });
+  });
+
+  // With Google Play the API does not apply the global default to an omitted
+  // half — pixel-7 / API 36 has no Play image — but picks whichever value
+  // makes the pair a Play cell, and only rejects when there is none.
+  describe('Google Play requests that name one half', () => {
+    const play36 = {
+      ...compat,
+      androidPlay: { ...compat.androidPlay, 'pixel-10': ['36'] },
+    };
+
+    it("accepts a device-only request for the device's Play level", () => {
+      expect(() => android(undefined, 'pixel-7', true)).to.not.throw();
+      expect(() => android(undefined, 'pixel-10', true, play36)).to.not.throw();
+    });
+
+    it('accepts a version-only request when any Play device offers it', () => {
+      expect(() => android('34', undefined, true)).to.not.throw();
+      expect(() => android('36', undefined, true, play36)).to.not.throw();
+    });
+
+    it('still rejects a device-only request for a device with no Play image', () => {
+      expect(() => android(undefined, 'pixel-10', true)).to.throw(
+        /Android device "pixel-10" is not available with Google Play\. Google Play devices: pixel-7\./,
+      );
     });
   });
 });
