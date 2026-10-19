@@ -1,6 +1,8 @@
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type {
   DeviceArtifactsPage,
+  DeviceBundleUploadUrls,
+  DeviceFlowBundle,
   DeviceCatalogue,
   DeviceCommandResult,
   DeviceInstalledApp,
@@ -120,6 +122,14 @@ export const DeviceGateway = {
     return request(baseUrl, auth, 'GET', `${sessionPath(id)}/artifacts?${query}`);
   },
 
+  bundleUploadUrls(
+    baseUrl: string,
+    auth: AuthContext,
+    bytes: number,
+  ): Promise<DeviceBundleUploadUrls> {
+    return request(baseUrl, auth, 'POST', '/device/bundles/upload-url', { bytes });
+  },
+
   command(
     baseUrl: string,
     auth: AuthContext,
@@ -181,11 +191,28 @@ export const DeviceGateway = {
     return request(baseUrl, auth, 'GET', '/device/models');
   },
 
+  registerBundle(
+    baseUrl: string,
+    auth: AuthContext,
+    body: {
+      backblaze: boolean;
+      bytes: number;
+      enc?: unknown;
+      id: string;
+      sha: string;
+      supabase: boolean;
+    },
+  ): Promise<{ bundle: DeviceFlowBundle }> {
+    return request(baseUrl, auth, 'POST', '/device/bundles', body);
+  },
+
   run(
     baseUrl: string,
     auth: AuthContext,
     id: string,
-    body: { env?: Record<string, string>; yaml: string },
+    body:
+      | { env?: Record<string, string>; flow?: string; flowUploadId: string }
+      | { env?: Record<string, string>; yaml: string },
   ): Promise<DeviceRunResponse> {
     return request(baseUrl, auth, 'POST', `${sessionPath(id)}/run`, body);
   },
