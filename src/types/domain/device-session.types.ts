@@ -128,3 +128,43 @@ export interface DeviceLogs {
   /** logcat, ios-unified-log, or none before an app is installed. */
   source: string;
 }
+
+/** A short-lived download link for one stored artifact. */
+export interface DeviceArtifactLink {
+  bytes: null | number;
+  content_type: string;
+  created_at: string;
+  /** Null when the file could not be signed (e.g. already cleaned up). */
+  url: null | string;
+}
+
+/** GET .../artifacts: one page, newest actions first. */
+export interface DeviceArtifactsPage {
+  actions: {
+    command_id: null | string;
+    created_at: string;
+    hierarchy: DeviceArtifactLink | null;
+    screenshot: DeviceArtifactLink | null;
+  }[];
+  logs: DeviceArtifactLink | null;
+  /** Pass as `before` for the next (older) page; null on the last page. */
+  next_before: null | string;
+  recording: DeviceArtifactLink | null;
+  session: DeviceSession;
+}
+
+/** POST /device/bundles/upload-url: where to PUT the zip (both, when both are given). */
+export interface DeviceBundleUploadUrls {
+  id: string;
+  mirror: { path: string; signedUrl: string } | null;
+  upload: { path: string; signedUrl: string } | null;
+}
+
+/** A registered flow bundle. `run` takes its id as `flowUploadId`. */
+export interface DeviceFlowBundle {
+  bytes: number;
+  created_at: string;
+  encrypted: boolean;
+  id: string;
+  sha: string;
+}

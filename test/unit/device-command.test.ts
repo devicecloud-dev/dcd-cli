@@ -40,6 +40,16 @@ function session(id: string, extra: Partial<DeviceSession> = {}): DeviceSession 
   };
 }
 
+/** JSON bodies parsed; anything else (a zip being PUT) kept as is. */
+function parseBody(body: unknown): unknown {
+  if (typeof body !== 'string') return body;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
 interface Call {
   body?: unknown;
   headers: Record<string, string>;
@@ -55,7 +65,7 @@ function stubFetch(handler: (call: Call) => { body: unknown; status?: number }):
       url: String(input),
       method: init?.method ?? 'GET',
       headers: (init?.headers ?? {}) as Record<string, string>,
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      body: parseBody(init?.body),
     };
     calls.push(call);
     const { body, status = 200 } = handler(call);
@@ -368,6 +378,43 @@ describe('dcd device', () => {
       expect(out.data).to.deep.equal({ command_id: 'c1', status: 'passed', result: { success: true, output: 'ok' } });
     }).timeout(10_000);
 
+    it('run <dir> uploads a bundle and runs it by id', async () => {
+      const flows = path.join(tempDir, 'flows');
+      fs.mkdirSync(path.join(flows, 'sub'), { recursive: true });
+      fs.writeFileSync(path.join(flows, 'sub', 'login.yaml'), 'appId: x\n---\n- launchApp\n');
+      const calls = stubFetch((call) => {
+        if (call.url.endsWith('/upload-url')) {
+          return { body: { id: 'b-1', upload: { path: 'p', signedUrl: 'https://sb/put' }, mirror: null } };
+        }
+
+        if (call.url === 'https://sb/put') return { body: {} };
+        if (call.url.endsWith('/device/bundles')) {
+          return { body: { bundle: { id: 'b-1', sha: 's', bytes: 1, encrypted: false, created_at: 'now' } } };
+        }
+
+        if (call.url.endsWith('/run')) {
+          return { body: { command_id: 'c1', status: 'passed', result: { success: true }, session: session('a-b-c') } };
+        }
+
+        return { status: 404, body: {} };
+      });
+      const { exit } = await runJson('run', { id: 'a-b-c', flow: flows, entry: path.join('sub', 'login.yaml') });
+      expect(exit).to.equal(0);
+      const run = calls.find((c) => c.url.endsWith('/run'))!;
+      expect(run.body).to.deep.equal({ flowUploadId: 'b-1', flow: 'sub/login.yaml' });
+    });
+
+    it('run --entry needs a directory and a path inside it', async () => {
+      const flows = path.join(tempDir, 'flows');
+      fs.mkdirSync(flows);
+      expect((await runJson('run', { id: 'a-b-c', yaml: '- launchApp', entry: 'x.yaml' })).exit).to.equal(
+        DEVICE_EXIT.usage,
+      );
+      expect((await runJson('run', { id: 'a-b-c', flow: flows, entry: '../x.yaml' })).exit).to.equal(
+        DEVICE_EXIT.usage,
+      );
+    });
+
     it('run exits 2 when the flow fails', async () => {
       stubFetch(() => ({
         body: { command_id: 'c1', status: 'failed', result: { success: false, error: 'Element not found' }, session: session('a-b-c') },
@@ -377,7 +424,7 @@ describe('dcd device', () => {
       expect(out.error).to.deep.equal({ code: null, message: 'Element not found' });
     });
 
-    it('run needs a file or --yaml', async () => {
+    it('run needs a file, a directory or --yaml', async () => {
       const { exit } = await runJson('run', { id: 'a-b-c' });
       expect(exit).to.equal(DEVICE_EXIT.usage);
     });

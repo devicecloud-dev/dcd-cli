@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import * as path from 'node:path';
 import { resolve as resolvePath } from 'node:path';
 
 import { apiFlags } from '../config/flags/api.flags.js';
@@ -19,6 +20,13 @@ import {
 import { platformOfAppFile, uploadLocalApp } from '../utils/app-upload.js';
 import { refreshAuth, resolveAuth } from '../utils/auth.js';
 import { openBrowser } from '../utils/browser.js';
+import { uploadFlowBundle } from '../utils/device-bundle.js';
+import {
+  type DeviceArtifactFile,
+  downloadArtifactFiles,
+  fetchAllArtifacts,
+  planArtifactFiles,
+} from '../utils/device-artifacts.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import {
@@ -644,6 +652,10 @@ const screenshotSub = defineCommand({
   },
 });
 
+function isDirectory(p: string): boolean {
+  return existsSync(p) && statSync(p).isDirectory();
+}
+
 /** `--env KEY=VALUE`, given once or several times. */
 export function parseEnvFlags(value: unknown): Record<string, string> | undefined {
   if (value === undefined || value === false) return undefined;
@@ -674,18 +686,22 @@ async function waitForCommand(ctx: Ctx, id: string, commandId: string): Promise<
 }
 
 const runSub = defineCommand({
-  meta: { name: 'run', description: 'Run a Maestro flow on the device, whole, and wait for the result' },
+  meta: { name: 'run', description: 'Run a Maestro flow (or a directory of flows) on the device, and wait for the result' },
   args: {
     ...commonArgs,
     id: idArg,
     flow: {
       type: 'positional',
       required: false,
-      description: 'A flow file (.yaml)',
+      description: 'A flow file (.yaml), or a directory of flows (uploaded as a bundle)',
     },
     yaml: {
       type: 'string',
       description: 'The flow inline, instead of a file',
+    },
+    entry: {
+      type: 'string',
+      description: 'With a directory: the one flow to run, as a path inside it (default: all of them)',
     },
     env: {
       type: 'string',
@@ -697,20 +713,21 @@ const runSub = defineCommand({
     await runDeviceCommand(json, async () => {
       let id = args.id as string | undefined;
       let flow = args.flow as string | undefined;
-      if (id && !flow && /\.ya?ml$/i.test(id)) [id, flow] = [undefined, id];
+      if (id && !flow && (/\.ya?ml$/i.test(id) || isDirectory(id))) [id, flow] = [undefined, id];
       const inline = recoverFlagValue('--yaml', args.yaml as string | undefined, rawArgs);
       if (Boolean(flow) === Boolean(inline)) {
-        throw new CliError('Give a flow file or --yaml, one of the two.');
+        throw new CliError('Give a flow file, a directory of flows, or --yaml: one of the three.');
+      }
+
+      const dir = flow && isDirectory(flow) ? flow : undefined;
+      const entry = args.entry as string | undefined;
+      if (entry && !dir) throw new CliError('--entry picks a flow inside a directory; give a directory.');
+      if (entry && (path.isAbsolute(entry) || entry.split(/[\\/]/).includes('..'))) {
+        throw new CliError('--entry is a path inside the directory, e.g. flows/login.yaml.');
       }
 
       let yaml = inline;
-      if (flow) {
-        if (existsSync(flow) && statSync(flow).isDirectory()) {
-          throw new CliError(
-            'Running a directory of flows is not supported yet. Run one flow file at a time.',
-          );
-        }
-
+      if (flow && !dir) {
         try {
           yaml = readFileSync(flow, 'utf8');
         } catch (error) {
@@ -722,11 +739,23 @@ const runSub = defineCommand({
       const env = parseEnvFlags(repeated.length > 0 ? repeated : args.env);
       const ctx = await context(args);
       id = await resolveSessionId(ctx.apiUrl, ctx.auth, id);
-      ctx.progress(ui.running(`Running ${flow ?? 'the flow'} on ${colors.highlight(id)}…`));
-      let response = await DeviceGateway.run(ctx.apiUrl, ctx.auth, id, {
-        yaml: yaml!,
-        ...(env && { env }),
-      });
+
+      let body: Parameters<typeof DeviceGateway.run>[3];
+      if (dir) {
+        ctx.progress(ui.running(`Uploading the flows in ${colors.highlight(dir)}…`));
+        const bundle = await uploadFlowBundle({ apiUrl: ctx.apiUrl, auth: ctx.auth, dir, log: ctx.progress });
+        ctx.progress(ui.success(`Uploaded ${bundle.files} files`));
+        body = {
+          flowUploadId: bundle.id,
+          ...(entry && { flow: entry.split(path.sep).join('/') }),
+          ...(env && { env }),
+        };
+      } else {
+        body = { yaml: yaml!, ...(env && { env }) };
+      }
+
+      ctx.progress(ui.running(`Running ${entry ?? flow ?? 'the flow'} on ${colors.highlight(id)}…`));
+      let response = await DeviceGateway.run(ctx.apiUrl, ctx.auth, id, body);
       if (response.status === 'running') response = await waitForCommand(ctx, id, response.command_id);
 
       const result = response.result ?? { success: false };
@@ -900,6 +929,86 @@ const openSub = defineCommand({
   },
 });
 
+interface ArtifactsData {
+  /** Where they were saved; null with --links. */
+  dir: null | string;
+  files: DeviceArtifactFile[];
+  failed: { file: string; reason: string }[];
+}
+
+const artifactsSub = defineCommand({
+  meta: {
+    name: 'artifacts',
+    description: 'Download what a session left behind: its video, device log, and the screen after each action',
+  },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    output: {
+      type: 'string',
+      alias: ['o'],
+      description: 'Directory to save them in (default: ./<session>-artifacts)',
+    },
+    links: {
+      type: 'boolean',
+      default: false,
+      description: 'List the download links instead of downloading (they expire after a while)',
+    },
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand<ArtifactsData>(json, async () => {
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      const { pages, session } = await fetchAllArtifacts(ctx.apiUrl, ctx.auth, id);
+      const files = planArtifactFiles(pages);
+
+      if (args.links) {
+        return {
+          session,
+          data: { dir: null, files, failed: [] },
+          print() {
+            if (files.length === 0) {
+              logger.log(ui.info('This session has no artifacts yet.'));
+              return;
+            }
+
+            logger.log(ui.section(`Artifacts (${files.length})`));
+            logger.log(ui.branch(ui.fields(files.map((f) => [f.file, f.url ? formatUrl(f.url) : colors.dim('no link')]))));
+          },
+        };
+      }
+
+      const dir = resolvePath((args.output as string | undefined) || `${session.id}-artifacts`);
+      if (files.length > 0) ctx.progress(ui.running(`Downloading ${files.length} files to ${dir}…`));
+      const failed = await downloadArtifactFiles(dir, files);
+      const saved = files.length - failed.length;
+      return {
+        session,
+        data: { dir, files, failed },
+        ...(failed.length > 0 && {
+          failure: {
+            code: null,
+            message: `${failed.length} of ${files.length} files could not be downloaded: ${failed.map((f) => `${f.file} (${f.reason})`).join(', ')}`,
+          },
+        }),
+        print() {
+          if (files.length === 0) {
+            logger.log(ui.info('This session has no artifacts yet.'));
+            return;
+          }
+
+          logger.log(ui.success(`Saved ${saved} of ${files.length} files to ${dir}`));
+          for (const f of failed) logger.log(ui.warn(`${f.file}: ${f.reason}`));
+          if (!ENDED_STATES.includes(session.state)) {
+            logger.log(ui.note('The session is still open: its video and log are saved when it ends.'));
+          }
+        },
+      };
+    });
+  },
+});
+
 export const deviceCommand = defineCommand({
   meta: {
     name: 'device',
@@ -918,6 +1027,7 @@ export const deviceCommand = defineCommand({
     run: runSub,
     logs: logsSub,
     open: openSub,
+    artifacts: artifactsSub,
   },
 });
 
