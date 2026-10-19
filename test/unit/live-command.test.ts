@@ -72,3 +72,12 @@ describe('live command deprecation', () => {
     expect(out).to.equal('');
   });
 });
+
+describe('launch: listed in help', () => {
+  it('lists dcd device and dcd mcp', async () => {
+    const { deviceCommand } = await import('../../src/commands/device.js');
+    const { mcpCommand } = await import('../../src/commands/mcp.js');
+    expect((deviceCommand.meta as { hidden?: boolean }).hidden).to.not.equal(true);
+    expect((mcpCommand.meta as { hidden?: boolean }).hidden).to.not.equal(true);
+  });
+});
