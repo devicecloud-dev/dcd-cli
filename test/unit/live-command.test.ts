@@ -42,3 +42,33 @@ describe('live command menu', () => {
     expect(captureMenu(['bogus'])).to.equal(true);
   });
 });
+
+describe('live command deprecation', () => {
+  it('is hidden from help', () => {
+    expect((liveCommand.meta as { hidden?: boolean }).hidden).to.equal(true);
+  });
+
+  it('prints the deprecation on stderr, never stdout', () => {
+    let err = '';
+    let out = '';
+    const writeErr = process.stderr.write.bind(process.stderr);
+    const writeOut = process.stdout.write.bind(process.stdout);
+    process.stderr.write = ((chunk: string) => {
+      err += chunk;
+      return true;
+    }) as typeof process.stderr.write;
+    process.stdout.write = ((chunk: string) => {
+      out += chunk;
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      (liveCommand.setup as () => void)();
+    } finally {
+      process.stderr.write = writeErr;
+      process.stdout.write = writeOut;
+    }
+
+    expect(err).to.include('`dcd live` is deprecated').and.include('dcd device');
+    expect(out).to.equal('');
+  });
+});
