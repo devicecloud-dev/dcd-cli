@@ -5,6 +5,7 @@ import { defineCommand, runCommand, showUsage } from 'citty';
 
 import { artifactsCommand } from './commands/artifacts.js';
 import { cloudCommand } from './commands/cloud.js';
+import { deviceCommand } from './commands/device.js';
 import { listCommand } from './commands/list.js';
 import { liveCommand } from './commands/live.js';
 import { loginCommand } from './commands/login.js';
@@ -36,6 +37,7 @@ const main = defineCommand({
     list: listCommand,
     status: statusCommand,
     artifacts: artifactsCommand,
+    device: deviceCommand,
     live: liveCommand,
     login: loginCommand,
     logout: logoutCommand,
