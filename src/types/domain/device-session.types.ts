@@ -152,3 +152,19 @@ export interface DeviceArtifactsPage {
   recording: DeviceArtifactLink | null;
   session: DeviceSession;
 }
+
+/** POST /device/bundles/upload-url: where to PUT the zip (both, when both are given). */
+export interface DeviceBundleUploadUrls {
+  id: string;
+  mirror: { path: string; signedUrl: string } | null;
+  upload: { path: string; signedUrl: string } | null;
+}
+
+/** A registered flow bundle. `run` takes its id as `flowUploadId`. */
+export interface DeviceFlowBundle {
+  bytes: number;
+  created_at: string;
+  encrypted: boolean;
+  id: string;
+  sha: string;
+}
