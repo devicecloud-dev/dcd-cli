@@ -169,7 +169,10 @@ class RemoteDevices {
  * credentials yet, or an API without it), it still serves the dcd_* tools
  * and says why on stderr.
  */
-export async function createBridgeServer(): Promise<Server> {
+export async function createBridgeServer(
+  opts: { callTimeoutMs?: number } = {},
+): Promise<Server> {
+  const callTimeoutMs = opts.callTimeoutMs ?? CALL_TIMEOUT_MS;
   const [localClientSide, localServerSide] = InMemoryTransport.createLinkedPair();
   await createServer().connect(localServerSide);
   const local = new Client({ name: 'dcd-mcp-bridge', version: getCliVersion() });
@@ -207,7 +210,7 @@ export async function createBridgeServer(): Promise<Server> {
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     // The client's own timeout and cancel apply, not the SDK's 60s default:
     // dcd_run_cloud_test can wait an hour, and a device run or upload is long.
-    const options = { signal: extra.signal, timeout: CALL_TIMEOUT_MS, resetTimeoutOnProgress: true };
+    const options = { signal: extra.signal, timeout: callTimeoutMs, resetTimeoutOnProgress: true };
     const { name } = request.params;
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
     if (localNames.has(name)) {

@@ -50,6 +50,14 @@ function startHosted(): Promise<{ calls: { args: unknown; auth?: string; name: s
       record('run'),
     );
     server.registerTool(
+      'get_logs',
+      { description: 'Slow.', inputSchema: { ms: z.number() }, annotations: { readOnlyHint: true } },
+      async ({ ms }) => {
+        await new Promise((r) => setTimeout(r, ms));
+        return { content: [{ type: 'text' as const, text: 'late' }] };
+      },
+    );
+    server.registerTool(
       'inspect_screen',
       { description: 'Inspect.', inputSchema: {}, annotations: { readOnlyHint: true } },
       record('inspect_screen'),
@@ -92,8 +100,8 @@ describe('dcd mcp bridge', () => {
     fs.rmSync(tempDir, { force: true, recursive: true });
   });
 
-  async function connect(): Promise<Client> {
-    const server = await createBridgeServer();
+  async function connect(callTimeoutMs?: number): Promise<Client> {
+    const server = await createBridgeServer({ callTimeoutMs });
     const [a, b] = InMemoryTransport.createLinkedPair();
     await server.connect(b);
     const client = new Client({ name: 'agent', version: '1' });
@@ -116,6 +124,19 @@ describe('dcd mcp bridge', () => {
     const result = await client.callTool({ name: 'inspect_screen', arguments: {} });
     expect(result.isError).to.not.equal(true);
     expect(hosted.calls).to.deep.equal([{ name: 'inspect_screen', args: {}, auth: 'test-key' }]);
+    await client.close();
+  });
+
+  it("applies the bridge's call timeout, not the SDK's 60s default", async () => {
+    // The agent's own client allows long calls; only the bridge's limit applies.
+    const client = await connect(300);
+    await client.listTools();
+    const opts = { timeout: 10_000 };
+    const fast = await client.callTool({ name: 'get_logs', arguments: { ms: 50 } }, undefined, opts);
+    expect(fast.isError).to.not.equal(true);
+    const slow = await client.callTool({ name: 'get_logs', arguments: { ms: 1000 } }, undefined, opts);
+    expect(slow.isError).to.equal(true);
+    expect(JSON.stringify(slow.content)).to.match(/timed out/i);
     await client.close();
   });
 
