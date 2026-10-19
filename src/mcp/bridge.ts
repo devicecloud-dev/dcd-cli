@@ -39,6 +39,13 @@ import { createServer } from './server.js';
 const INSTRUCTIONS =
   'DeviceCloud tools. dcd_* tools run Maestro test suites in the cloud. The device tools lease a cloud iOS or Android device for you to drive: start_device, then inspect_screen / take_screenshot, launch_app, run, and stop_device when done. Call cheat_sheet first for Maestro syntax. Local files: install_app takes app_path and run takes path (a flow file or a directory), which this server uploads for you.';
 
+/**
+ * How long one forwarded call may take. Longer than dcd_run_cloud_test's
+ * longest wait (3600s) plus an upload. The MCP client calling this server
+ * still applies its own timeout, and its cancel is passed through.
+ */
+export const CALL_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
 const READ_ONLY_INSTRUCTIONS =
   'DeviceCloud tools, read-only: nothing here starts a device, runs a test or changes anything. dcd_* tools read cloud test runs and their results. The device tools read open device sessions: list_devices, get_device_status, inspect_screen, take_screenshot, get_logs.';
 
@@ -197,11 +204,14 @@ export async function createBridgeServer(): Promise<Server> {
     return { tools: [...localTools, ...deviceTools] };
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    // The client's own timeout and cancel apply, not the SDK's 60s default:
+    // dcd_run_cloud_test can wait an hour, and a device run or upload is long.
+    const options = { signal: extra.signal, timeout: CALL_TIMEOUT_MS, resetTimeoutOnProgress: true };
     const { name } = request.params;
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
     if (localNames.has(name)) {
-      return (await local.callTool({ name, arguments: args })) as CallToolResult;
+      return (await local.callTool({ name, arguments: args }, undefined, options)) as CallToolResult;
     }
 
     return runTool(`device ${name}`, async () => {
@@ -213,7 +223,7 @@ export async function createBridgeServer(): Promise<Server> {
       }
       const { client, ctx } = await remote.connect();
       const remoteArgs = await resolveLocalInputs(name, args, ctx);
-      return (await client.callTool({ name, arguments: remoteArgs })) as CallToolResult;
+      return (await client.callTool({ name, arguments: remoteArgs }, undefined, options)) as CallToolResult;
     });
   });
 
