@@ -3,6 +3,10 @@ import type {
   DeviceCatalogue,
   DeviceCommandResult,
   DeviceInstalledApp,
+  DeviceLogs,
+  DeviceRunResponse,
+  DeviceScreen,
+  DeviceScreenshot,
   DeviceSession,
   StartDeviceSessionRequest,
 } from '../types/domain/device-session.types.js';
@@ -105,6 +109,28 @@ const sessionPath = (id: string) => `/device/sessions/${encodeURIComponent(id)}`
 
 /** The Agent Devices session API (dcd docs/device-v1-plan.md, section 4.1). */
 export const DeviceGateway = {
+  command(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+    commandId: string,
+  ): Promise<DeviceRunResponse> {
+    return request(
+      baseUrl,
+      auth,
+      'GET',
+      `${sessionPath(id)}/commands/${encodeURIComponent(commandId)}`,
+    );
+  },
+
+  inspect(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+  ): Promise<{ screen: DeviceScreen; session: DeviceSession }> {
+    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/inspect`);
+  },
+
   install(
     baseUrl: string,
     auth: AuthContext,
@@ -131,8 +157,34 @@ export const DeviceGateway = {
     return request(baseUrl, auth, 'GET', `/device/sessions${all ? '?all=true' : ''}`);
   },
 
+  logs(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+    lines: number,
+  ): Promise<{ logs: DeviceLogs; session: DeviceSession }> {
+    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/logs?lines=${lines}`);
+  },
+
   models(baseUrl: string, auth: AuthContext): Promise<DeviceCatalogue> {
     return request(baseUrl, auth, 'GET', '/device/models');
+  },
+
+  run(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+    body: { env?: Record<string, string>; yaml: string },
+  ): Promise<DeviceRunResponse> {
+    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/run`, body);
+  },
+
+  screenshot(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+  ): Promise<{ screenshot: DeviceScreenshot; session: DeviceSession }> {
+    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/screenshot`);
   },
 
   start(

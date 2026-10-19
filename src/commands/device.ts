@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 
 import { apiFlags } from '../config/flags/api.flags.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
@@ -9,12 +10,15 @@ import {
   type DeviceCatalogue,
   type DeviceCommandResult,
   type DeviceInstalledApp,
+  type DeviceRunResponse,
+  type DeviceScreenElement,
   type DeviceSession,
   ENDED_STATES,
   type StartDeviceSessionRequest,
 } from '../types/domain/device-session.types.js';
 import { platformOfAppFile, uploadLocalApp } from '../utils/app-upload.js';
-import { resolveAuth } from '../utils/auth.js';
+import { refreshAuth, resolveAuth } from '../utils/auth.js';
+import { openBrowser } from '../utils/browser.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import {
@@ -24,7 +28,7 @@ import {
   runDeviceCommand,
 } from '../utils/device-output.js';
 import { isUrl } from '../utils/expo.js';
-import { colors } from '../utils/styling.js';
+import { colors, formatUrl } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
 
 const PLATFORMS = ['android', 'ios'] as const;
@@ -67,6 +71,15 @@ function interactive(json: boolean): boolean {
   return !json && process.stdout.isTTY === true && process.stdin.isTTY === true;
 }
 
+/**
+ * Polling loops can outlast a `dcd login` access token (about an hour), so
+ * they renew it before each call. An API key is returned unchanged.
+ */
+async function freshAuth(ctx: Ctx): Promise<AuthContext> {
+  ctx.auth = await refreshAuth(ctx.auth);
+  return ctx.auth;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -79,7 +92,7 @@ async function waitUntilUsable(ctx: Ctx, id: string): Promise<DeviceSession> {
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
   let last = '';
   for (;;) {
-    const { session } = await DeviceGateway.status(ctx.apiUrl, ctx.auth, id);
+    const { session } = await DeviceGateway.status(ctx.apiUrl, await freshAuth(ctx), id);
     if (USABLE_STATES.has(session.state)) return session;
     if (ENDED_STATES.includes(session.state)) {
       throw new DeviceApiError(
@@ -553,6 +566,340 @@ const modelsSub = defineCommand({
   },
 });
 
+const inspectSub = defineCommand({
+  meta: { name: 'inspect', description: 'The screen as compact JSON: each element with text, an id or a label' },
+  args: { ...commonArgs, id: idArg },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      const { screen, session } = await DeviceGateway.inspect(ctx.apiUrl, ctx.auth, id);
+      return {
+        session,
+        data: { screen },
+        print() {
+          logger.log(
+            ui.section(
+              `Screen ${screen.width}x${screen.height}, ${screen.elements.length} elements` +
+                (screen.fresh ? '' : colors.dim(' (no new frame; this is the latest)')),
+            ),
+          );
+          logger.log(ui.branch(screen.elements.map((el) => formatElement(el))));
+        },
+      };
+    });
+  },
+});
+
+/** One element on one line: what to target it by, then its bounds. */
+export function formatElement(el: DeviceScreenElement): string {
+  const parts: string[] = [];
+  if (el.txt) parts.push(`"${el.txt}"`);
+  if (el.a11y && el.a11y !== el.txt) parts.push(`a11y:"${el.a11y}"`);
+  if (el.rid) parts.push(`id:${el.rid}`);
+  if (el.hint) parts.push(`hint:"${el.hint}"`);
+  return `${parts.join('  ')}  ${colors.dim(el.b)}`;
+}
+
+/** `data:image/jpeg;base64,...` to bytes and a file extension. */
+export function decodeDataUrl(dataUrl: string): { bytes: Buffer; ext: string } {
+  const match = /^data:image\/([a-z]+);base64,(.*)$/s.exec(dataUrl);
+  if (!match) throw new Error('The API returned a screenshot in an unexpected format.');
+  return { bytes: Buffer.from(match[2], 'base64'), ext: match[1] === 'jpeg' ? 'jpg' : match[1] };
+}
+
+const screenshotSub = defineCommand({
+  meta: { name: 'screenshot', description: 'Save a screenshot of the device' },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    output: {
+      type: 'string',
+      alias: ['o'],
+      description: 'Where to save it (default: ./<session>-<time>.jpg)',
+    },
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      const { screenshot, session } = await DeviceGateway.screenshot(ctx.apiUrl, ctx.auth, id);
+      const { bytes, ext } = decodeDataUrl(screenshot.data_url);
+      const file =
+        (args.output as string | undefined) ||
+        `${session.id}-${new Date().toISOString().replaceAll(/[:.]/g, '-')}.${ext}`;
+      writeFileSync(file, bytes);
+      const filePath = resolvePath(file);
+      return {
+        session,
+        data: { path: filePath, captured_at: screenshot.captured_at, fresh: screenshot.fresh },
+        print() {
+          logger.log(ui.success(`Saved ${filePath}`));
+          if (!screenshot.fresh) logger.log(ui.note('No new frame came in time; this is the latest.'));
+        },
+      };
+    });
+  },
+});
+
+/** `--env KEY=VALUE`, given once or several times. */
+export function parseEnvFlags(value: unknown): Record<string, string> | undefined {
+  if (value === undefined || value === false) return undefined;
+  const items = (Array.isArray(value) ? value : [value]).map(String);
+  const env: Record<string, string> = {};
+  for (const item of items) {
+    const eq = item.indexOf('=');
+    if (eq <= 0) throw new CliError(`--env takes KEY=VALUE, got "${item}".`);
+    env[item.slice(0, eq)] = item.slice(eq + 1);
+  }
+
+  return env;
+}
+
+/** Wait for a flow that outlasted the API's own wait. */
+async function waitForCommand(ctx: Ctx, id: string, commandId: string): Promise<DeviceRunResponse> {
+  let last = '';
+  for (;;) {
+    await sleep(WAIT_POLL_MS);
+    const response = await DeviceGateway.command(ctx.apiUrl, await freshAuth(ctx), id, commandId);
+    if (response.status !== 'running') return response;
+    const line = `still running (${response.session.state})`;
+    if (line !== last) {
+      last = line;
+      ctx.progress(`   ${colors.dim(line)}`);
+    }
+  }
+}
+
+const runSub = defineCommand({
+  meta: { name: 'run', description: 'Run a Maestro flow on the device, whole, and wait for the result' },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    flow: {
+      type: 'positional',
+      required: false,
+      description: 'A flow file (.yaml)',
+    },
+    yaml: {
+      type: 'string',
+      description: 'The flow inline, instead of a file',
+    },
+    env: {
+      type: 'string',
+      description: 'A variable for the flow, KEY=VALUE, used as ${KEY}. Repeatable. Sent sealed, never stored in plain text',
+    },
+  },
+  async run({ args, rawArgs }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      let id = args.id as string | undefined;
+      let flow = args.flow as string | undefined;
+      if (id && !flow && /\.ya?ml$/i.test(id)) [id, flow] = [undefined, id];
+      const inline = recoverFlagValue('--yaml', args.yaml as string | undefined, rawArgs);
+      if (Boolean(flow) === Boolean(inline)) {
+        throw new CliError('Give a flow file or --yaml, one of the two.');
+      }
+
+      let yaml = inline;
+      if (flow) {
+        if (existsSync(flow) && statSync(flow).isDirectory()) {
+          throw new CliError(
+            'Running a directory of flows is not supported yet. Run one flow file at a time.',
+          );
+        }
+
+        try {
+          yaml = readFileSync(flow, 'utf8');
+        } catch (error) {
+          throw new CliError(`Could not read ${flow}: ${(error as Error).message}`);
+        }
+      }
+
+      const repeated = collectFlagValues('--env', rawArgs);
+      const env = parseEnvFlags(repeated.length > 0 ? repeated : args.env);
+      const ctx = await context(args);
+      id = await resolveSessionId(ctx.apiUrl, ctx.auth, id);
+      ctx.progress(ui.running(`Running ${flow ?? 'the flow'} on ${colors.highlight(id)}…`));
+      let response = await DeviceGateway.run(ctx.apiUrl, ctx.auth, id, {
+        yaml: yaml!,
+        ...(env && { env }),
+      });
+      if (response.status === 'running') response = await waitForCommand(ctx, id, response.command_id);
+
+      const result = response.result ?? { success: false };
+      const passed = response.status === 'passed';
+      return {
+        session: response.session,
+        data: { command_id: response.command_id, status: response.status, result },
+        ...(!passed && {
+          failure: { code: null, message: result.error || 'The flow failed.' },
+        }),
+        print() {
+          logger.log(passed ? ui.success('Flow passed') : `${ui.statusSymbol('FAILED')} Flow failed`);
+          if (result.output) {
+            logger.log(ui.section('Output'));
+            logger.log(result.output);
+          }
+
+          if (result.error) {
+            logger.log(ui.section('Error'));
+            logger.log(colors.error(result.error));
+          }
+        },
+      };
+    });
+  },
+});
+
+/** Every value of a repeatable flag; citty keeps only the last one. */
+export function collectFlagValues(flag: string, rawArgs: string[]): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    if (rawArgs[i] === flag && i + 1 < rawArgs.length) values.push(rawArgs[++i]);
+    else if (rawArgs[i].startsWith(`${flag}=`)) values.push(rawArgs[i].slice(flag.length + 1));
+  }
+
+  return values;
+}
+
+/**
+ * citty drops a string flag's value when it starts with `-`, as a flow's
+ * first command does (`--yaml "- launchApp"`). Read it from argv instead.
+ */
+export function recoverFlagValue(
+  flag: string,
+  parsed: string | undefined,
+  rawArgs: string[],
+): string | undefined {
+  if (parsed && parsed.trim()) return parsed;
+  const eq = rawArgs.find((a) => a.startsWith(`${flag}=`));
+  if (eq) return eq.slice(flag.length + 1);
+  const idx = rawArgs.indexOf(flag);
+  if (idx !== -1 && idx + 1 < rawArgs.length) return rawArgs[idx + 1];
+  return parsed;
+}
+
+/**
+ * The lines of `next` that `prev` has not shown. Each fetch is the log's
+ * last N lines, so the overlap is the longest end of `prev` that `next`
+ * starts with. No overlap: everything in `next` is new.
+ */
+export function newLogLines(prev: string[], next: string[]): string[] {
+  for (let k = Math.min(prev.length, next.length); k > 0; k--) {
+    let same = true;
+    for (let i = 0; i < k; i++) {
+      if (prev[prev.length - k + i] !== next[i]) {
+        same = false;
+        break;
+      }
+    }
+
+    if (same) return next.slice(k);
+  }
+
+  return next;
+}
+
+const LOGS_FOLLOW_MS = 3000;
+
+const logsSub = defineCommand({
+  meta: { name: 'logs', description: "The installed app's recent device log lines" },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    lines: { type: 'string', default: '200', description: 'How many lines, up to 2000' },
+    follow: {
+      type: 'boolean',
+      alias: ['f'],
+      default: false,
+      description: 'Keep printing new lines until the session ends (not with --json)',
+    },
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    if (args.follow && json) {
+      await runDeviceCommand(json, async () => {
+        throw new CliError('--follow prints a stream of lines, so it cannot be used with --json.');
+      });
+      return;
+    }
+
+    const lines = Number.parseInt(String(args.lines), 10);
+    await runDeviceCommand(json, async () => {
+      if (!Number.isInteger(lines) || lines < 1) throw new CliError('--lines must be a whole number.');
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      const first = await DeviceGateway.logs(ctx.apiUrl, ctx.auth, id, lines);
+      if (!args.follow) {
+        return {
+          session: first.session,
+          data: { logs: first.logs },
+          print() {
+            if (first.logs.lines.length === 0) {
+              logger.log(ui.info(first.logs.source === 'none' ? 'No app installed yet, so no app logs.' : 'No log lines yet.'));
+              return;
+            }
+
+            for (const line of first.logs.lines) logger.log(line);
+          },
+        };
+      }
+
+      // --follow: print as lines arrive. Ends when the session does.
+      for (const line of first.logs.lines) logger.log(line);
+      let shown = first.logs.lines;
+      let { session } = first;
+      for (;;) {
+        await sleep(LOGS_FOLLOW_MS);
+        try {
+          const next = await DeviceGateway.logs(ctx.apiUrl, await freshAuth(ctx), id, lines);
+          for (const line of newLogLines(shown, next.logs.lines)) logger.log(line);
+          shown = next.logs.lines;
+          session = next.session;
+        } catch (error) {
+          if (error instanceof DeviceApiError && error.code === 'LIVE_SESSION_ENDED') {
+            return {
+              session: error.session ?? session,
+              data: null,
+              print() {
+                logger.log(ui.info(`Session ${id} has ended.`));
+              },
+            };
+          }
+
+          throw error;
+        }
+      }
+    });
+  },
+});
+
+const openSub = defineCommand({
+  meta: { name: 'open', description: "Open the session's live monitor in the browser" },
+  args: { ...commonArgs, id: idArg },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      const { session } = await DeviceGateway.status(ctx.apiUrl, ctx.auth, id);
+      // Only a person at a terminal gets a browser; a script gets the URL.
+      const opened = interactive(json) && openBrowser(session.monitor_url);
+      return {
+        session,
+        data: { url: session.monitor_url, opened },
+        print() {
+          logger.log(opened ? ui.success('Opened the monitor') : ui.info('The monitor:'));
+          logger.log(ui.branch([formatUrl(session.monitor_url)]));
+        },
+      };
+    });
+  },
+});
+
 export const deviceCommand = defineCommand({
   meta: {
     name: 'device',
@@ -569,6 +916,11 @@ export const deviceCommand = defineCommand({
     install: installSub,
     launch: launchSub,
     models: modelsSub,
+    inspect: inspectSub,
+    screenshot: screenshotSub,
+    run: runSub,
+    logs: logsSub,
+    open: openSub,
   },
 });
 
