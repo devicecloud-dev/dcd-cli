@@ -1,5 +1,30 @@
 # Changelog
 
+## [5.8.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.7.1...v5.8.0) (2026-10-16)
+
+
+### Features
+
+* **cloud:** add --priority flag for within-org run ordering ([#222](https://github.com/devicecloud-dev/dcd-cli/issues/222)) ([510d64b](https://github.com/devicecloud-dev/dcd-cli/commit/510d64baa34e3f7f19c5483f693aced20c0f0758))
+* **cloud:** add --priority flag for within-org run ordering (dcd[#1581](https://github.com/devicecloud-dev/dcd-cli/issues/1581)) ([510d64b](https://github.com/devicecloud-dev/dcd-cli/commit/510d64baa34e3f7f19c5483f693aced20c0f0758))
+
+
+### Bug Fixes
+
+* **cloud:** re-send a flow submit whose response was lost ([#226](https://github.com/devicecloud-dev/dcd-cli/issues/226)) ([f4db8f9](https://github.com/devicecloud-dev/dcd-cli/commit/f4db8f9d0b51d358b62153f40c2164abc67cb078))
+* **device:** drop Android API 29-31 from the --android-api-level help ([#227](https://github.com/devicecloud-dev/dcd-cli/issues/227)) ([05ea2dc](https://github.com/devicecloud-dev/dcd-cli/commit/05ea2dc292b1c8d2d453a4ec05b3c34577cf2c61))
+* **validation:** mirror the API's Pixel 7 / API 36 Android default ([#225](https://github.com/devicecloud-dev/dcd-cli/issues/225)) ([3daeb94](https://github.com/devicecloud-dev/dcd-cli/commit/3daeb94e077a3819f4568c74cc5059bd8ac9ba9b))
+
+
+### Performance
+
+* **cloud:** poll results with ?view=summary and If-None-Match ([#219](https://github.com/devicecloud-dev/dcd-cli/issues/219)) ([e916c59](https://github.com/devicecloud-dev/dcd-cli/commit/e916c59631ee10aee0c315af016582747afa0b81))
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 6 updates ([#220](https://github.com/devicecloud-dev/dcd-cli/issues/220)) ([2b88b64](https://github.com/devicecloud-dev/dcd-cli/commit/2b88b6489d77591f3f47b00c980e11d5e6cc2e27))
+
 ## [5.7.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.7.0...v5.7.1) (2026-10-07)
 
 
