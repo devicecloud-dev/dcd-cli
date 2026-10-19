@@ -17,7 +17,7 @@ import {
   type StartDeviceSessionRequest,
 } from '../types/domain/device-session.types.js';
 import { platformOfAppFile, uploadLocalApp } from '../utils/app-upload.js';
-import { resolveAuth } from '../utils/auth.js';
+import { refreshAuth, resolveAuth } from '../utils/auth.js';
 import { openBrowser } from '../utils/browser.js';
 import {
   type DeviceArtifactFile,
@@ -77,6 +77,15 @@ function interactive(json: boolean): boolean {
   return !json && process.stdout.isTTY === true && process.stdin.isTTY === true;
 }
 
+/**
+ * Polling loops can outlast a `dcd login` access token (about an hour), so
+ * they renew it before each call. An API key is returned unchanged.
+ */
+async function freshAuth(ctx: Ctx): Promise<AuthContext> {
+  ctx.auth = await refreshAuth(ctx.auth);
+  return ctx.auth;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -89,7 +98,7 @@ async function waitUntilUsable(ctx: Ctx, id: string): Promise<DeviceSession> {
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
   let last = '';
   for (;;) {
-    const { session } = await DeviceGateway.status(ctx.apiUrl, ctx.auth, id);
+    const { session } = await DeviceGateway.status(ctx.apiUrl, await freshAuth(ctx), id);
     if (USABLE_STATES.has(session.state)) return session;
     if (ENDED_STATES.includes(session.state)) {
       throw new DeviceApiError(
@@ -660,7 +669,7 @@ async function waitForCommand(ctx: Ctx, id: string, commandId: string): Promise<
   let last = '';
   for (;;) {
     await sleep(WAIT_POLL_MS);
-    const response = await DeviceGateway.command(ctx.apiUrl, ctx.auth, id, commandId);
+    const response = await DeviceGateway.command(ctx.apiUrl, await freshAuth(ctx), id, commandId);
     if (response.status !== 'running') return response;
     const line = `still running (${response.session.state})`;
     if (line !== last) {
@@ -852,7 +861,7 @@ const logsSub = defineCommand({
       for (;;) {
         await sleep(LOGS_FOLLOW_MS);
         try {
-          const next = await DeviceGateway.logs(ctx.apiUrl, ctx.auth, id, lines);
+          const next = await DeviceGateway.logs(ctx.apiUrl, await freshAuth(ctx), id, lines);
           for (const line of newLogLines(shown, next.logs.lines)) logger.log(line);
           shown = next.logs.lines;
           session = next.session;
