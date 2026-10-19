@@ -135,6 +135,14 @@ describe('dcd mcp bridge', () => {
     const names = (await client.listTools()).tools.map((t) => t.name);
     expect(names).to.include('inspect_screen');
     expect(names).to.not.include.members(['install_app', 'run', 'dcd_run_cloud_test']);
+
+    // Hidden is not enough: a call made anyway is refused, never forwarded.
+    const refused = await client.callTool({ name: 'run', arguments: { yaml: 'x' } });
+    expect(refused.isError).to.equal(true);
+    expect(JSON.stringify(refused.content)).to.include('read-only mode');
+    expect(hosted.calls).to.deep.equal([]);
+    await client.callTool({ name: 'inspect_screen', arguments: {} });
+    expect(hosted.calls.map((c) => c.name)).to.deep.equal(['inspect_screen']);
     await client.close();
   });
 

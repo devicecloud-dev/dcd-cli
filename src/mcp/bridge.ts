@@ -39,6 +39,9 @@ import { createServer } from './server.js';
 const INSTRUCTIONS =
   'DeviceCloud tools. dcd_* tools run Maestro test suites in the cloud. The device tools lease a cloud iOS or Android device for you to drive: start_device, then inspect_screen / take_screenshot, launch_app, run, and stop_device when done. Call cheat_sheet first for Maestro syntax. Local files: install_app takes app_path and run takes path (a flow file or a directory), which this server uploads for you.';
 
+const READ_ONLY_INSTRUCTIONS =
+  'DeviceCloud tools, read-only: nothing here starts a device, runs a test or changes anything. dcd_* tools read cloud test runs and their results. The device tools read open device sessions: list_devices, get_device_status, inspect_screen, take_screenshot, get_logs.';
+
 /** The inputs this bridge adds to hosted tools, and what they say. */
 const LOCAL_INPUTS: Record<string, { description: string; properties: Record<string, object> }> = {
   install_app: {
@@ -147,6 +150,11 @@ class RemoteDevices {
   has(name: string): boolean {
     return this.tools?.some((t) => t.name === name) ?? false;
   }
+
+  /** Annotated read-only by the hosted server: changes nothing, costs nothing. */
+  isReadOnly(name: string): boolean {
+    return this.tools?.find((t) => t.name === name)?.annotations?.readOnlyHint === true;
+  }
 }
 
 /**
@@ -166,7 +174,10 @@ export async function createBridgeServer(): Promise<Server> {
 
   const server = new Server(
     { name: 'devicecloud', version: getCliVersion() },
-    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
+    {
+      capabilities: { tools: {} },
+      instructions: readOnly ? READ_ONLY_INSTRUCTIONS : INSTRUCTIONS,
+    },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -196,6 +207,10 @@ export async function createBridgeServer(): Promise<Server> {
     return runTool(`device ${name}`, async () => {
       await remote.list();
       if (!remote.has(name)) return errorResult(`Unknown tool: ${name}`);
+      // The list hides these in read-only mode; refuse them if called anyway.
+      if (readOnly && !remote.isReadOnly(name)) {
+        return errorResult(`${name} is not available in read-only mode.`);
+      }
       const { client, ctx } = await remote.connect();
       const remoteArgs = await resolveLocalInputs(name, args, ctx);
       return (await client.callTool({ name, arguments: remoteArgs })) as CallToolResult;
