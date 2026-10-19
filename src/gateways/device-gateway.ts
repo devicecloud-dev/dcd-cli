@@ -1,5 +1,6 @@
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type {
+  DeviceArtifactsPage,
   DeviceCatalogue,
   DeviceCommandResult,
   DeviceInstalledApp,
@@ -109,6 +110,16 @@ const sessionPath = (id: string) => `/device/sessions/${encodeURIComponent(id)}`
 
 /** The Agent Devices session API (dcd docs/device-v1-plan.md, section 4.1). */
 export const DeviceGateway = {
+  artifacts(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+    before?: string,
+  ): Promise<DeviceArtifactsPage> {
+    const query = new URLSearchParams({ limit: '200', ...(before && { before }) });
+    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/artifacts?${query}`);
+  },
+
   command(
     baseUrl: string,
     auth: AuthContext,

@@ -128,3 +128,27 @@ export interface DeviceLogs {
   /** logcat, ios-unified-log, or none before an app is installed. */
   source: string;
 }
+
+/** A short-lived download link for one stored artifact. */
+export interface DeviceArtifactLink {
+  bytes: null | number;
+  content_type: string;
+  created_at: string;
+  /** Null when the file could not be signed (e.g. already cleaned up). */
+  url: null | string;
+}
+
+/** GET .../artifacts: one page, newest actions first. */
+export interface DeviceArtifactsPage {
+  actions: {
+    command_id: null | string;
+    created_at: string;
+    hierarchy: DeviceArtifactLink | null;
+    screenshot: DeviceArtifactLink | null;
+  }[];
+  logs: DeviceArtifactLink | null;
+  /** Pass as `before` for the next (older) page; null on the last page. */
+  next_before: null | string;
+  recording: DeviceArtifactLink | null;
+  session: DeviceSession;
+}
