@@ -83,3 +83,48 @@ export interface DeviceCommandResult {
   output?: string;
   success: boolean;
 }
+
+/** One element of the compact screen (Maestro's key names). */
+export interface DeviceScreenElement {
+  /** Bounds, "[left,top][right,bottom]". */
+  b: string;
+  a11y?: string;
+  hint?: string;
+  rid?: string;
+  txt?: string;
+}
+
+/** GET .../inspect: the elements worth targeting, and what each key means. */
+export interface DeviceScreen {
+  elements: DeviceScreenElement[];
+  /** False when no new frame came in time; this is then the latest. */
+  fresh: boolean;
+  height: number;
+  keys: Record<string, string>;
+  width: number;
+}
+
+/** GET .../screenshot. */
+export interface DeviceScreenshot {
+  captured_at: null | string;
+  /** A JPEG data URL. */
+  data_url: string;
+  fresh: boolean;
+}
+
+/** POST .../run and GET .../commands/:id. */
+export interface DeviceRunResponse {
+  command_id: string;
+  result: DeviceCommandResult | null;
+  session: DeviceSession;
+  /** `running` when the flow outlasted the API's wait: poll the command. */
+  status: 'failed' | 'passed' | 'running';
+}
+
+/** GET .../logs. */
+export interface DeviceLogs {
+  app_id: null | string;
+  lines: string[];
+  /** logcat, ios-unified-log, or none before an app is installed. */
+  source: string;
+}

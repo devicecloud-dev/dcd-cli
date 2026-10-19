@@ -30,11 +30,11 @@
  */
 import * as p from '@clack/prompts';
 import { defineCommand } from 'citty';
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 
 import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
+import { openBrowser } from '../utils/browser.js';
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, writeConfig } from '../utils/config-store.js';
 import { fetchOrgs, pickOrg } from '../utils/orgs.js';
@@ -232,22 +232,6 @@ export const loginCommand = defineCommand({
     }
   },
 });
-
-function openBrowser(url: string): boolean {
-  const cmd =
-    process.platform === 'darwin'
-      ? { bin: 'open', args: [url] }
-      : process.platform === 'win32'
-        ? { bin: 'cmd', args: ['/c', 'start', '""', url] }
-        : { bin: 'xdg-open', args: [url] };
-  try {
-    const child = spawn(cmd.bin, cmd.args, { detached: true, stdio: 'ignore' });
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 async function pollForClaim(
   apiUrl: string,

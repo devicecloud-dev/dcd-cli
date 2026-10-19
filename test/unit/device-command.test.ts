@@ -3,7 +3,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { deviceCommand } from '../../src/commands/device.js';
+import {
+  collectFlagValues,
+  decodeDataUrl,
+  deviceCommand,
+  newLogLines,
+  parseEnvFlags,
+} from '../../src/commands/device.js';
 import { DeviceApiError } from '../../src/gateways/device-gateway.js';
 import type { DeviceSession } from '../../src/types/domain/device-session.types.js';
 import { platformOfAppFile } from '../../src/utils/app-upload.js';
@@ -311,6 +317,121 @@ describe('dcd device', () => {
         `${API}/device/sessions/d-e-f`,
       ]);
       expect((out.data as { stopped: DeviceSession[] }).stopped).to.have.length(2);
+    });
+  });
+
+  describe('inspect, screenshot, run, logs and open', () => {
+    it('inspect returns the compact screen', async () => {
+      const screen = { width: 390, height: 844, keys: {}, elements: [{ b: '[0,0][10,10]', txt: 'Log in' }], fresh: true };
+      stubFetch(() => ({ body: { screen, session: session('a-b-c') } }));
+      const { exit, out } = await runJson('inspect', { id: 'a-b-c' });
+      expect(exit).to.equal(0);
+      expect(out.data).to.deep.equal({ screen });
+    });
+
+    it('screenshot saves the image and reports its path', async () => {
+      const file = path.join(tempDir, 'shot.jpg');
+      const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+      stubFetch(() => ({
+        body: {
+          screenshot: { data_url: `data:image/jpeg;base64,${jpeg.toString('base64')}`, captured_at: null, fresh: false },
+          session: session('a-b-c'),
+        },
+      }));
+      const { out } = await runJson('screenshot', { id: 'a-b-c', output: file });
+      expect(fs.readFileSync(file)).to.deep.equal(jpeg);
+      expect(out.data).to.deep.equal({ path: file, captured_at: null, fresh: false });
+    });
+
+    it('run sends the flow and the env, and polls a flow that is still running', async () => {
+      const flowFile = path.join(tempDir, 'login.yaml');
+      fs.writeFileSync(flowFile, 'appId: com.x\n---\n- launchApp\n');
+      let polls = 0;
+      const calls = stubFetch((call) => {
+        if (call.method === 'POST') {
+          return { body: { command_id: 'c1', status: 'running', result: null, session: session('a-b-c') } };
+        }
+
+        polls += 1;
+        return polls < 2
+          ? { body: { command_id: 'c1', status: 'running', result: null, session: session('a-b-c') } }
+          : { body: { command_id: 'c1', status: 'passed', result: { success: true, output: 'ok' }, session: session('a-b-c') } };
+      });
+      const { exit, out } = await runJson('run', { id: 'a-b-c', flow: flowFile, env: ['USER=me', 'PASS=a=b'] });
+      expect(exit).to.equal(0);
+      expect(calls[0].url).to.equal(`${API}/device/sessions/a-b-c/run`);
+      expect(calls[0].body).to.deep.equal({
+        yaml: 'appId: com.x\n---\n- launchApp\n',
+        env: { USER: 'me', PASS: 'a=b' },
+      });
+      expect(calls.at(-1)!.url).to.equal(`${API}/device/sessions/a-b-c/commands/c1`);
+      expect(out.data).to.deep.equal({ command_id: 'c1', status: 'passed', result: { success: true, output: 'ok' } });
+    }).timeout(10_000);
+
+    it('run exits 2 when the flow fails', async () => {
+      stubFetch(() => ({
+        body: { command_id: 'c1', status: 'failed', result: { success: false, error: 'Element not found' }, session: session('a-b-c') },
+      }));
+      const { exit, out } = await runJson('run', { id: 'a-b-c', yaml: '- tapOn: Go' });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      expect(out.error).to.deep.equal({ code: null, message: 'Element not found' });
+    });
+
+    it('run needs a file or --yaml', async () => {
+      const { exit } = await runJson('run', { id: 'a-b-c' });
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+    });
+
+    it('logs asks for the number of lines', async () => {
+      const calls = stubFetch(() => ({
+        body: { logs: { lines: ['a', 'b'], source: 'logcat', app_id: 'com.x' }, session: session('a-b-c') },
+      }));
+      const { out } = await runJson('logs', { id: 'a-b-c', lines: '50' });
+      expect(calls[0].url).to.equal(`${API}/device/sessions/a-b-c/logs?lines=50`);
+      expect(out.data).to.deep.equal({ logs: { lines: ['a', 'b'], source: 'logcat', app_id: 'com.x' } });
+    });
+
+    it('logs --follow is refused with --json', async () => {
+      const { exit } = await runJson('logs', { id: 'a-b-c', follow: true });
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+    });
+
+    it('open gives the monitor URL and opens nothing outside a terminal', async () => {
+      stubFetch(() => ({ body: { session: session('a-b-c') } }));
+      const { out } = await runJson('open', { id: 'a-b-c' });
+      expect(out.data).to.deep.equal({ url: 'https://console.devicecloud.dev/device/a-b-c', opened: false });
+    });
+  });
+
+  describe('helpers', () => {
+    it('newLogLines prints only what the last fetch did not', () => {
+      expect(newLogLines(['a', 'b', 'c'], ['b', 'c', 'd', 'e'])).to.deep.equal(['d', 'e']);
+      expect(newLogLines(['a', 'b'], ['a', 'b'])).to.deep.equal([]);
+      expect(newLogLines(['x'], ['y', 'z'])).to.deep.equal(['y', 'z']);
+      expect(newLogLines([], ['y'])).to.deep.equal(['y']);
+      // A repeated line is not mistaken for the overlap.
+      expect(newLogLines(['a', 'b', 'a'], ['a', 'c'])).to.deep.equal(['c']);
+    });
+
+    it('parseEnvFlags reads KEY=VALUE, once or repeated', () => {
+      expect(parseEnvFlags(undefined)).to.equal(undefined);
+      expect(parseEnvFlags('A=1')).to.deep.equal({ A: '1' });
+      expect(parseEnvFlags(['A=1', 'B='])).to.deep.equal({ A: '1', B: '' });
+      expect(() => parseEnvFlags('nope')).to.throw(CliError);
+      expect(() => parseEnvFlags('=1')).to.throw(CliError);
+    });
+
+    it('collectFlagValues reads every --env', () => {
+      expect(
+        collectFlagValues('--env', ['run', '--env', 'A=1', '--json', '--env=B=2', '--envy', 'x']),
+      ).to.deep.equal(['A=1', 'B=2']);
+    });
+
+    it('decodeDataUrl reads a JPEG data URL', () => {
+      const { bytes, ext } = decodeDataUrl('data:image/jpeg;base64,/9j/');
+      expect(ext).to.equal('jpg');
+      expect(bytes).to.deep.equal(Buffer.from([0xff, 0xd8, 0xff]));
+      expect(() => decodeDataUrl('nope')).to.throw();
     });
   });
 
