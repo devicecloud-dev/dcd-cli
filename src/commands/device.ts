@@ -19,6 +19,12 @@ import {
 import { platformOfAppFile, uploadLocalApp } from '../utils/app-upload.js';
 import { resolveAuth } from '../utils/auth.js';
 import { openBrowser } from '../utils/browser.js';
+import {
+  type DeviceArtifactFile,
+  downloadArtifactFiles,
+  fetchAllArtifacts,
+  planArtifactFiles,
+} from '../utils/device-artifacts.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import {
@@ -891,6 +897,86 @@ const openSub = defineCommand({
   },
 });
 
+interface ArtifactsData {
+  /** Where they were saved; null with --links. */
+  dir: null | string;
+  files: DeviceArtifactFile[];
+  failed: { file: string; reason: string }[];
+}
+
+const artifactsSub = defineCommand({
+  meta: {
+    name: 'artifacts',
+    description: 'Download what a session left behind: its video, device log, and the screen after each action',
+  },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    output: {
+      type: 'string',
+      alias: ['o'],
+      description: 'Directory to save them in (default: ./<session>-artifacts)',
+    },
+    links: {
+      type: 'boolean',
+      default: false,
+      description: 'List the download links instead of downloading (they expire after a while)',
+    },
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand<ArtifactsData>(json, async () => {
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      const { pages, session } = await fetchAllArtifacts(ctx.apiUrl, ctx.auth, id);
+      const files = planArtifactFiles(pages);
+
+      if (args.links) {
+        return {
+          session,
+          data: { dir: null, files, failed: [] },
+          print() {
+            if (files.length === 0) {
+              logger.log(ui.info('This session has no artifacts yet.'));
+              return;
+            }
+
+            logger.log(ui.section(`Artifacts (${files.length})`));
+            logger.log(ui.branch(ui.fields(files.map((f) => [f.file, f.url ? formatUrl(f.url) : colors.dim('no link')]))));
+          },
+        };
+      }
+
+      const dir = resolvePath((args.output as string | undefined) || `${session.id}-artifacts`);
+      if (files.length > 0) ctx.progress(ui.running(`Downloading ${files.length} files to ${dir}…`));
+      const failed = await downloadArtifactFiles(dir, files);
+      const saved = files.length - failed.length;
+      return {
+        session,
+        data: { dir, files, failed },
+        ...(failed.length > 0 && {
+          failure: {
+            code: null,
+            message: `${failed.length} of ${files.length} files could not be downloaded: ${failed.map((f) => `${f.file} (${f.reason})`).join(', ')}`,
+          },
+        }),
+        print() {
+          if (files.length === 0) {
+            logger.log(ui.info('This session has no artifacts yet.'));
+            return;
+          }
+
+          logger.log(ui.success(`Saved ${saved} of ${files.length} files to ${dir}`));
+          for (const f of failed) logger.log(ui.warn(`${f.file}: ${f.reason}`));
+          if (!ENDED_STATES.includes(session.state)) {
+            logger.log(ui.note('The session is still open: its video and log are saved when it ends.'));
+          }
+        },
+      };
+    });
+  },
+});
+
 export const deviceCommand = defineCommand({
   meta: {
     name: 'device',
@@ -912,6 +998,7 @@ export const deviceCommand = defineCommand({
     run: runSub,
     logs: logsSub,
     open: openSub,
+    artifacts: artifactsSub,
   },
 });
 
