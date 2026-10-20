@@ -104,4 +104,73 @@ describe('dcd device artifacts', () => {
       [path.join('actions', '001-screenshot.jpg'), 'device.log'].sort(),
     );
   });
+  /** A response whose body never sends a byte, and never closes. */
+  const stalled = () => new Response(new ReadableStream({ start() {} }));
+
+  it('reports a stalled download as timed out instead of hanging', async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return stalled();
+    }) as typeof fetch;
+
+    const started = Date.now();
+    const failed = await downloadArtifactFiles(
+      tempDir,
+      [{ kind: 'logs', file: 'device.log', url: 'https://stalls', bytes: 3, created_at: 't' }],
+      undefined,
+      { idleTimeoutMs: 50 },
+    );
+    expect(Date.now() - started).to.be.lessThan(2000);
+    expect(calls).to.equal(2);
+    expect(failed).to.have.length(1);
+    expect(failed[0].file).to.equal('device.log');
+    expect(failed[0].reason).to.match(/timed out: no data for 50ms/);
+    expect(fs.existsSync(path.join(tempDir, 'device.log'))).to.equal(false);
+  });
+
+  it('times out a download that is slow overall', async () => {
+    let tick: NodeJS.Timeout | undefined;
+    globalThis.fetch = (async () =>
+      new Response(
+        new ReadableStream({
+          // A trickle: data keeps arriving, but the file never finishes.
+          start(controller) {
+            tick = setInterval(() => controller.enqueue(new Uint8Array([1])), 10);
+          },
+          cancel() {
+            clearInterval(tick);
+          },
+        }),
+      )) as typeof fetch;
+
+    const failed = await downloadArtifactFiles(
+      tempDir,
+      [{ kind: 'logs', file: 'device.log', url: 'https://trickle', bytes: 3, created_at: 't' }],
+      undefined,
+      { attempts: 1, idleTimeoutMs: 500, totalTimeoutMs: 100 },
+    );
+    clearInterval(tick);
+    expect(failed.map((f) => f.reason)).to.deep.equal(['timed out: took longer than 100ms']);
+  });
+
+  it('retries a failed download once', async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: unknown) => {
+      calls.push(String(input));
+      return calls.length === 1 ? stalled() : new Response('log line');
+    }) as typeof fetch;
+
+    const saved: string[] = [];
+    const failed = await downloadArtifactFiles(
+      tempDir,
+      [{ kind: 'logs', file: 'device.log', url: 'https://flaky', bytes: 8, created_at: 't' }],
+      (f) => saved.push(f.file),
+      { idleTimeoutMs: 50 },
+    );
+    expect(failed).to.deep.equal([]);
+    expect(calls).to.have.length(2);
+    expect(saved).to.deep.equal(['device.log']);
+    expect(fs.readFileSync(path.join(tempDir, 'device.log'), 'utf8')).to.equal('log line');
+  });
 });
