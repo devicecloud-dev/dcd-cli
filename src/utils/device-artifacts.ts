@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -113,15 +113,84 @@ export function planArtifactFiles(pages: DeviceArtifactsPage[]): DeviceArtifactF
 
 const CONCURRENCY = 4;
 
+/** Timeouts and retries for one artifact download. */
+export interface DownloadArtifactOptions {
+  /** Give up on an attempt that receives no data for this long. */
+  idleTimeoutMs?: number;
+  /** Give up on an attempt that takes longer than this in total. */
+  totalTimeoutMs?: number;
+  /** How many times to try each file before reporting it failed. */
+  attempts?: number;
+}
+
+const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
+const DEFAULT_TOTAL_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_ATTEMPTS = 2;
+
+function seconds(ms: number): string {
+  return ms >= 1000 ? `${Math.round(ms / 1000)}s` : `${ms}ms`;
+}
+
 /**
- * Download every file with a link into `dir`, four at a time. Returns the
- * files that could not be fetched, with why, rather than failing the rest.
+ * Fetch one URL to `target`. Aborts when no data arrives for `idleMs`
+ * (including while waiting for the response headers) or when the whole
+ * download takes longer than `totalMs`. A CDN stream can stall without
+ * closing, and without these the command would wait for it forever.
+ */
+async function downloadOnce(url: string, target: string, idleMs: number, totalMs: number): Promise<void> {
+  const controller = new AbortController();
+  const abort = (reason: string) => controller.abort(new Error(reason));
+  let idle = setTimeout(() => abort(`timed out: no data for ${seconds(idleMs)}`), idleMs);
+  const total = setTimeout(() => abort(`timed out: took longer than ${seconds(totalMs)}`), totalMs);
+  const resetIdle = () => {
+    clearTimeout(idle);
+    idle = setTimeout(() => abort(`timed out: no data for ${seconds(idleMs)}`), idleMs);
+  };
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    resetIdle();
+    const body = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
+    await pipeline(
+      body,
+      async function* (source: AsyncIterable<Buffer>) {
+        for await (const chunk of source) {
+          resetIdle();
+          yield chunk;
+        }
+      },
+      createWriteStream(target),
+      { signal: controller.signal },
+    );
+  } catch (error) {
+    // Report the timeout, not the AbortError it surfaces as.
+    if (controller.signal.aborted && controller.signal.reason instanceof Error) {
+      throw controller.signal.reason;
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(idle);
+    clearTimeout(total);
+  }
+}
+
+/**
+ * Download every file with a link into `dir`, four at a time. Each file is
+ * tried twice (a stalled CDN response usually succeeds on a second
+ * request). Returns the files that could not be fetched, with why, rather
+ * than failing the rest.
  */
 export async function downloadArtifactFiles(
   dir: string,
   files: DeviceArtifactFile[],
   onFile: (file: DeviceArtifactFile) => void = () => {},
+  options: DownloadArtifactOptions = {},
 ): Promise<{ file: string; reason: string }[]> {
+  const idleMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const totalMs = options.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
+  const attempts = Math.max(1, options.attempts ?? DEFAULT_ATTEMPTS);
   const failed: { file: string; reason: string }[] = [];
   const queue = [...files];
   async function worker(): Promise<void> {
@@ -132,17 +201,24 @@ export async function downloadArtifactFiles(
       }
 
       const target = path.join(dir, next.file);
-      try {
-        await mkdir(path.dirname(target), { recursive: true });
-        const res = await fetch(next.url);
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-        await pipeline(
-          Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
-          createWriteStream(target),
-        );
+      let reason = '';
+      for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+          await mkdir(path.dirname(target), { recursive: true });
+          await downloadOnce(next.url, target, idleMs, totalMs);
+          reason = '';
+          break;
+        } catch (error) {
+          reason = error instanceof Error ? error.message : String(error);
+        }
+      }
+
+      if (reason) {
+        // Don't leave a half-written file that looks like a real one.
+        await rm(target, { force: true }).catch(() => {});
+        failed.push({ file: next.file, reason: attempts > 1 ? `${reason} (after ${attempts} tries)` : reason });
+      } else {
         onFile(next);
-      } catch (error) {
-        failed.push({ file: next.file, reason: error instanceof Error ? error.message : String(error) });
       }
     }
   }
