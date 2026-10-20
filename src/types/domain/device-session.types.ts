@@ -38,6 +38,15 @@ export interface DeviceSession {
   idle_remaining_s: null | number;
   cost_so_far_usd: null | number;
   last_crash: { at: string; summary: string } | null;
+  /**
+   * The build the session asked for and where its install is. Null when no
+   * build was asked for; absent from APIs older than this field.
+   */
+  install?: {
+    binary_upload_id: string;
+    error: null | string;
+    status: 'failed' | 'installed' | 'installing';
+  } | null;
   warnings: string[];
   monitor_url: string;
 }

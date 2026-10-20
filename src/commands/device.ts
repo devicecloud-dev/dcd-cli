@@ -132,6 +132,53 @@ async function waitUntilUsable(ctx: Ctx, id: string): Promise<DeviceSession> {
 }
 
 /**
+ * Poll until the device has finished installing `binaryId`: the session
+ * block's `install.status` leaves `installing`. The session is usable
+ * throughout (it stays ready while a new build installs), so waiting on the
+ * state alone returned too early. An API without `install` returns at once.
+ */
+async function waitForInstall(ctx: Ctx, id: string, binaryId: string): Promise<DeviceSession> {
+  const deadline = Date.now() + WAIT_TIMEOUT_MS;
+  for (;;) {
+    const { session } = await DeviceGateway.status(ctx.apiUrl, await freshAuth(ctx), id);
+    const install = session.install;
+    if (ENDED_STATES.includes(session.state)) {
+      throw new DeviceApiError(
+        `Device session ${id} ended while installing (${session.release_reason ?? session.state}).`,
+        410,
+        'LIVE_SESSION_ENDED',
+        session,
+      );
+    }
+
+    // Done, failed, superseded by another install, or an API too old to say.
+    if (!install || install.binary_upload_id !== binaryId || install.status !== 'installing') {
+      return session;
+    }
+
+    if (Date.now() >= deadline) {
+      throw new DeviceApiError(
+        `Timed out after ${WAIT_TIMEOUT_MS / 60_000} minutes waiting for the install on ${id}. It may still finish: check it with \`dcd device status ${id}\`.`,
+        408,
+        null,
+        session,
+      );
+    }
+
+    await sleep(WAIT_POLL_MS);
+  }
+}
+
+/** A failed install as a command failure (exit 2); the session stays open. */
+function installFailure(session: DeviceSession): { code: null; message: string } | undefined {
+  if (session.install?.status !== 'failed') return undefined;
+  return {
+    code: null,
+    message: `The app could not be installed: ${session.install.error ?? 'unknown error'} Session ${session.id} is still open.`,
+  };
+}
+
+/**
  * Turn `<path|url>` into what /install takes: a URL goes to the API's
  * install-from-URL, a local file is uploaded first.
  */
@@ -260,15 +307,23 @@ const startSub = defineCommand({
 
       // The session exists and bills from here on: every later failure must
       // still name it, so the caller can stop it.
+      let installedId: string | undefined;
       try {
         if (resolved && 'url' in resolved) {
           ctx.progress(ui.running('Installing the app from its URL…'));
-          ({ session } = await DeviceGateway.install(ctx.apiUrl, ctx.auth, session.id, resolved));
+          const fromUrl = await DeviceGateway.install(ctx.apiUrl, ctx.auth, session.id, resolved);
+          session = fromUrl.session;
+          installedId = fromUrl.app.binary_upload_id;
         }
 
         if (args.wait) {
           ctx.progress(ui.running('Waiting for the device…'));
           session = await waitUntilUsable(ctx, session.id);
+          const expected = installedId ?? uploadedId;
+          if (expected) {
+            ctx.progress(ui.running('Waiting for the app to install…'));
+            session = await waitForInstall(ctx, session.id, expected);
+          }
         }
       } catch (error) {
         if (error instanceof DeviceApiError && error.code === 'LIVE_SESSION_ENDED') throw error;
@@ -280,9 +335,11 @@ const startSub = defineCommand({
         throw new DeviceApiError(message, 500, null, session);
       }
 
+      const startFailure = args.wait ? installFailure(session) : undefined;
       return {
         session,
-        data: { binary_upload_id: uploadedId ?? null },
+        data: { binary_upload_id: installedId ?? uploadedId ?? null },
+        ...(startFailure && { failure: startFailure }),
         print() {
           logger.log(ui.section('Device session'));
           printSession(session);
@@ -455,14 +512,25 @@ const installSub = defineCommand({
       if (args.wait) {
         ctx.progress(ui.running('Waiting for the device…'));
         session = await waitUntilUsable(ctx, id);
+        ctx.progress(ui.running('Waiting for the app to install…'));
+        session = await waitForInstall(ctx, id, installed.app.binary_upload_id);
       }
 
       const appInfo: DeviceInstalledApp = installed.app;
+      const failure = args.wait ? installFailure(session) : undefined;
       return {
         session,
         data: { app: appInfo },
+        ...(failure && { failure }),
         print() {
-          logger.log(ui.success(`Installing ${appInfo.app_id ?? appInfo.binary_upload_id}`));
+          if (failure) {
+            logger.log(`${ui.statusSymbol('FAILED')} ${failure.message}`);
+            return;
+          }
+
+          logger.log(
+            ui.success(`${args.wait ? 'Installed' : 'Installing'} ${appInfo.app_id ?? appInfo.binary_upload_id}`),
+          );
           logger.log(
             ui.branch(
               ui.fields([
