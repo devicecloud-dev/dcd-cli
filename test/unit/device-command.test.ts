@@ -250,6 +250,47 @@ describe('dcd device', () => {
     });
   });
 
+  describe('install --wait', () => {
+    const installed = { app: { binary_upload_id: 'b-2', app_id: 'com.x', reused: true } };
+    const withInstall = (status: 'failed' | 'installed' | 'installing', error: null | string = null) =>
+      session('a-b-c', { install: { binary_upload_id: 'b-2', status, error } });
+
+    it('waits until the device has installed the build, not just until it is ready', async () => {
+      let polls = 0;
+      const calls = stubFetch((call) => {
+        if (call.method === 'POST') return { body: { ...installed, session: withInstall('installing') } };
+        polls += 1;
+        return { body: { session: withInstall(polls < 2 ? 'installing' : 'installed') } };
+      });
+      const { exit, out } = await runJson('install', { id: 'a-b-c', 'app-binary-id': 'b-2', wait: true });
+      expect(exit).to.equal(0);
+      expect((out.session as DeviceSession).install?.status).to.equal('installed');
+      expect(calls.filter((c) => c.method === 'GET').length).to.be.greaterThan(1);
+    }).timeout(15_000);
+
+    it('exits 2 with the reason when the install failed, and says the session is open', async () => {
+      stubFetch((call) =>
+        call.method === 'POST'
+          ? { body: { ...installed, session: withInstall('installing') } }
+          : { body: { session: withInstall('failed', 'App binary decryption failed.') } },
+      );
+      const { exit, out } = await runJson('install', { id: 'a-b-c', 'app-binary-id': 'b-2', wait: true });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      const message = (out.error as { message: string }).message;
+      expect(message).to.include('App binary decryption failed.').and.include('a-b-c is still open');
+    }).timeout(15_000);
+
+    it('does not hang on an API without install status', async () => {
+      stubFetch((call) =>
+        call.method === 'POST'
+          ? { body: { ...installed, session: session('a-b-c') } }
+          : { body: { session: session('a-b-c') } },
+      );
+      const { exit } = await runJson('install', { id: 'a-b-c', 'app-binary-id': 'b-2', wait: true });
+      expect(exit).to.equal(0);
+    }).timeout(15_000);
+  });
+
   describe('requests', () => {
     it('start sends the device, the label and the source header', async () => {
       const calls = stubFetch(() => ({ body: { session: session('a-b-c', { state: 'queued' }) } }));
