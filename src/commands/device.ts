@@ -1081,9 +1081,6 @@ export const deviceCommand = defineCommand({
   meta: {
     name: 'device',
     description: 'Cloud devices you (or an AI agent) can lease, drive and release [beta]',
-    // Left out of `dcd --help` until the /device/sessions API is in
-    // production (Agent Devices plan, Phase 8). It works when called by name.
-    hidden: true,
   },
   subCommands: {
     start: startSub,
