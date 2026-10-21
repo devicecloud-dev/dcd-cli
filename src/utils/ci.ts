@@ -41,6 +41,16 @@ export function isCI(): boolean {
   return !process.stdout.isTTY;
 }
 
+/**
+ * Whether a prompt drawn on `output` can be answered: stdin and `output` must
+ * both be terminals. Without that (a script, CI, a shell an agent runs) a clack
+ * prompt waits for a keypress that never comes. Unlike isCI(), CI env vars
+ * don't count: a terminal with `CI=true` exported can still answer a prompt.
+ */
+export function canPrompt(output: { isTTY?: boolean } = process.stdout): boolean {
+  return process.stdin.isTTY === true && output.isTTY === true;
+}
+
 /** Which DCD CI integration (if any) is wrapping this CLI invocation, and its version. */
 export interface CiContext {
   /** e.g. 'github' | 'bitrise' | 'bitbucket' | 'eas' | 'gitlab' | 'circleci'. */
