@@ -281,7 +281,7 @@ async function encryptUploadSource(
   const kek = resolveKekPublicKey(apiUrl);
   if (!kek) {
     throw new Error(
-      'Encryption is on (from --encrypt, DCD_ENCRYPT or the organization default) but no KEK public key is configured for this API. ' +
+      'Encryption is on (from --encrypt, DCD_ENCRYPT or the default) but no KEK public key is configured for this API. ' +
         'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64>, or pass --no-encrypt to upload without encryption.',
     );
   }

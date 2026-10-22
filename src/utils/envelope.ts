@@ -87,7 +87,7 @@ function parseEncryptEnv(value: string | undefined): boolean | undefined {
  *   1. `flag`: `--encrypt` / `--no-encrypt`, or the MCP tool's `encrypt` input.
  *   2. `DCD_ENCRYPT`, then its legacy alias `DCD_ENCRYPT_BINARIES`.
  *   3. `serverDefault`: `encryption.defaultOn` from the compatibility data,
- *      which the API turns on for orgs in the `client_encryption` beta.
+ *      which the API turns on for every org unless its kill switch is set.
  *   4. Off. An API too old to send `encryption` ends up here.
  * When on, the binary, the flow zip, and the env map are each encrypted with
  * their **own** per-upload DEK (all wrapped under the same per-env KEK).
@@ -112,7 +112,7 @@ export function resolveEncryption(opts: {
  * Check that `apiUrl` has a KEK before a run encrypts against it: either
  * `DCD_BINARY_KEK_PUBLIC` is set or the URL is a known devicecloud.dev API
  * (see kekEnvForApiUrl). Without one, an explicit `--encrypt` is an error,
- * while encryption from DCD_ENCRYPT or the org default is skipped with a
+ * while encryption from DCD_ENCRYPT or the server default is skipped with a
  * notice, so a run against another API URL uploads in plaintext as before.
  */
 export function checkKekForEncryption(
