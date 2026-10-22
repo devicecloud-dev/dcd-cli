@@ -1,5 +1,23 @@
 # Changelog
 
+## [5.9.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.8.0...v5.9.0) (2026-10-22)
+
+
+### Features
+
+* **auth:** fetch the Supabase key from the API instead of compiling it in ([#245](https://github.com/devicecloud-dev/dcd-cli/issues/245)) ([8cedb4e](https://github.com/devicecloud-dev/dcd-cli/commit/8cedb4e2f133f4300b669f877896e65c61c38820))
+* **login:** reuse the last org and add --org ([#243](https://github.com/devicecloud-dev/dcd-cli/issues/243)) ([5f710d5](https://github.com/devicecloud-dev/dcd-cli/commit/5f710d55d024c6869d529c606f261530ac9013ad))
+
+
+### Dependencies
+
+* bump the minor-and-patch group across 1 directory with 5 updates ([#238](https://github.com/devicecloud-dev/dcd-cli/issues/238)) ([5fffd7a](https://github.com/devicecloud-dev/dcd-cli/commit/5fffd7ae00e2e6749271ae859c6cf6c47d98678f))
+
+
+### Miscellaneous
+
+* pin the 5.9.0 promotion ([57cf6b1](https://github.com/devicecloud-dev/dcd-cli/commit/57cf6b1fc0cb74ac4fe9f30b6659095d4321fbfc))
+
 ## [5.8.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.7.1...v5.8.0) (2026-10-16)
 
 
