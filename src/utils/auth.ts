@@ -10,7 +10,6 @@
  */
 import { closeSync, openSync, rmSync, statSync } from 'node:fs';
 
-import { ENVIRONMENTS } from '../config/environments.js';
 import {
   CliAuthGateway,
   SessionRefreshError,
@@ -196,12 +195,11 @@ async function refreshSessionWithLock(
       return { config: current, session };
     }
 
-    const { anonKey } = ENVIRONMENTS[current.env].supabase;
     let refreshed;
     try {
       refreshed = await CliAuthGateway.refresh(
         current.supabase_url,
-        anonKey,
+        current.env,
         session,
       );
     } catch (error) {

@@ -36,7 +36,13 @@ import { defineCommand } from 'citty';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 
-import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments.js';
+import {
+  type DcdEnvName,
+  ENVIRONMENTS,
+  inferEnvFromApiUrl,
+  resolveFrontendUrl,
+} from '../config/environments.js';
+import { getSupabaseKey } from '../config/supabase-key.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
 import { canPrompt } from '../utils/ci.js';
 import { CliError, logger } from '../utils/cli.js';
@@ -200,11 +206,7 @@ export const loginCommand = defineCommand({
         // rejects it, the token itself is bad; if Supabase accepts, the
         // api's JwtService is misconfigured.
         const iss = decodeJwtIssuer(payload.access_token);
-        const supabaseUser = await probeSupabaseUser(
-          iss,
-          ENVIRONMENTS[env].supabase.anonKey,
-          payload.access_token,
-        );
+        const supabaseUser = await probeSupabaseUser(iss, env, payload.access_token);
         const parts = [
           iss ? `token iss: ${iss}` : null,
           `supabase /auth/v1/user: ${supabaseUser}`,
@@ -335,7 +337,7 @@ function base64url(buf: Buffer): string {
 
 async function probeSupabaseUser(
   iss: string | null,
-  anonKey: string,
+  env: DcdEnvName,
   token: string,
 ): Promise<string> {
   if (!iss) return 'skipped (no iss)';
@@ -343,7 +345,7 @@ async function probeSupabaseUser(
     const res = await fetch(`${iss}/user`, {
       headers: {
         authorization: `Bearer ${token}`,
-        apikey: anonKey,
+        apikey: await getSupabaseKey(env),
       },
     });
     const bodyText = await res.text().catch(() => '');
