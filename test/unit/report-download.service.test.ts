@@ -201,6 +201,35 @@ describe('ReportDownloadService', () => {
 
       expect(logs.join(' ')).to.include(outPath);
     });
+
+    // `dcd artifacts --json` reports these, since failures only warn.
+    it('returns ok: true with the path when the download succeeds', async () => {
+      const outPath = path.join(tempDir, 'result-ok.zip');
+      mockFetch(200, 'data');
+
+      const result = await service.downloadArtifacts({
+        ...BASE,
+        artifactsPath: outPath,
+        downloadType: 'ALL',
+      });
+
+      expect(result).to.deep.equal({ ok: true, path: outPath, type: 'artifacts' });
+    });
+
+    it('returns ok: false with the error when the download fails', async () => {
+      const outPath = path.join(tempDir, 'result-fail.zip');
+      mockFetch(404, 'not found');
+
+      const result = await service.downloadArtifacts({
+        ...BASE,
+        artifactsPath: outPath,
+        downloadType: 'ALL',
+      });
+
+      expect(result.ok).to.equal(false);
+      expect(result.type).to.equal('artifacts');
+      expect(result.error).to.be.a('string').and.not.be.empty;
+    });
   });
 
   // -------------------------------------------------------------------------

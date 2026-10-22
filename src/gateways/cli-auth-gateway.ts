@@ -7,6 +7,8 @@
  */
 import { createClient, isAuthApiError } from '@supabase/supabase-js';
 
+import type { DcdEnvName } from '../config/environments.js';
+import { getSupabaseKey } from '../config/supabase-key.js';
 import type { StoredSession } from '../utils/config-store.js';
 
 /**
@@ -34,8 +36,8 @@ export interface RefreshedSession {
   user_id: string;
 }
 
-function client(supabaseUrl: string, supabaseAnonKey: string) {
-  return createClient(supabaseUrl, supabaseAnonKey, {
+function client(supabaseUrl: string, supabaseKey: string) {
+  return createClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
 }
@@ -43,10 +45,21 @@ function client(supabaseUrl: string, supabaseAnonKey: string) {
 export const CliAuthGateway = {
   async refresh(
     supabaseUrl: string,
-    supabaseAnonKey: string,
+    env: DcdEnvName,
     session: StoredSession,
   ): Promise<RefreshedSession> {
-    const sb = client(supabaseUrl, supabaseAnonKey);
+    let supabaseKey: string;
+    try {
+      supabaseKey = await getSupabaseKey(env);
+    } catch (error) {
+      // Never definitive: the refresh token was not even tried, so the stored
+      // session must survive for the next attempt.
+      throw new SessionRefreshError(
+        `Failed to refresh session: ${(error as Error).message}`,
+        false,
+      );
+    }
+    const sb = client(supabaseUrl, supabaseKey);
     const { data, error } = await sb.auth.refreshSession({
       refresh_token: session.refresh_token,
     });
@@ -78,7 +91,7 @@ export const CliAuthGateway = {
 
   async signOut(
     supabaseUrl: string,
-    supabaseAnonKey: string,
+    env: DcdEnvName,
     session: StoredSession,
   ): Promise<void> {
     // `scope: 'local'` clears this client's SDK state only — no server call,
@@ -86,8 +99,8 @@ export const CliAuthGateway = {
     // EVERY session for the user (browser, mobile, other CLIs), so
     // `dcd logout` would kick the user out of the web app. We don't want
     // that — logging out locally should be local.
-    const sb = client(supabaseUrl, supabaseAnonKey);
     try {
+      const sb = client(supabaseUrl, await getSupabaseKey(env));
       await sb.auth.setSession({
         access_token: session.access_token,
         refresh_token: session.refresh_token,

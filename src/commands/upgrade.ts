@@ -20,6 +20,7 @@ import { pipeline } from 'node:stream/promises';
 
 import { defineCommand } from 'citty';
 
+import { jsonFlag } from '../config/flags/output.flags.js';
 import { VersionService } from '../services/version.service.js';
 import {
   CliError,
@@ -47,7 +48,15 @@ export const upgradeCommand = defineCommand({
     name: 'upgrade',
     description: 'Upgrade dcd in place to the latest released version',
   },
-  async run() {
+  args: {
+    json: jsonFlag,
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    const out = (m: string) => {
+      if (!json) logger.log(m);
+    };
+
     if (getInstallMethod() !== 'binary') {
       throw new CliError(
         '`dcd upgrade` only applies to the standalone binary install. ' +
@@ -68,6 +77,10 @@ export const upgradeCommand = defineCommand({
     // Reachable, but nothing published on this channel yet (e.g. a stable
     // install while only betas exist). Not an error — just nothing to do.
     if (result.version === null) {
+      if (json) {
+        logger.json({ status: 'NO_RELEASE', current, channel: result.channel });
+        return;
+      }
       logger.log(
         ui.info(`No newer release available on the ${result.channel} channel.`),
       );
@@ -76,6 +89,10 @@ export const upgradeCommand = defineCommand({
 
     const latest = result.version;
     if (!versionService.isOutdated(current, latest)) {
+      if (json) {
+        logger.json({ status: 'UP_TO_DATE', current, latest, channel: result.channel });
+        return;
+      }
       logger.log(
         ui.success(`Already on the latest version (${colors.highlight(current)})`),
       );
@@ -107,10 +124,8 @@ export const upgradeCommand = defineCommand({
     const binaryUrl = `${base}/download/${latest}/${asset}`;
     const sumsUrl = `${base}/download/${latest}/SHA256SUMS`;
 
-    logger.log(
-      ui.info(`Upgrading ${colors.highlight(current)} → ${colors.highlight(latest)}`),
-    );
-    logger.log(ui.note(`  ${binaryUrl}`));
+    out(ui.info(`Upgrading ${colors.highlight(current)} → ${colors.highlight(latest)}`));
+    out(ui.note(`  ${binaryUrl}`));
 
     const execPath = process.execPath;
     const tmpPath = `${execPath}.new`;
@@ -135,6 +150,10 @@ export const upgradeCommand = defineCommand({
       );
     }
 
+    if (json) {
+      logger.json({ status: 'UPGRADED', current, latest, channel: result.channel });
+      return;
+    }
     logger.log(ui.success(`Upgraded to ${colors.highlight(latest)}`));
   },
 });

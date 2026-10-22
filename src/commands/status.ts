@@ -163,19 +163,12 @@ async function statusMain({
       if (isClientApiError(lastError)) {
         const errorMessage = lastError?.message || 'Unknown error';
         if (json) {
-          // eslint-disable-next-line no-console
-          console.log(
-            JSON.stringify(
-              {
-                status: 'FAILED' as const,
-                error: errorMessage,
-                attempts: attemptsMade,
-                tests: [],
-              },
-              null,
-              2,
-            ),
-          );
+          logger.json({
+            status: 'FAILED' as const,
+            error: errorMessage,
+            attempts: attemptsMade,
+            tests: [],
+          });
           return;
         }
 
@@ -204,24 +197,17 @@ async function statusMain({
       }
 
       if (json) {
-        // eslint-disable-next-line no-console
-        console.log(
-          JSON.stringify(
-            {
-              status: 'FAILED' as const,
-              error: errorMessage,
-              attempts: attemptsMade,
-              connectivityCheck: {
-                connected: connectivityCheck.connected,
-                endpointResults: connectivityCheck.endpointResults,
-                message: connectivityCheck.message,
-              },
-              tests: [],
-            },
-            null,
-            2,
-          ),
-        );
+        logger.json({
+          status: 'FAILED' as const,
+          error: errorMessage,
+          attempts: attemptsMade,
+          connectivityCheck: {
+            connected: connectivityCheck.connected,
+            endpointResults: connectivityCheck.endpointResults,
+            message: connectivityCheck.message,
+          },
+          tests: [],
+        });
         return;
       }
 
@@ -231,8 +217,7 @@ async function statusMain({
     try {
       if (json) {
         const { tests, ...rest } = status;
-        // eslint-disable-next-line no-console
-        console.log(JSON.stringify({ ...rest, tests }, null, 2));
+        logger.json({ ...rest, tests });
         return;
       }
 

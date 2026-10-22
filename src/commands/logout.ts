@@ -4,7 +4,7 @@
  */
 import { defineCommand } from 'citty';
 
-import { ENVIRONMENTS } from '../config/environments.js';
+import { jsonFlag } from '../config/flags/output.flags.js';
 import { CliAuthGateway } from '../gateways/cli-auth-gateway.js';
 import { logger } from '../utils/cli.js';
 import { clearConfig, getConfigPath, readConfig } from '../utils/config-store.js';
@@ -16,17 +16,28 @@ export const logoutCommand = defineCommand({
     name: 'logout',
     description: 'Clear the stored devicecloud.dev session',
   },
-  async run() {
+  args: {
+    json: jsonFlag,
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
     const config = readConfig();
     if (!config?.session) {
-      logger.log(ui.info(`No active session found (${colors.dim(getConfigPath())}).`));
       clearConfig();
+      if (json) {
+        logger.json({ status: 'SUCCESS', loggedOut: false });
+      } else {
+        logger.log(ui.info(`No active session found (${colors.dim(getConfigPath())}).`));
+      }
       return;
     }
 
-    const { anonKey } = ENVIRONMENTS[config.env].supabase;
-    await CliAuthGateway.signOut(config.supabase_url, anonKey, config.session);
+    await CliAuthGateway.signOut(config.supabase_url, config.env, config.session);
     clearConfig();
+    if (json) {
+      logger.json({ status: 'SUCCESS', loggedOut: true, user: config.session.user_email });
+      return;
+    }
     logger.log(ui.success(`Logged out ${colors.dim(`(${config.session.user_email})`)}`));
   },
 });

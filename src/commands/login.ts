@@ -18,9 +18,12 @@
  *  5. Meanwhile, the CLI polls POST /cli-login/claim with {state, code_verifier}.
  *     Once the api has the row, it verifies sha256(verifier) === challenge,
  *     deletes the row, and returns the session.
- *  6. CLI fetches /me/orgs with the fresh Bearer token and prompts the user to
- *     pick an org. Org selection lives here, not in the web UI — that way the
- *     CLI login and `dcd switch-org` share one picker.
+ *  6. CLI fetches /me/orgs with the fresh Bearer token and picks the org:
+ *     `--org` if given, else the only one, else a picker that starts on the
+ *     last login's org. Without a TTY nobody can answer the picker, so the
+ *     last login's org is used, or the command fails pointing at `--org`.
+ *     Org selection lives here, not in the web UI — that way the CLI login
+ *     and `dcd switch-org` share one picker.
  *
  * Why PKCE + server rendezvous (instead of a localhost loopback): Safari
  * blocks HTTPS → HTTP fetches to 127.0.0.1 as mixed content, and a loopback
@@ -33,10 +36,18 @@ import { defineCommand } from 'citty';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 
-import { ENVIRONMENTS, inferEnvFromApiUrl, resolveFrontendUrl } from '../config/environments.js';
+import {
+  type DcdEnvName,
+  ENVIRONMENTS,
+  inferEnvFromApiUrl,
+  resolveFrontendUrl,
+} from '../config/environments.js';
+import { getSupabaseKey } from '../config/supabase-key.js';
+import { jsonFlag } from '../config/flags/output.flags.js';
+import { canPrompt } from '../utils/ci.js';
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, writeConfig } from '../utils/config-store.js';
-import { fetchOrgs, pickOrg } from '../utils/orgs.js';
+import { fetchOrgs, selectOrg } from '../utils/orgs.js';
 import { colors } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
 
@@ -76,11 +87,33 @@ export const loginCommand = defineCommand({
       default: true,
       description: 'Open the login URL in a browser (pass --no-browser to just print it)',
     },
+    org: {
+      type: 'string',
+      description: 'Organization to use, by name or id (skips the picker)',
+    },
+    json: jsonFlag,
   },
   async run({ args }) {
     const apiUrl = (args['api-url'] as string).replace(/\/$/, '');
     const frontendOverride = args['frontend-url'] as string | undefined;
     const noBrowser = args.browser === false;
+    const json = Boolean(args.json);
+    // citty gives '' for a bare `--org`. Refuse it, and an empty `--org "$ORG"`,
+    // rather than fall back to an org the caller didn't ask for.
+    const requestedOrg = (args.org as string | undefined)?.trim();
+    if (requestedOrg === '') {
+      throw new CliError('--org needs an organization name or id.');
+    }
+    // Login is interactive, so under --json the human rows and prompts move to
+    // stderr (the user still needs the URL) and stdout gets only the result.
+    const say = (m: string) => {
+      if (json) process.stderr.write(`${m}\n`);
+      else logger.log(m);
+    };
+    const promptOutput = json ? process.stderr : undefined;
+    // Without a TTY (a script, CI, a shell an agent runs) nobody can answer a
+    // prompt, so each one below falls back to the answer Enter would give.
+    const interactive = canPrompt(promptOutput);
 
     // If there's an existing stored session, make the user confirm before we
     // overwrite it. Silent clobber is fine for power users but surprising if
@@ -92,11 +125,15 @@ export const loginCommand = defineCommand({
     if (existing?.session) {
       const now = Math.floor(Date.now() / 1000);
       if (existing.session.expires_at <= now) {
-        logger.log(
+        say(
           ui.info(
             `Your session for ${existing.session.user_email} has expired — signing in again.`,
           ),
         );
+      } else if (!interactive) {
+        // The confirm below defaults to yes. The old session stays until the
+        // new login succeeds, so this replaces nothing if it never completes.
+        say(ui.info(`Already logged in as ${existing.session.user_email} — signing in again.`));
       } else {
         const currentOrg = existing.current_org_name ?? existing.current_org_id;
         const ok = await p.confirm({
@@ -105,9 +142,14 @@ export const loginCommand = defineCommand({
             (currentOrg ? ` (org ${currentOrg})` : '') +
             `. Sign out and log in again?`,
           initialValue: true,
+          output: promptOutput,
         });
         if (p.isCancel(ok) || !ok) {
-          logger.log(ui.info('Keeping existing session.'));
+          if (json) {
+            logger.json({ status: 'UNCHANGED', user: existing.session.user_email });
+          } else {
+            logger.log(ui.info('Keeping existing session.'));
+          }
           return;
         }
       }
@@ -123,7 +165,7 @@ export const loginCommand = defineCommand({
 
     const loginUrl = `${frontendUrl}/cli-login?state=${state}&code_challenge=${codeChallenge}`;
 
-    logger.log(ui.section('Signing in to devicecloud.dev'));
+    say(ui.section('Signing in to devicecloud.dev'));
 
     const rows: string[] = [];
     if (noBrowser) {
@@ -142,7 +184,7 @@ export const loginCommand = defineCommand({
       }
     }
     rows.push(ui.note('Waiting for login to complete…'));
-    logger.log(ui.branch(rows));
+    say(ui.branch(rows));
 
     try {
       const payload = await pollForClaim(apiUrl, state, codeVerifier);
@@ -164,18 +206,28 @@ export const loginCommand = defineCommand({
         // rejects it, the token itself is bad; if Supabase accepts, the
         // api's JwtService is misconfigured.
         const iss = decodeJwtIssuer(payload.access_token);
-        const supabaseUser = await probeSupabaseUser(
-          iss,
-          ENVIRONMENTS[env].supabase.anonKey,
-          payload.access_token,
-        );
+        const supabaseUser = await probeSupabaseUser(iss, env, payload.access_token);
         const parts = [
           iss ? `token iss: ${iss}` : null,
           `supabase /auth/v1/user: ${supabaseUser}`,
         ].filter(Boolean);
         throw new CliError(`${(err as Error).message} [${parts.join(' | ')}]`);
       }
-      const chosen = await pickOrg(orgs);
+      const { org: chosen, fromLastLogin } = await selectOrg(orgs, {
+        requested: requestedOrg,
+        // Org ids are per environment (dev org 1 isn't prod org 1), so the
+        // last login's org only counts if that login was to this same API.
+        lastOrgId: existing?.api_url === apiUrl ? existing.current_org_id : undefined,
+        interactive,
+        output: promptOutput,
+      });
+      if (fromLastLogin) {
+        say(
+          ui.info(
+            `No terminal to pick an organization in, so using ${chosen.name} from your last login.`,
+          ),
+        );
+      }
 
       writeConfig({
         version: 1,
@@ -193,6 +245,16 @@ export const loginCommand = defineCommand({
         current_org_name: chosen.name,
       });
 
+      if (json) {
+        logger.json({
+          status: 'SUCCESS',
+          user: payload.user_email,
+          org: { id: chosen.id, name: chosen.name },
+          env,
+        });
+        return;
+      }
+
       logger.log(ui.success(`Logged in as ${colors.highlight(payload.user_email)}`));
       logger.log(
         ui.branch([
@@ -203,7 +265,7 @@ export const loginCommand = defineCommand({
         ]),
       );
     } catch (error) {
-      logger.error(error as Error, { exit: 1 });
+      logger.error(error as Error, { exit: 1, json });
     }
   },
 });
@@ -275,7 +337,7 @@ function base64url(buf: Buffer): string {
 
 async function probeSupabaseUser(
   iss: string | null,
-  anonKey: string,
+  env: DcdEnvName,
   token: string,
 ): Promise<string> {
   if (!iss) return 'skipped (no iss)';
@@ -283,7 +345,7 @@ async function probeSupabaseUser(
     const res = await fetch(`${iss}/user`, {
       headers: {
         authorization: `Bearer ${token}`,
-        apikey: anonKey,
+        apikey: await getSupabaseKey(env),
       },
     });
     const bodyText = await res.text().catch(() => '');

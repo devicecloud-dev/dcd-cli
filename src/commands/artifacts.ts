@@ -1,7 +1,11 @@
 import { defineCommand } from 'citty';
 
 import { apiFlags } from '../config/flags/api.flags.js';
-import { ReportDownloadService } from '../services/report-download.service.js';
+import { jsonFlag } from '../config/flags/output.flags.js';
+import {
+  type DownloadResult,
+  ReportDownloadService,
+} from '../services/report-download.service.js';
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
@@ -56,6 +60,7 @@ export const artifactsCommand = defineCommand({
       description:
         'Custom file path for downloaded JUnit report (default: ./report.xml)',
     },
+    json: jsonFlag,
   },
   async run({ args }) {
     const apiKeyFlag = args['api-key'] as string | undefined;
@@ -76,6 +81,9 @@ export const artifactsCommand = defineCommand({
     const allurePath = args['allure-path'] as string | undefined;
     const htmlPath = args['html-path'] as string | undefined;
     const junitPath = args['junit-path'] as string | undefined;
+    const json = Boolean(args.json);
+    // Success lines are dropped under --json; warnings stay on stderr.
+    const log = json ? undefined : (m: string) => logger.log(m);
 
     const auth = await resolveAuth({ apiKeyFlag });
 
@@ -92,33 +100,42 @@ export const artifactsCommand = defineCommand({
     }
 
     const service = new ReportDownloadService();
+    const downloads: DownloadResult[] = [];
 
     if (downloadArtifacts) {
-      await service.downloadArtifacts({
+      downloads.push(await service.downloadArtifacts({
         auth,
         apiUrl,
         artifactsPath: artifactsPath ?? './artifacts.zip',
         debug,
         downloadType: downloadArtifacts,
-        logger: (m: string) => logger.log(m),
+        logger: log,
         uploadId,
         warnLogger: (m: string) => logger.warn(m),
-      });
+      }));
     }
 
     if (report) {
-      await service.downloadReports({
+      const result = await service.downloadReports({
         allurePath,
         auth,
         apiUrl,
         debug,
         htmlPath,
         junitPath,
-        logger: (m: string) => logger.log(m),
+        logger: log,
         reportType: report,
         uploadId,
         warnLogger: (m: string) => logger.warn(m),
       });
+      if (result) downloads.push(result);
+    }
+
+    if (json) {
+      const ok = downloads.some((d) => d.ok);
+      logger.json({ status: ok ? 'SUCCESS' : 'FAILED', uploadId, downloads });
+      // Same exit code a thrown error would give, without a second JSON object.
+      if (!ok) logger.fail('Every download failed', 1);
     }
   },
 });

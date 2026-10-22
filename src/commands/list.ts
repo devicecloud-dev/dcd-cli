@@ -169,8 +169,7 @@ export const listCommand = defineCommand({
         })) as ListResponse;
 
         if (json) {
-          // eslint-disable-next-line no-console
-          console.log(JSON.stringify(response, null, 2));
+          logger.json(response);
           return;
         }
 

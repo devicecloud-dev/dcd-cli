@@ -30,7 +30,7 @@
     "chai": "^6.2.2",
     "eslint": "^10.5.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-unicorn": "^77.0.0",
+    "eslint-plugin-unicorn": "^78.0.0",
     "husky": "^9.1.7",
     "mocha": "^12.0.0",
     "prettier": "^3.8.4",
@@ -110,7 +110,7 @@
       "esbuild@<0.28.1": ">=0.28.1",
       "qs@<6.16.0": "6.16.0",
       "fast-uri@>=3.0.0 <3.1.8": "3.1.8",
-      "hono@>=4.0.0 <4.13.7": "4.13.7",
+      "hono@>=4.0.0 <4.13.11": "4.13.11",
       "source-map-js@<1.2.2": "1.2.2",
       "micromatch>picomatch": "^2.3.2",
       "tinyglobby>picomatch": "^4.0.4"
