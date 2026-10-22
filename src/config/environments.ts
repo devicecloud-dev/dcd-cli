@@ -22,12 +22,13 @@ export interface DcdEnvironment {
    * KEK the platform API unwraps with. **Public — safe to embed**: it can only
    * *encrypt*; the private half lives solely on the API.
    *
-   * Left `null` until the KEK is generated and provisioned. Generate a keypair
-   * with, e.g.:
+   * Both environments pin v1. To rotate, generate a keypair with, e.g.:
    *   node -e 'const c=require("crypto");const{publicKey,privateKey}=c.generateKeyPairSync("x25519");const pub=publicKey.export({type:"spki",format:"der"}).subarray(12);const priv=privateKey.export({type:"pkcs8",format:"der"}).subarray(16);console.log("public :",pub.toString("base64"));console.log("private:",priv.toString("base64"))'
-   * Pin `public` here; set `private` as `BINARY_KEK_PRIVATE_KEYS={"<version>":"<private base64>"}`
-   * on the API service and keep one offline escrow copy. Until then, encryption
-   * can be exercised via the `DCD_BINARY_KEK_PUBLIC` env override (see envelope.ts).
+   * Add `private` to the API's `BINARY_KEK_PRIVATE_KEYS` JSON map next to the
+   * versions already there (dropping one bricks its uploads), keep one offline
+   * escrow copy, add `public` to dcd's `PINNED_KEK_PUBLIC_KEYS`, then pin it
+   * here with the new version. `null` pins nothing, so encryption then needs
+   * the `DCD_BINARY_KEK_PUBLIC` env override (see envelope.ts).
    */
   kekPublicKey: { version: number; key: string } | null;
 }

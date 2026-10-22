@@ -7,11 +7,10 @@ import * as path from 'node:path';
 
 import { cloudCommand } from '../../src/commands/cloud.js';
 import { uploadCommand } from '../../src/commands/upload.js';
-import { withoutHiddenArgs } from '../../src/utils/help.js';
 
 /**
- * While client-side encryption is a per-org beta (dcd#1138), --encrypt and
- * --no-encrypt are left out of --help but must still parse.
+ * Client-side encryption is on by default (dcd#1138), so --encrypt is listed
+ * in --help, and --no-encrypt, the per-run opt-out, must parse.
  */
 const commands: Array<[string, CommandDef<ArgsDef>]> = [
   ['cloud', cloudCommand as CommandDef<ArgsDef>],
@@ -22,21 +21,16 @@ async function argsOf(cmd: CommandDef<ArgsDef>): Promise<ArgsDef> {
   return (typeof cmd.args === 'function' ? await cmd.args() : await cmd.args) ?? {};
 }
 
-describe('hidden --encrypt flag', () => {
+describe('--encrypt flag', () => {
   for (const [name, cmd] of commands) {
     describe(`dcd ${name}`, () => {
-      it('leaves encrypt out of the usage', async () => {
-        const usage = await renderUsage(await withoutHiddenArgs(cmd));
-        expect(usage).to.not.match(/encrypt/i);
-        // Everything else still renders.
-        expect(usage).to.contain('--api-key');
+      it('lists encrypt in the usage, with the opt-out', async () => {
+        const usage = await renderUsage(cmd);
+        expect(usage).to.contain('--encrypt');
+        expect(usage).to.contain('--no-encrypt or DCD_ENCRYPT=0 turns it off');
       });
 
-      it('would list it without the filter, so the test above means something', async () => {
-        expect(await renderUsage(cmd)).to.contain('--encrypt');
-      });
-
-      it('still parses --encrypt and --no-encrypt', async () => {
+      it('parses --encrypt and --no-encrypt', async () => {
         const args = await argsOf(cmd);
         expect(parseArgs(['--encrypt'], args).encrypt).to.equal(true);
         expect(parseArgs(['--no-encrypt'], args).encrypt).to.equal(false);
@@ -44,11 +38,6 @@ describe('hidden --encrypt flag', () => {
       });
     });
   }
-
-  it('does not change the command it filters', async () => {
-    await withoutHiddenArgs(cloudCommand as CommandDef<ArgsDef>);
-    expect(await argsOf(cloudCommand as CommandDef<ArgsDef>)).to.have.property('encrypt');
-  });
 
   describe('through the real entry point', () => {
     let configDir: string;
@@ -62,7 +51,7 @@ describe('hidden --encrypt flag', () => {
     });
 
     for (const name of ['cloud', 'upload']) {
-      it(`dcd ${name} --help does not mention encrypt`, () => {
+      it(`dcd ${name} --help lists --encrypt`, () => {
         const out = execFileSync(
           process.execPath,
           ['--import', 'tsx/esm', path.resolve('src/index.ts'), name, '--help'],
@@ -77,7 +66,7 @@ describe('hidden --encrypt flag', () => {
           },
         );
         expect(out).to.contain(`dcd ${name}`);
-        expect(out).to.not.match(/encrypt/i);
+        expect(out).to.contain('--encrypt');
       });
     }
   });

@@ -48,7 +48,7 @@ export const uploadCommand = defineCommand({
       const appUrl = args['app-url'] as string | undefined;
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
       // Kept as given, so --no-encrypt is an explicit false and a missing flag
-      // leaves DCD_ENCRYPT and then the org's default to decide.
+      // leaves DCD_ENCRYPT and then the server default to decide.
       const encryptFlag = args.encrypt as boolean | undefined;
       const debug = Boolean(args.debug);
       const positional = args.appFile as string | undefined;
@@ -121,7 +121,7 @@ export const uploadCommand = defineCommand({
         ui.branch([
           ...ui.fields([['file', colors.highlight(resolvedFile)]]),
           ...(encryption.enabled && encryption.source === 'server'
-            ? [ui.note('Encrypting uploads (beta); opt out with --no-encrypt')]
+            ? [ui.note('Encrypting uploads; opt out with --no-encrypt')]
             : []),
         ]),
       );
