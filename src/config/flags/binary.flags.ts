@@ -1,4 +1,4 @@
-import type { CliArgsDef } from '../../utils/help.js';
+import type { ArgsDef } from 'citty';
 
 /**
  * Binary upload and management flags
@@ -26,10 +26,7 @@ export const binaryFlags = {
   },
   encrypt: {
     type: 'boolean',
-    // Left out of --help while encryption is a per-org beta (dcd#1138); the
-    // flag still parses, --no-encrypt included.
-    hidden: true,
     description:
-      'Encrypt the app binary, flow zip, and env vars before upload (client-side envelope encryption; each gets its own key). The binary is still deduplicated across runs, so an unchanged app is not re-uploaded. Also turned on by DCD_ENCRYPT=1, and by default for orgs in the encryption beta; --no-encrypt or DCD_ENCRYPT=0 turns it off.',
+      'Encrypt the app binary, flow zip, and env vars before upload (client-side envelope encryption; each gets its own key). On by default; --no-encrypt or DCD_ENCRYPT=0 turns it off. The binary is still deduplicated across runs, so an unchanged app is not re-uploaded.',
   },
-} as const satisfies CliArgsDef;
+} as const satisfies ArgsDef;

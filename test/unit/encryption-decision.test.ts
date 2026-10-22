@@ -7,7 +7,7 @@ import {
 
 /**
  * The order that decides whether a run encrypts (dcd#1138): an explicit flag,
- * then DCD_ENCRYPT (or its legacy alias), then the org's default from the
+ * then DCD_ENCRYPT (or its legacy alias), then the server default from the
  * compatibility data, then off. Every case passes `env` explicitly so the
  * developer's own shell can't leak in.
  */

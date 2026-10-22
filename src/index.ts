@@ -16,7 +16,6 @@ import { uploadCommand } from './commands/upload.js';
 import { whoamiCommand } from './commands/whoami.js';
 import { telemetry } from './services/telemetry.service.js';
 import { CliError, getCliVersion, logger, wantsJson } from './utils/cli.js';
-import { withoutHiddenArgs } from './utils/help.js';
 
 // @clack/prompts ships the US spelling ("Canceled") for its built-in
 // spinner/prompt cancellation message; align it with the British spelling
@@ -83,18 +82,12 @@ async function resolveSubCommand(
   return [cmd, parent];
 }
 
-// Usage for the (sub)command named in rawArgs, without the args marked hidden.
-async function showHelp(rawArgs: string[]): Promise<void> {
-  const [cmd, parent] = await resolveSubCommand(main, rawArgs);
-  await showUsage(await withoutHiddenArgs(cmd), parent);
-}
-
 async function run(): Promise<void> {
   const rawArgs = process.argv.slice(2);
   telemetry.recordCommandStart();
   try {
     if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
-      await showHelp(rawArgs);
+      await showUsage(...(await resolveSubCommand(main, rawArgs)));
     } else if (rawArgs.length === 1 && rawArgs[0] === '--version') {
       logger.log(getCliVersion());
     } else {
@@ -110,7 +103,7 @@ async function run(): Promise<void> {
     // citty throws CLIError (by name — the class isn't exported) for usage
     // problems like unknown commands or missing required args.
     if (!json && error instanceof Error && error.name === 'CLIError') {
-      await showHelp(rawArgs);
+      await showUsage(...(await resolveSubCommand(main, rawArgs)));
     }
 
     const exitCode = error instanceof CliError ? error.exitCode : 1;

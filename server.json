@@ -48,6 +48,11 @@
           "name": "DCD_API_URL",
           "description": "Override the API base URL (e.g. for a non-production environment).",
           "isRequired": false
+        },
+        {
+          "name": "DCD_ENCRYPT",
+          "description": "Uploads (app binary, flows, env vars) are encrypted on your machine by default. Set to 0 to upload them unencrypted; a run's encrypt input overrides this.",
+          "isRequired": false
         }
       ]
     }

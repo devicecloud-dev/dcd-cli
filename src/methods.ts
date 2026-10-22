@@ -268,7 +268,7 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
 /**
  * Encrypt the prepared upload source in place (dcd#1138): generate a per-upload
  * DEK, stream-encrypt `source.diskPath` into a temp ciphertext file, wrap the
- * DEK with the environment's pinned KEK public key, and repoint `source` at the
+ * DEK with the KEK public key the API publishes, and repoint `source` at the
  * ciphertext so the SHA, dedup check, and both uploaders operate on ciphertext.
  * Returns the envelope metadata (for `binaries.metadata.enc`) plus the temp dir
  * to clean up. Throws if no KEK is available for the environment.
@@ -278,10 +278,10 @@ async function encryptUploadSource(
   apiUrl: string,
   debug: boolean,
 ): Promise<{ enc: BinaryEnvelope; cleanupDir: string }> {
-  const kek = resolveKekPublicKey(apiUrl);
+  const kek = await resolveKekPublicKey(apiUrl);
   if (!kek) {
     throw new Error(
-      'Encryption is on (from --encrypt, DCD_ENCRYPT or the organization default) but no KEK public key is configured for this API. ' +
+      'Encryption is on (from --encrypt, DCD_ENCRYPT or the default) but no KEK public key is configured for this API. ' +
         'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64>, or pass --no-encrypt to upload without encryption.',
     );
   }
