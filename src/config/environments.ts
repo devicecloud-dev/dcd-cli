@@ -1,12 +1,10 @@
 /**
  * Per-env devicecloud.dev coordinates — single source of truth for the URLs
- * and Supabase credentials the CLI uses.
+ * the CLI uses.
  *
- * **These `anonKey` values are public.** Supabase anon keys are JWTs designed
- * to be embedded in client code (web apps, mobile apps, CLIs). They only
- * grant whatever the project's RLS policies expose. Don't worry about seeing
- * them here — every Supabase-based product ships its anon key the same way.
- * https://supabase.com/docs/guides/api/api-keys
+ * There is deliberately no Supabase key here. A compiled-in key can never be
+ * rotated without breaking every pinned CLI version, so it is fetched from the
+ * API at runtime instead: see `getSupabaseKey` in ./supabase-key.ts (dcd#1112).
  */
 
 export type DcdEnvName = 'dev' | 'prod';
@@ -17,13 +15,12 @@ export interface DcdEnvironment {
   supabase: {
     url: string;
     projectRef: string;
-    anonKey: string;
   };
   /**
    * Pinned KEK public key for client-side binary envelope encryption (dcd#1138).
    * `key` is base64 of the raw 32-byte X25519 public key; `version` selects which
-   * KEK the platform API unwraps with. **Public — safe to embed** (like the anon
-   * key above): it can only *encrypt*; the private half lives solely on the API.
+   * KEK the platform API unwraps with. **Public — safe to embed**: it can only
+   * *encrypt*; the private half lives solely on the API.
    *
    * Left `null` until the KEK is generated and provisioned. Generate a keypair
    * with, e.g.:
@@ -42,8 +39,6 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
     supabase: {
       url: 'https://cloud.devicecloud.dev',
       projectRef: 'pgydnphbimetinsgfkbo',
-      anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBneWRucGhiaW1ldGluc2dma2JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDc1OTQzNDYsImV4cCI6MjAyMzE3MDM0Nn0.hAYOMFxxwX1exkQkY9xyQJGC_GhGnyogkj2N-kBkMI8',
     },
     kekPublicKey: { version: 1, key: 'wtfyWEwK7nJzwI4PD+9RAW8jxIR1u8kMQq2IhsrVnH4=' },
   },
@@ -53,8 +48,6 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
     supabase: {
       url: 'https://lbmsowehtjwnqlurpemb.supabase.co',
       projectRef: 'lbmsowehtjwnqlurpemb',
-      anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxibXNvd2VodGp3bnFsdXJwZW1iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDkyMTg0ODcsImV4cCI6MjAyNDc5NDQ4N30.zeLTMAuZ_WwYvGdeP0kdvL_Zrs-RQee5APPyxmWq7qQ',
     },
     kekPublicKey: { version: 1, key: 'RgcToF/OJpcQI9koYvSvtj/WLaebfcN4v5GJoqtr/00=' },
   },
