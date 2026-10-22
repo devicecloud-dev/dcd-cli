@@ -66,7 +66,7 @@ function mockFetch(
   return calls;
 }
 
-/** A throwaway X25519 public key so encryption can run without a pinned KEK. */
+/** A throwaway X25519 public key so encryption can run without asking an API for one. */
 function setTestKek() {
   const { publicKey } = generateKeyPairSync('x25519');
   const raw = publicKey.export({ format: 'der', type: 'spki' }).subarray(12);

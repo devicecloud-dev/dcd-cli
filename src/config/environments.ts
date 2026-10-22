@@ -2,9 +2,11 @@
  * Per-env devicecloud.dev coordinates — single source of truth for the URLs
  * the CLI uses.
  *
- * There is deliberately no Supabase key here. A compiled-in key can never be
- * rotated without breaking every pinned CLI version, so it is fetched from the
- * API at runtime instead: see `getSupabaseKey` in ./supabase-key.ts (dcd#1112).
+ * There is deliberately no Supabase key and no KEK public key here. A
+ * compiled-in key can never be rotated without breaking every pinned CLI
+ * version, so both are fetched from the API at runtime instead: see
+ * ./cli-config.ts (`getSupabaseKey` in ./supabase-key.ts for dcd#1112, and
+ * `resolveKekPublicKey` in ../utils/envelope.ts for dcd#1138).
  */
 
 export type DcdEnvName = 'dev' | 'prod';
@@ -16,21 +18,6 @@ export interface DcdEnvironment {
     url: string;
     projectRef: string;
   };
-  /**
-   * Pinned KEK public key for client-side binary envelope encryption (dcd#1138).
-   * `key` is base64 of the raw 32-byte X25519 public key; `version` selects which
-   * KEK the platform API unwraps with. **Public — safe to embed**: it can only
-   * *encrypt*; the private half lives solely on the API.
-   *
-   * Both environments pin v1. To rotate, generate a keypair with, e.g.:
-   *   node -e 'const c=require("crypto");const{publicKey,privateKey}=c.generateKeyPairSync("x25519");const pub=publicKey.export({type:"spki",format:"der"}).subarray(12);const priv=privateKey.export({type:"pkcs8",format:"der"}).subarray(16);console.log("public :",pub.toString("base64"));console.log("private:",priv.toString("base64"))'
-   * Add `private` to the API's `BINARY_KEK_PRIVATE_KEYS` JSON map next to the
-   * versions already there (dropping one bricks its uploads), keep one offline
-   * escrow copy, add `public` to dcd's `PINNED_KEK_PUBLIC_KEYS`, then pin it
-   * here with the new version. `null` pins nothing, so encryption then needs
-   * the `DCD_BINARY_KEK_PUBLIC` env override (see envelope.ts).
-   */
-  kekPublicKey: { version: number; key: string } | null;
 }
 
 export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
@@ -41,7 +28,6 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
       url: 'https://cloud.devicecloud.dev',
       projectRef: 'pgydnphbimetinsgfkbo',
     },
-    kekPublicKey: { version: 1, key: 'wtfyWEwK7nJzwI4PD+9RAW8jxIR1u8kMQq2IhsrVnH4=' },
   },
   dev: {
     apiUrl: 'https://api.dev.devicecloud.dev',
@@ -50,7 +36,6 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
       url: 'https://lbmsowehtjwnqlurpemb.supabase.co',
       projectRef: 'lbmsowehtjwnqlurpemb',
     },
-    kekPublicKey: { version: 1, key: 'RgcToF/OJpcQI9koYvSvtj/WLaebfcN4v5GJoqtr/00=' },
   },
 };
 
@@ -67,27 +52,6 @@ export function findEnvByApiUrl(apiUrl: string): DcdEnvironment | undefined {
 export function inferEnvFromApiUrl(apiUrl: string): DcdEnvName {
   if (apiUrl.includes('api.dev.') || apiUrl.includes('localhost')) return 'dev';
   return 'prod';
-}
-
-/**
- * The environment whose pinned KEK may encrypt uploads to `apiUrl` (dcd#1138),
- * or undefined when the URL isn't a known one. Stricter than
- * {@link inferEnvFromApiUrl}, which falls back to prod for any URL: that is
- * harmless for picking a console link, but an upload encrypted for a KEK its
- * API can't unwrap is unusable. Known means the host of a pinned `apiUrl`, or
- * `localhost`, which runs against dev.
- */
-export function kekEnvForApiUrl(apiUrl: string): DcdEnvName | undefined {
-  let host: string;
-  try {
-    host = new URL(apiUrl).hostname;
-  } catch {
-    return undefined;
-  }
-
-  if (host === 'localhost') return 'dev';
-  const names = Object.keys(ENVIRONMENTS) as DcdEnvName[];
-  return names.find((name) => new URL(ENVIRONMENTS[name].apiUrl).hostname === host);
 }
 
 /**

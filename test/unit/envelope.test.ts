@@ -1,4 +1,6 @@
 import { expect } from 'chai';
+
+import { resetCliConfigCache } from '../../src/config/cli-config.js';
 import {
   createDecipheriv,
   createPublicKey,
@@ -160,10 +162,10 @@ describe('binary envelope encryption (#1138)', () => {
     expect(() => refDecryptContainer(ciphertext, dek)).to.throw();
   });
 
-  it('wraps a DEK that the matching KEK private key unwraps', () => {
+  it('wraps a DEK that the matching KEK private key unwraps', async () => {
     const { privRaw, pubRaw } = rawX25519();
     process.env.DCD_BINARY_KEK_PUBLIC = `3:${pubRaw.toString('base64')}`;
-    const kek = resolveKekPublicKey('https://api.devicecloud.dev');
+    const kek = await resolveKekPublicKey('https://api.devicecloud.dev');
     expect(kek).to.not.equal(null);
 
     const dek = generateDek();
@@ -175,20 +177,38 @@ describe('binary envelope encryption (#1138)', () => {
     );
   });
 
-  it('resolves the pinned KEK public key for each environment', () => {
-    const prod = resolveKekPublicKey('https://api.devicecloud.dev');
-    expect(prod).to.not.equal(null);
-    expect(prod!.version).to.equal(1);
-    expect(prod!.keyRaw.toString('base64')).to.equal(
-      'wtfyWEwK7nJzwI4PD+9RAW8jxIR1u8kMQq2IhsrVnH4=',
-    );
+  it('resolves the KEK public key the API publishes on /cli-config', async () => {
+    const { privRaw, pubRaw } = rawX25519();
+    const realFetch = globalThis.fetch;
+    const requested: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested.push(String(input));
+      return new Response(
+        JSON.stringify({
+          supabase_publishable_key: 'sb_publishable_x',
+          binary_kek_public_key: { version: 4, key: pubRaw.toString('base64') },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    try {
+      resetCliConfigCache();
+      const kek = await resolveKekPublicKey('https://api.example.test/');
+      expect(kek).to.not.equal(null);
+      expect(kek!.version).to.equal(4);
+      expect(kek!.keyRaw.equals(pubRaw)).to.equal(true);
+      expect(requested).to.deep.equal(['https://api.example.test/cli-config']);
 
-    const dev = resolveKekPublicKey('https://api.dev.devicecloud.dev');
-    expect(dev).to.not.equal(null);
-    expect(dev!.version).to.equal(1);
-    expect(dev!.keyRaw.toString('base64')).to.equal(
-      'RgcToF/OJpcQI9koYvSvtj/WLaebfcN4v5GJoqtr/00=',
-    );
+      const dek = generateDek();
+      const envelope = wrapDek(dek, kek!);
+      expect(envelope.kek).to.equal(4);
+      expect(refUnwrapDek(envelope.wrapped_key, privRaw).equals(dek)).to.equal(
+        true,
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+      resetCliConfigCache();
+    }
   });
 });
 
@@ -197,10 +217,10 @@ describe('flow + env envelope encryption (#1151, #1152)', () => {
     delete process.env.DCD_BINARY_KEK_PUBLIC;
   });
 
-  it('encryptFlowBuffer produces a container the platform decrypts to the original zip', () => {
+  it('encryptFlowBuffer produces a container the platform decrypts to the original zip', async () => {
     const { privRaw, pubRaw } = rawX25519();
     process.env.DCD_BINARY_KEK_PUBLIC = `2:${pubRaw.toString('base64')}`;
-    const kek = resolveKekPublicKey('https://api.dev.devicecloud.dev')!;
+    const kek = (await resolveKekPublicKey('https://api.dev.devicecloud.dev'))!;
 
     const zip = randomBytes(5000);
     const { ciphertext, enc } = encryptFlowBuffer(zip, kek);
@@ -212,10 +232,10 @@ describe('flow + env envelope encryption (#1151, #1152)', () => {
     expect(refDecryptContainer(ciphertext, dek).equals(zip)).to.equal(true);
   });
 
-  it('encryptEnv produces an inline envelope the platform decrypts back to the map', () => {
+  it('encryptEnv produces an inline envelope the platform decrypts back to the map', async () => {
     const { privRaw, pubRaw } = rawX25519();
     process.env.DCD_BINARY_KEK_PUBLIC = `1:${pubRaw.toString('base64')}`;
-    const kek = resolveKekPublicKey('https://api.dev.devicecloud.dev')!;
+    const kek = (await resolveKekPublicKey('https://api.dev.devicecloud.dev'))!;
 
     const env = { API_TOKEN: 'secret', PASSWORD: 'p@ss word=1', EMPTY: '' };
     const enc = encryptEnv(env, kek);
@@ -228,10 +248,10 @@ describe('flow + env envelope encryption (#1151, #1152)', () => {
     expect(JSON.parse(plain.toString('utf8'))).to.deep.equal(env);
   });
 
-  it('gives the flow zip and env their own distinct DEKs', () => {
+  it('gives the flow zip and env their own distinct DEKs', async () => {
     const { pubRaw } = rawX25519();
     process.env.DCD_BINARY_KEK_PUBLIC = `1:${pubRaw.toString('base64')}`;
-    const kek = resolveKekPublicKey('https://api.dev.devicecloud.dev')!;
+    const kek = (await resolveKekPublicKey('https://api.dev.devicecloud.dev'))!;
 
     const flow = encryptFlowBuffer(randomBytes(100), kek);
     const env = encryptEnv({ A: 'b' }, kek);

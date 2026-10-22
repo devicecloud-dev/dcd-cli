@@ -207,7 +207,7 @@ export function registerRunCloudTest(server: McpServer): void {
 
         // Client-side envelope encryption (binary/flow/env), in the same order
         // as `dcd cloud`: the encrypt input, DCD_ENCRYPT, then the server default.
-        const encryption = checkKekForEncryption(
+        const encryption = await checkKekForEncryption(
           resolveEncryption({
             flag: args.encrypt,
             serverDefault: compatibilityData.encryption?.defaultOn,

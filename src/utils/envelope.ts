@@ -7,7 +7,7 @@ import {
   randomBytes,
 } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
-import { ENVIRONMENTS, kekEnvForApiUrl } from '../config/environments.js';
+import { cliConfigUrl, getCliConfig } from '../config/cli-config.js';
 
 /**
  * Client-side envelope encryption of app binaries before upload (dcd#1138).
@@ -18,9 +18,9 @@ import { ENVIRONMENTS, kekEnvForApiUrl } from '../config/environments.js';
  * specified in `dcd/docs/binary-envelope-encryption.md`.
  *
  * Scheme: a per-upload random 256-bit DEK encrypts the binary (chunked
- * AES-256-GCM); the DEK is wrapped with the environment's pinned X25519 KEK
- * public key (sealed box). Only the platform API holds the KEK private half, so
- * every storage/transport tier sees ciphertext only.
+ * AES-256-GCM); the DEK is wrapped with the X25519 KEK public key the API
+ * publishes on `GET /cli-config` (sealed box). Only the platform API holds the
+ * KEK private half, so every storage/transport tier sees ciphertext only.
  */
 
 const MAGIC = Buffer.from('DCDE', 'ascii');
@@ -110,32 +110,35 @@ export function resolveEncryption(opts: {
 
 /**
  * Check that `apiUrl` has a KEK before a run encrypts against it: either
- * `DCD_BINARY_KEK_PUBLIC` is set or the URL is a known devicecloud.dev API
- * (see kekEnvForApiUrl). Without one, an explicit `--encrypt` is an error,
+ * `DCD_BINARY_KEK_PUBLIC` is set or the API publishes one on `GET /cli-config`
+ * (see resolveKekPublicKey). Without one, an explicit `--encrypt` is an error,
  * while encryption from DCD_ENCRYPT or the server default is skipped with a
- * notice, so a run against another API URL uploads in plaintext as before.
+ * notice, so a run against an API that publishes no KEK uploads in plaintext
+ * as before. An API that cannot be asked at all is an error whatever decided
+ * encryption: silently falling back to plaintext would be the one outcome the
+ * org asked not to have.
  */
-export function checkKekForEncryption(
+export async function checkKekForEncryption(
   decision: EncryptionDecision,
   apiUrl: string,
-): EncryptionDecision {
-  if (!decision.enabled || resolveKekPublicKey(apiUrl)) return decision;
+): Promise<EncryptionDecision> {
+  if (!decision.enabled || (await resolveKekPublicKey(apiUrl))) return decision;
 
   if (decision.source === 'flag') {
     throw new Error(
-      `--encrypt needs the KEK public key of the API it uploads to, and ${apiUrl} is not a devicecloud.dev API this CLI has one for. ` +
+      `--encrypt needs the KEK public key of the API it uploads to, and ${apiUrl} does not publish one. ` +
         'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64> to encrypt against it, or drop --encrypt.',
     );
   }
 
   return {
     enabled: false,
-    notice: `Not encrypting uploads: ${apiUrl} is not a devicecloud.dev API this CLI has a key for. Set DCD_BINARY_KEK_PUBLIC to encrypt against it.`,
+    notice: `Not encrypting uploads: ${apiUrl} does not publish a KEK public key. Set DCD_BINARY_KEK_PUBLIC to encrypt against it.`,
     source: decision.source,
   };
 }
 
-/** Pinned KEK public key (base64 raw 32-byte X25519) + version, per env. */
+/** KEK public key (raw 32-byte X25519) + the version the API unwraps it with. */
 interface KekPublicKey {
   version: number;
   keyRaw: Buffer;
@@ -150,14 +153,17 @@ function x25519PublicFromRaw(raw: Buffer) {
 }
 
 /**
- * Resolve the KEK public key for the environment behind `apiUrl`. Order:
+ * Resolve the KEK public key for the API behind `apiUrl`. Order:
  *   1. `DCD_BINARY_KEK_PUBLIC` env override (`<version>:<base64>`, e.g. `1:AAAA…`)
- *      — lets the feature be exercised before keys are pinned in the release,
- *      or against an API URL that isn't a known one.
- *   2. the pinned `ENVIRONMENTS[env].kekPublicKey`, only for a known API URL.
- * Returns null when no key is available (encryption cannot proceed).
+ *      — lets the feature be exercised against an API that publishes nothing.
+ *   2. `binary_kek_public_key` from the API's own `GET /cli-config` (dcd#1138):
+ *      the newest KEK the API holds the private half of. Fetched once per
+ *      process (see ../config/cli-config.ts), so a KEK rotation is an env
+ *      change on the API and never a CLI release.
+ * Returns null when the API publishes no key (encryption cannot proceed).
+ * Throws when the API cannot be asked, or publishes something malformed.
  */
-export function resolveKekPublicKey(apiUrl: string): KekPublicKey | null {
+export async function resolveKekPublicKey(apiUrl: string): Promise<KekPublicKey | null> {
   const override = process.env.DCD_BINARY_KEK_PUBLIC;
   if (override) {
     const [versionPart, b64] = override.split(':');
@@ -171,15 +177,16 @@ export function resolveKekPublicKey(apiUrl: string): KekPublicKey | null {
     );
   }
 
-  const env = kekEnvForApiUrl(apiUrl);
-  if (!env) return null;
-  const pinned = ENVIRONMENTS[env].kekPublicKey;
-  if (!pinned) return null;
-  const keyRaw = Buffer.from(pinned.key, 'base64');
-  if (keyRaw.length !== 32) {
-    throw new Error(`Pinned KEK public key for ${env} is not a 32-byte key`);
+  const published = (await getCliConfig(apiUrl)).binary_kek_public_key;
+  if (published === undefined || published === null) return null;
+  const { version, key } = published as { version?: unknown; key?: unknown };
+  const keyRaw = typeof key === 'string' ? Buffer.from(key, 'base64') : Buffer.alloc(0);
+  if (!Number.isInteger(version) || keyRaw.length !== 32) {
+    throw new Error(
+      `CLI config from ${cliConfigUrl(apiUrl)} has a malformed binary_kek_public_key; expected { version: integer, key: base64 32-byte X25519 public key }`,
+    );
   }
-  return { version: pinned.version, keyRaw };
+  return { version: version as number, keyRaw };
 }
 
 /**
