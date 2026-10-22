@@ -6,6 +6,7 @@ import * as path from 'node:path';
 
 import { uploadCommand } from '../../src/commands/upload.js';
 import { telemetry } from '../../src/services/telemetry.service.js';
+import { resetCliConfigCache } from '../../src/config/cli-config.js';
 import { clearCompatibilityCache } from '../../src/utils/compatibility.js';
 
 /**
@@ -18,7 +19,7 @@ import { clearCompatibilityCache } from '../../src/utils/compatibility.js';
  * (`{ shaPlain, encrypted: true }`), a plaintext one sends `{ sha }`.
  */
 const API = 'http://localhost:9999';
-/** Not a devicecloud.dev API, so no pinned KEK applies. */
+/** An API that publishes no KEK on /cli-config (see the fetch stub). */
 const UNKNOWN_API = 'https://api.example.com';
 const APK = path.join(process.cwd(), 'test/fixtures/wikipedia.apk');
 /** Printed when the server default, not a flag or env var, turned encryption on. */
@@ -42,10 +43,11 @@ describe('dcd upload encryption', () => {
     delete process.env.DCD_ENCRYPT;
     delete process.env.DCD_ENCRYPT_BINARIES;
     clearCompatibilityCache();
+    resetCliConfigCache();
     compatEncryption = undefined;
     compatFails = false;
 
-    // A throwaway KEK so encryption can run without a pinned key.
+    // A throwaway KEK so encryption can run against an API that publishes none.
     const { publicKey } = generateKeyPairSync('x25519');
     const raw = publicKey.export({ format: 'der', type: 'spki' }).subarray(12);
     process.env.DCD_BINARY_KEK_PUBLIC = `1:${raw.toString('base64')}`;
@@ -59,6 +61,12 @@ describe('dcd upload encryption', () => {
           headers: { 'content-type': 'application/json' },
           status,
         });
+
+      // The API publishes no KEK here; the tests that encrypt set the
+      // DCD_BINARY_KEK_PUBLIC override instead.
+      if (String(input).endsWith('/cli-config')) {
+        return json({ supabase_publishable_key: 'sb_publishable_test' });
+      }
 
       if (String(input).includes('/results/compatibility/data')) {
         if (compatFails) return json({ message: 'boom' }, 500);
@@ -97,6 +105,7 @@ describe('dcd upload encryption', () => {
     telemetry.flushSync = realFlushSync;
     process.env = { ...ORIGINAL_ENV };
     clearCompatibilityCache();
+    resetCliConfigCache();
     fs.rmSync(tempDir, { force: true, recursive: true });
   });
 
@@ -186,7 +195,7 @@ describe('dcd upload encryption', () => {
     expect(await run({})).to.not.contain(DEFAULT_ON_NOTICE);
   });
 
-  describe('against an API URL with no pinned KEK', () => {
+  describe('against an API that publishes no KEK', () => {
     beforeEach(() => {
       delete process.env.DCD_BINARY_KEK_PUBLIC;
     });

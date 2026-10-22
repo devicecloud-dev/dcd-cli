@@ -75,7 +75,7 @@ export const uploadCommand = defineCommand({
         }
       }
 
-      const encryption = checkKekForEncryption(
+      const encryption = await checkKekForEncryption(
         resolveEncryption({ flag: encryptFlag, serverDefault }),
         apiUrl,
       );

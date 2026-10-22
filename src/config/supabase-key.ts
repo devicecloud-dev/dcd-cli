@@ -3,46 +3,24 @@
  *
  * Releases up to this one compiled the anon key in, so the key could never be
  * rotated without breaking every CLI version pinned in customer CI. The API now
- * serves it from the public `GET /cli-config`, and rotating it is an env change
- * on the API.
- *
- * Fetched once per process and kept in memory only. It is deliberately not
- * cached on disk: a stale key makes GoTrue answer a refresh with a 4xx, which
- * `resolveAuth` treats as a dead session and deletes the user's login.
+ * serves it from the public `GET /cli-config` (see ./cli-config.ts for the
+ * fetch and its in-memory cache), and rotating it is an env change on the API.
  *
  * Only the key comes from the API. The Supabase URLs stay pinned in
  * `ENVIRONMENTS`: prod goes through the `cloud.devicecloud.dev` custom domain,
  * which customer firewalls may allow-list, not the API's raw `supabase.co` URL.
  */
+import { cliConfigUrl, getCliConfig, resetCliConfigCache } from './cli-config.js';
 import { ENVIRONMENTS, type DcdEnvName } from './environments.js';
 
-const FETCH_TIMEOUT_MS = 10_000;
-
-const cache = new Map<DcdEnvName, Promise<string>>();
-
-async function fetchSupabaseKey(env: DcdEnvName): Promise<string> {
-  const url = `${ENVIRONMENTS[env].apiUrl}/cli-config`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch CLI config from ${url}: HTTP ${res.status}`);
-  }
-  const body = (await res.json()) as { supabase_publishable_key?: unknown };
-  const key = body.supabase_publishable_key;
+/** The publishable key for `env`. A failed fetch is not cached, so the next call retries. */
+export async function getSupabaseKey(env: DcdEnvName): Promise<string> {
+  const apiUrl = ENVIRONMENTS[env].apiUrl;
+  const key = (await getCliConfig(apiUrl)).supabase_publishable_key;
   if (typeof key !== 'string' || key.length === 0) {
-    throw new Error(`CLI config from ${url} has no supabase_publishable_key`);
+    throw new Error(`CLI config from ${cliConfigUrl(apiUrl)} has no supabase_publishable_key`);
   }
   return key;
-}
-
-/** The publishable key for `env`. A failed fetch is not cached, so the next call retries. */
-export function getSupabaseKey(env: DcdEnvName): Promise<string> {
-  let pending = cache.get(env);
-  if (!pending) {
-    pending = fetchSupabaseKey(env);
-    cache.set(env, pending);
-    pending.catch(() => cache.delete(env));
-  }
-  return pending;
 }
 
 /**
@@ -56,5 +34,5 @@ export function supabaseKeyHeaders(key: string): Record<string, string> {
 
 /** Test seam: forget fetched keys. */
 export function resetSupabaseKeyCache(): void {
-  cache.clear();
+  resetCliConfigCache();
 }

@@ -390,7 +390,7 @@ export const cloudCommand = defineCommand({
         out(`[DEBUG] API URL: ${apiUrl}`);
       }
 
-      const encryption = checkKekForEncryption(
+      const encryption = await checkKekForEncryption(
         resolveEncryption({
           flag: encryptFlag,
           serverDefault: compatibilityData.encryption?.defaultOn,

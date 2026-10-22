@@ -238,7 +238,7 @@ export class TestSubmissionService {
       if (!apiUrl) {
         throw new Error('Encryption requires apiUrl to resolve the KEK public key');
       }
-      const kek = resolveKekPublicKey(apiUrl);
+      const kek = await resolveKekPublicKey(apiUrl);
       if (!kek) {
         throw new Error(
           'Encryption is on (from --encrypt, DCD_ENCRYPT or the default) but no KEK public key is configured for this API. ' +
