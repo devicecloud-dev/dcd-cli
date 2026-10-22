@@ -1,5 +1,19 @@
 # Changelog
 
+## [5.10.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.9.0...v5.10.0) (2026-10-22)
+
+
+### Features
+
+* **encrypt:** list --encrypt in --help now encryption is on by defau… ([#250](https://github.com/devicecloud-dev/dcd-cli/issues/250)) ([55a0609](https://github.com/devicecloud-dev/dcd-cli/commit/55a0609abbc686021fe969c523bcaa1efa994658))
+* **encrypt:** list --encrypt in --help now encryption is on by default (dcd[#1138](https://github.com/devicecloud-dev/dcd-cli/issues/1138)) ([55a0609](https://github.com/devicecloud-dev/dcd-cli/commit/55a0609abbc686021fe969c523bcaa1efa994658))
+* fetch the KEK public key from the API instead of pinning it ([#251](https://github.com/devicecloud-dev/dcd-cli/issues/251)) ([452324b](https://github.com/devicecloud-dev/dcd-cli/commit/452324ba6f6313fe9e4d418c3db655e858f79540))
+
+
+### Miscellaneous
+
+* pin the 5.10.0 promotion ([d85115c](https://github.com/devicecloud-dev/dcd-cli/commit/d85115c1efc1da80b7eaeb9dacca49dd0d37257b))
+
 ## [5.9.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.8.0...v5.9.0) (2026-10-22)
 
 
