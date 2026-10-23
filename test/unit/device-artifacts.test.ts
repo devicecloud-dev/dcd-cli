@@ -7,6 +7,8 @@ import type { DeviceArtifactsPage, DeviceSession } from '../../src/types/domain/
 import {
   downloadArtifactFiles,
   fetchAllArtifacts,
+  pendingArtifacts,
+  pendingArtifactsWarning,
   planArtifactFiles,
 } from '../../src/utils/device-artifacts.js';
 
@@ -57,6 +59,39 @@ describe('dcd device artifacts', () => {
       `${API}/device/sessions/a-b-c/artifacts?limit=200`,
       `${API}/device/sessions/a-b-c/artifacts?limit=200&before=2026-10-19T10%3A00%3A00Z`,
     ]);
+  });
+
+  describe('pending uploads', () => {
+    const now = Date.parse('2026-10-19T10:01:00Z');
+    const ended = { ...session, created_at: '2026-10-19T09:50:00Z' } as DeviceSession;
+    const action = (at: string) => ({ command_id: 'c', created_at: at, hierarchy: null, screenshot: null });
+
+    it('uses what the API says when it says it', () => {
+      expect(pendingArtifacts([page({ pending: ['recording', 'logs'] })], now)).to.deep.equal(['recording', 'logs']);
+      expect(pendingArtifacts([page({ pending: [], session: ended })], now)).to.deep.equal([]);
+    });
+
+    it('without the field, guesses from a recent end and the missing files', () => {
+      const recent = page({ session: ended, actions: [action('2026-10-19T10:00:00Z')] });
+      expect(pendingArtifacts([recent], now)).to.deep.equal(['recording', 'logs']);
+      const withVideo = { ...recent, recording: link('https://cdn/v', 'video/mp4') };
+      expect(pendingArtifacts([withVideo], now)).to.deep.equal(['logs']);
+    });
+
+    it('without the field, says nothing for an old or open session', () => {
+      const old = page({ session: ended, actions: [action('2026-10-19T09:40:00Z')] });
+      expect(pendingArtifacts([old], now)).to.deep.equal([]);
+      const open = page({ session: { ...ended, state: 'active' }, actions: [action('2026-10-19T10:00:00Z')] });
+      expect(pendingArtifacts([open], now)).to.deep.equal([]);
+    });
+
+    it('words the warning for what is missing', () => {
+      expect(pendingArtifactsWarning([])).to.equal(null);
+      expect(pendingArtifactsWarning(['recording', 'logs'])).to.equal(
+        'The video and device log are still uploading. Run this again in a minute.',
+      );
+      expect(pendingArtifactsWarning(['logs'])).to.match(/^The device log is still uploading/);
+    });
   });
 
   it('names the files, numbering actions oldest first', () => {

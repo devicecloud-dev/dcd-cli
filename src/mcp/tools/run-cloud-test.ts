@@ -103,7 +103,7 @@ export function registerRunCloudTest(server: McpServer): void {
           .boolean()
           .optional()
           .describe(
-            'true encrypts the binary, flow zip and env vars client-side before upload; false never does. Omit to follow DCD_ENCRYPT, then the organization default.',
+            'true encrypts the binary, flow zip and env vars client-side before upload; false never does. Omit to follow DCD_ENCRYPT, then the default, which is on.',
           ),
         wait: z
           .boolean()
@@ -206,8 +206,8 @@ export function registerRunCloudTest(server: McpServer): void {
         }
 
         // Client-side envelope encryption (binary/flow/env), in the same order
-        // as `dcd cloud`: the encrypt input, DCD_ENCRYPT, then the org default.
-        const encryption = checkKekForEncryption(
+        // as `dcd cloud`: the encrypt input, DCD_ENCRYPT, then the server default.
+        const encryption = await checkKekForEncryption(
           resolveEncryption({
             flag: args.encrypt,
             serverDefault: compatibilityData.encryption?.defaultOn,
@@ -225,7 +225,7 @@ export function registerRunCloudTest(server: McpServer): void {
         };
         telemetryExtra.encrypt = encryptTelemetry;
         if (encrypt && encryption.source === 'server') {
-          logStderr('Encrypting uploads (beta); opt out with encrypt: false');
+          logStderr('Encrypting uploads; opt out with encrypt: false');
         }
 
         // Resolve the binary: existing id, or upload the local file.

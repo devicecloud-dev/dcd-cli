@@ -6,10 +6,11 @@ import { pipeline } from 'node:stream/promises';
 
 import { DeviceGateway } from '../gateways/device-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
-import type {
-  DeviceArtifactLink,
-  DeviceArtifactsPage,
-  DeviceSession,
+import {
+  type DeviceArtifactLink,
+  type DeviceArtifactsPage,
+  type DeviceSession,
+  ENDED_STATES,
 } from '../types/domain/device-session.types.js';
 
 /** One file a session left behind, and where it goes on disk. */
@@ -51,6 +52,46 @@ export async function fetchAllArtifacts(
     before = page.next_before ?? undefined;
   } while (before);
   return { pages, session: pages.at(-1)!.session };
+}
+
+/** How long after a session ends its video and log may still be uploading. */
+const PENDING_WINDOW_MS = 3 * 60 * 1000;
+
+/**
+ * What a session's runner is still uploading: the video (`recording`) and
+ * the device log (`logs`) land up to a minute or so after the session ends.
+ * The API says so in `pending`. An API older than that field gets a guess:
+ * an ended session missing either file whose last activity (its newest
+ * action, else its start) was under three minutes ago. The session summary
+ * carries no end time, so the last activity stands in for it.
+ */
+export function pendingArtifacts(
+  pages: DeviceArtifactsPage[],
+  now: number = Date.now(),
+): ('logs' | 'recording')[] {
+  const first = pages[0];
+  if (!first) return [];
+  if (Array.isArray(first.pending)) return first.pending;
+  if (!ENDED_STATES.includes(first.session.state)) return [];
+
+  const lastActivity = Date.parse(first.actions[0]?.created_at ?? first.session.created_at);
+  if (!Number.isFinite(lastActivity) || now - lastActivity > PENDING_WINDOW_MS) return [];
+  const pending: ('logs' | 'recording')[] = [];
+  if (!first.recording) pending.push('recording');
+  if (!first.logs) pending.push('logs');
+  return pending;
+}
+
+/** The warning for {@link pendingArtifacts}, or null when nothing is pending. */
+export function pendingArtifactsWarning(pending: ('logs' | 'recording')[]): null | string {
+  if (pending.length === 0) return null;
+  const what =
+    pending.length === 2
+      ? 'The video and device log are'
+      : pending[0] === 'recording'
+        ? 'The video is'
+        : 'The device log is';
+  return `${what} still uploading. Run this again in a minute.`;
 }
 
 /**

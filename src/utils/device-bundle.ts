@@ -95,9 +95,9 @@ export async function uploadFlowBundle(
     serverDefault = undefined;
   }
 
-  const encryption = checkKekForEncryption(resolveEncryption({ serverDefault }), apiUrl);
+  const encryption = await checkKekForEncryption(resolveEncryption({ serverDefault }), apiUrl);
   if (encryption.notice) log(encryption.notice);
-  const kek = encryption.enabled ? resolveKekPublicKey(apiUrl) : null;
+  const kek = encryption.enabled ? await resolveKekPublicKey(apiUrl) : null;
   const sealed = kek ? encryptFlowBuffer(zip, kek) : null;
   const body = sealed ? sealed.ciphertext : zip;
 

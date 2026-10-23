@@ -14,7 +14,13 @@ import { DeviceApiError } from '../../src/gateways/device-gateway.js';
 import type { DeviceSession } from '../../src/types/domain/device-session.types.js';
 import { platformOfAppFile } from '../../src/utils/app-upload.js';
 import { CliError } from '../../src/utils/cli.js';
-import { DEVICE_EXIT, deviceExitCode, resolveSessionId } from '../../src/utils/device-output.js';
+import {
+  DEVICE_EXIT,
+  deviceExitCode,
+  formatWhen,
+  humanFields,
+  resolveSessionId,
+} from '../../src/utils/device-output.js';
 
 const API = 'https://api.devicecloud.dev';
 const auth = { headers: { 'x-app-api-key': 'k' }, mode: 'apiKey' as const };
@@ -201,6 +207,13 @@ describe('dcd device', () => {
       expect(out.error).to.equal(null);
     });
 
+    it('leaves session out for commands that are not about one session', async () => {
+      stubFetch(() => ({ body: { sessions: [] } }));
+      const { out } = await runJson('list', {});
+      expect(out).to.have.keys('ok', 'data', 'error');
+      expect(out.data).to.deep.equal({ sessions: [] });
+    });
+
     it('carries the API code, the session and exit 4 for an ended session', async () => {
       const ended = session('brave-teal-otter', { state: 'released', release_reason: 'user_stop' });
       stubFetch(() => ({
@@ -314,6 +327,36 @@ describe('dcd device', () => {
         googlePlay: true,
         maxDurationMin: 30,
         record: false,
+      });
+    });
+
+    describe('start --model without --platform', () => {
+      const catalogue = {
+        ios: [{ model: 'iphone-16', name: 'iPhone 16', os: ['18'], default_os: '18', google_play: false, default: true }],
+        android: [
+          { model: 'pixel-10', name: 'Pixel 10', os: ['36'], default_os: '36', google_play: true, default: true },
+          { model: 'iphone-16', name: 'Clash', os: ['36'], default_os: '36', google_play: false, default: false },
+        ],
+      };
+
+      it('reads the platform from the model list', async () => {
+        const calls = stubFetch((call) =>
+          call.url.endsWith('/device/models') ? { body: catalogue } : { body: { session: session('a-b-c') } },
+        );
+        const { exit } = await runJson('start', { model: 'Pixel 10' });
+        expect(exit).to.equal(0);
+        const start = calls.find((c) => c.method === 'POST')!;
+        expect(start.body).to.include({ platform: 'android', model: 'Pixel 10' });
+      });
+
+      it('is a usage error for an unknown model, or one on both platforms', async () => {
+        stubFetch(() => ({ body: catalogue }));
+        const unknown = await runJson('start', { model: 'nokia-3310' });
+        expect(unknown.exit).to.equal(DEVICE_EXIT.usage);
+        expect((unknown.out.error as { message: string }).message).to.include('dcd device models');
+        const both = await runJson('start', { model: 'iphone-16' });
+        expect(both.exit).to.equal(DEVICE_EXIT.usage);
+        expect((both.out.error as { message: string }).message).to.include('--platform');
       });
     });
 
@@ -465,6 +508,23 @@ describe('dcd device', () => {
       expect(out.error).to.deep.equal({ code: null, message: 'Element not found' });
     });
 
+    it('run reports the failing flows, not the runner JSON, and keeps the raw result in data', async () => {
+      const report = JSON.stringify({
+        success: false,
+        device_id: 'emulator-5554',
+        results: [{ file: 'run-test.yml', success: false, error: 'Assertion is false', message: 'Flow execution failed' }],
+        env_vars: { MAESTRO_CLI_NO_ANALYTICS: 'false' },
+        message: 'Some flows failed to execute',
+      });
+      stubFetch(() => ({
+        body: { command_id: 'c1', status: 'failed', result: { success: false, error: report }, session: session('a-b-c') },
+      }));
+      const { exit, out } = await runJson('run', { id: 'a-b-c', yaml: '- tapOn: Go' });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      expect(out.error).to.deep.equal({ code: null, message: 'run-test.yml: Assertion is false' });
+      expect((out.data as { result: { error: string } }).result.error).to.equal(report);
+    });
+
     it('run needs a file, a directory or --yaml', async () => {
       const { exit } = await runJson('run', { id: 'a-b-c' });
       expect(exit).to.equal(DEVICE_EXIT.usage);
@@ -491,7 +551,133 @@ describe('dcd device', () => {
     });
   });
 
+  describe('a person in the loop', () => {
+    const human = (extra: Record<string, unknown> = {}) => ({
+      waiting: false,
+      reason: null,
+      since: null,
+      expires_at: null,
+      handed_back: false,
+      note: null,
+      handed_back_at: null,
+      human_in_control: false,
+      controller_user_id: null,
+      ...extra,
+    });
+    const waiting = human({ waiting: true, reason: 'Enter the 2FA code', since: '2026-10-19T10:00:00Z' });
+    const handedBack = human({ handed_back: true, note: 'Code entered', handed_back_at: '2026-10-19T10:02:00Z' });
+
+    it('request-human sends the reason and returns where it stands', async () => {
+      const calls = stubFetch(() => ({ body: { human: waiting, session: session('a-b-c', { state: 'needs_human' }) } }));
+      const { exit, out } = await runJson('request-human', { reason: ' Enter the 2FA code ', id: 'a-b-c' });
+      expect(exit).to.equal(0);
+      expect(calls).to.have.length(1);
+      expect(calls[0].method).to.equal('POST');
+      expect(calls[0].url).to.equal(`${API}/device/sessions/a-b-c/request-human`);
+      expect(calls[0].body).to.deep.equal({ reason: 'Enter the 2FA code' });
+      expect(out.data).to.deep.equal({ human: waiting });
+    });
+
+    it('request-human needs a reason', async () => {
+      const calls = stubFetch(() => ({ body: {} }));
+      const { exit } = await runJson('request-human', { reason: '  ', id: 'a-b-c' });
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+      expect(calls).to.have.length(0);
+    });
+
+    it('request-human --wait polls until the session is handed back', async () => {
+      let polls = 0;
+      const calls = stubFetch((call) => {
+        if (call.method === 'POST') return { body: { human: waiting, session: session('a-b-c', { state: 'needs_human' }) } };
+        polls += 1;
+        return { body: { human: handedBack, session: session('a-b-c') } };
+      });
+      const { exit, out } = await runJson('request-human', { reason: 'Enter the 2FA code', id: 'a-b-c', wait: true });
+      expect(exit).to.equal(0);
+      expect(polls).to.equal(1);
+      expect(calls.at(-1)!.url).to.equal(`${API}/device/sessions/a-b-c/human`);
+      expect((out.data as { human: { note: string } }).human.note).to.equal('Code entered');
+    }).timeout(15_000);
+
+    it('human --wait returns at once when nobody is waiting', async () => {
+      const calls = stubFetch(() => ({ body: { human: handedBack, session: session('a-b-c') } }));
+      const { exit, out } = await runJson('human', { id: 'a-b-c', wait: true });
+      expect(exit).to.equal(0);
+      expect(calls).to.have.length(1);
+      expect(out.data).to.deep.equal({ human: handedBack });
+    });
+
+    it('human --wait exits 4 when the session ends while waiting', async () => {
+      stubFetch(() => ({
+        body: { human: waiting, session: session('a-b-c', { state: 'expired', release_reason: 'needs_human_timeout' }) },
+      }));
+      const { exit, out } = await runJson('human', { id: 'a-b-c', wait: true });
+      expect(exit).to.equal(DEVICE_EXIT.gone);
+      expect((out.error as { message: string }).message).to.include('ended while waiting for a person');
+    });
+
+    it('status carries the hand-back', async () => {
+      stubFetch((call) =>
+        call.url.endsWith('/human')
+          ? { body: { human: handedBack, session: session('a-b-c') } }
+          : { body: { session: session('a-b-c') } },
+      );
+      const { out } = await runJson('status', { id: 'a-b-c' });
+      expect(out.data).to.deep.equal({ human: handedBack });
+    });
+
+    it('status still works on an API without the human route', async () => {
+      stubFetch((call) =>
+        call.url.endsWith('/human') ? { status: 404, body: { statusCode: 404, message: 'Not Found' } } : { body: { session: session('a-b-c') } },
+      );
+      const { exit, out } = await runJson('status', { id: 'a-b-c' });
+      expect(exit).to.equal(0);
+      expect(out.data).to.equal(null);
+    });
+
+    it('a driving command blocked by a person says how to wait for them', async () => {
+      stubFetch(() => ({
+        status: 409,
+        body: { statusCode: 409, message: 'A person has taken control of this device.', error: 'LIVE_HUMAN_IN_CONTROL' },
+      }));
+      const { exit, out } = await runJson('launch', { id: 'a-b-c' });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      const error = out.error as { code: string; message: string };
+      expect(error.code).to.equal('LIVE_HUMAN_IN_CONTROL');
+      expect(error.message).to.include('A person has taken control of a-b-c');
+      expect(error.message).to.include('dcd device human a-b-c --wait');
+    });
+  });
+
   describe('helpers', () => {
+    it('formatWhen says how far off a time is', () => {
+      const now = Date.parse('2026-10-19T10:00:00Z');
+      expect(formatWhen('2026-10-19T10:12:00Z', now)).to.match(/^in 12m \(.+\)$/);
+      expect(formatWhen('2026-10-19T09:57:30Z', now)).to.match(/^2m 30s ago \(.+\)$/);
+      expect(formatWhen('not a time', now)).to.equal('not a time');
+    });
+
+    it('humanFields shows the reason while waiting and the note once handed back', () => {
+      const base = {
+        waiting: true,
+        reason: 'Enter the 2FA code',
+        since: '2026-10-19T10:00:00Z',
+        expires_at: '2026-10-19T10:30:00Z',
+        handed_back: false,
+        note: null,
+        handed_back_at: null,
+        human_in_control: false,
+        controller_user_id: null,
+      };
+      const now = Date.parse('2026-10-19T10:00:00Z');
+      const labels = (h: typeof base | Record<string, unknown>) =>
+        humanFields(h as typeof base, now).map(([label]) => label);
+      expect(labels(base)).to.deep.equal(['state', 'reason', 'asked', 'ends']);
+      const back = { ...base, waiting: false, reason: null, since: null, handed_back: true, note: 'Done', handed_back_at: '2026-10-19T10:00:00Z' };
+      expect(humanFields(back, now)).to.deep.include(['note', 'Done']);
+      expect(humanFields(back, now)[0]).to.deep.equal(['state', 'handed back']);
+    });
+
     it('newLogLines prints only what the last fetch did not', () => {
       expect(newLogLines(['a', 'b', 'c'], ['b', 'c', 'd', 'e'])).to.deep.equal(['d', 'e']);
       expect(newLogLines(['a', 'b'], ['a', 'b'])).to.deep.equal([]);

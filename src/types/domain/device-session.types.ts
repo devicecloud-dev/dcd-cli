@@ -51,6 +51,29 @@ export interface DeviceSession {
   monitor_url: string;
 }
 
+/**
+ * GET .../human and POST .../request-human (ILiveHumanStatus in the API):
+ * whether the session waits for a person, and what they said on handing back.
+ */
+export interface DeviceHumanStatus {
+  /** The session is in needs_human: wait, polling this. */
+  waiting: boolean;
+  /** Why help was asked for, while waiting. */
+  reason: null | string;
+  /** When help was asked for, while waiting. */
+  since: null | string;
+  /** When the session ends unless a person hands it back, while waiting. */
+  expires_at: null | string;
+  /** A person handed the session back since help was last asked for. */
+  handed_back: boolean;
+  /** Their note, if they left one. */
+  note: null | string;
+  handed_back_at: null | string;
+  /** A person has taken control in the console; commands answer 409 meanwhile. */
+  human_in_control: boolean;
+  controller_user_id: null | string;
+}
+
 /** POST /device/sessions. */
 export interface StartDeviceSessionRequest {
   platform: 'android' | 'ios';
@@ -86,9 +109,19 @@ export interface DeviceInstalledApp {
   reused: boolean;
 }
 
-/** The result of a typed action or a launch. */
+/** One flow of a run, as newer APIs report it in `result.flows`. */
+export interface DeviceFlowResult {
+  error: null | string;
+  /** The flow's path inside the bundle; null for a single flow. */
+  file: null | string;
+  success: boolean;
+}
+
+/** The result of a typed action, a launch or a run. */
 export interface DeviceCommandResult {
   error?: string;
+  /** Each flow of a run. Absent from APIs older than this field. */
+  flows?: DeviceFlowResult[];
   output?: string;
   success: boolean;
 }
@@ -158,6 +191,12 @@ export interface DeviceArtifactsPage {
   logs: DeviceArtifactLink | null;
   /** Pass as `before` for the next (older) page; null on the last page. */
   next_before: null | string;
+  /**
+   * Files the runner is still uploading after the session ended: the video
+   * and the device log land up to a minute or so later. Absent from APIs
+   * older than this field.
+   */
+  pending?: ('logs' | 'recording')[];
   recording: DeviceArtifactLink | null;
   session: DeviceSession;
 }

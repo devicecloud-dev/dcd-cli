@@ -76,12 +76,26 @@ jobs:
       # The plugin also stops early on PRs it judges trivial. The prompt above
       # tells Claude to post a one-line note in that case, so a deliberate skip
       # leaves a comment and only a real failure trips this check.
+      #
+      # Nor is a PR that edits THIS file: the action refuses to run unless the
+      # workflow is identical to the default branch's ("Workflow validation
+      # failed"), a deliberate guard against a PR rewriting its own reviewer. It
+      # exits green having posted nothing, so pass with a notice instead.
       - name: Check a review comment was posted
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          SELF: ${{ github.workflow_ref }}
         run: |
+          # workflow_ref is "owner/repo/.github/workflows/<file>@<ref>".
+          self_path="${SELF#"$REPO"/}"
+          self_path="${self_path%@*}"
+          if gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' | grep -qxF "$self_path"; then
+            echo "::notice::This PR edits $self_path, so the review action skipped it by design (it only runs the default branch's version of its own workflow). No review on this PR."
+            exit 0
+          fi
+
           # Prints the time of every claude[bot] comment, inline comment and review.
           claude_posts() {
             gh api "repos/$REPO/issues/$PR/comments" --paginate \

@@ -10,6 +10,7 @@ import type { AuthContext } from '../types/domain/auth.types.js';
 import {
   type DeviceCatalogue,
   type DeviceCommandResult,
+  type DeviceHumanStatus,
   type DeviceInstalledApp,
   type DeviceRunResponse,
   type DeviceScreenElement,
@@ -25,16 +26,20 @@ import {
   type DeviceArtifactFile,
   downloadArtifactFiles,
   fetchAllArtifacts,
+  pendingArtifacts,
+  pendingArtifactsWarning,
   planArtifactFiles,
 } from '../utils/device-artifacts.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import {
   deviceProgress,
+  humanFields,
   printSession,
   resolveSessionId,
   runDeviceCommand,
 } from '../utils/device-output.js';
+import { parseRunReport, printRunResult, runFailureMessage } from '../utils/device-run.js';
 import { isUrl } from '../utils/expo.js';
 import { colors, formatUrl } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
@@ -209,13 +214,33 @@ function parsePositiveInt(value: unknown, flag: string): number | undefined {
   return n;
 }
 
+/**
+ * The platform a `--model` belongs to, from GET /device/models. Matches the
+ * model id (iphone-16) or its name (iPhone 16), ignoring case. Unknown, or on
+ * both platforms: a usage error that says to pass --platform.
+ */
+export function platformOfModel(catalogue: DeviceCatalogue, model: string): 'android' | 'ios' {
+  const wanted = model.trim().toLowerCase();
+  const found = PLATFORMS.filter((p) =>
+    (catalogue[p] ?? []).some((m) => m.model.toLowerCase() === wanted || m.name.toLowerCase() === wanted),
+  );
+  if (found.length === 1) return found[0];
+  if (found.length === 0) {
+    throw new CliError(
+      `Unknown model "${model}". See \`dcd device models\` for the list, or pass --platform.`,
+    );
+  }
+
+  throw new CliError(`"${model}" is a model on both iOS and Android. Pass --platform ios or --platform android.`);
+}
+
 const startSub = defineCommand({
   meta: { name: 'start', description: 'Start a device session' },
   args: {
     ...commonArgs,
     platform: {
       type: 'string',
-      description: 'ios or android. Optional with --app, which implies it',
+      description: 'ios or android. Optional with --model or --app, which imply it',
     },
     model: {
       type: 'string',
@@ -267,14 +292,19 @@ const startSub = defineCommand({
       const binaryId = args['app-binary-id'] as string | undefined;
       if (app && binaryId) throw new CliError('Pass --app or --app-binary-id, not both.');
 
-      const platform =
-        validateEnum(args.platform as string | undefined, PLATFORMS, 'platform') ??
-        (app && !isUrl(app) ? platformOfAppFile(app) : undefined);
-      if (!platform) {
-        throw new CliError('--platform is required (ios or android).');
+      const model = args.model as string | undefined;
+      const appPlatform = app && !isUrl(app) ? platformOfAppFile(app) : undefined;
+      let platform =
+        validateEnum(args.platform as string | undefined, PLATFORMS, 'platform') ?? appPlatform;
+      if (!platform && !model) {
+        throw new CliError('Pass --platform ios or android, or a --model or --app that says which.');
       }
 
-      const appPlatform = app && !isUrl(app) ? platformOfAppFile(app) : undefined;
+      const ctx = await context(args);
+      if (!platform) {
+        platform = platformOfModel(await DeviceGateway.models(ctx.apiUrl, ctx.auth), model!);
+      }
+
       if (appPlatform && appPlatform !== platform) {
         throw new CliError(`${app} is a build for ${appPlatform}, not ${platform}.`);
       }
@@ -283,7 +313,6 @@ const startSub = defineCommand({
         throw new CliError('--google-play is only for Android.');
       }
 
-      const ctx = await context(args);
       const resolved = app ? await resolveApp(ctx, app) : undefined;
       const uploadedId =
         binaryId ?? (resolved && 'binaryUploadId' in resolved ? resolved.binaryUploadId : undefined);
@@ -292,7 +321,7 @@ const startSub = defineCommand({
         platform,
         clientLabel: (args.name as string | undefined) || DEFAULT_CLIENT_LABEL,
         ...(uploadedId && { binaryUploadId: uploadedId }),
-        ...(args.model ? { model: args.model as string } : {}),
+        ...(model ? { model } : {}),
         ...(args.os ? { os: String(args.os) } : {}),
         ...(args['google-play'] ? { googlePlay: true } : {}),
         ...(args.locale ? { deviceLocale: args.locale as string } : {}),
@@ -375,7 +404,7 @@ const listSub = defineCommand({
       const ctx = await context(args);
       const { sessions } = await DeviceGateway.list(ctx.apiUrl, ctx.auth, Boolean(args.all));
       return {
-        session: null,
+        session: undefined,
         data: { sessions },
         print() {
           if (sessions.length === 0) {
@@ -408,13 +437,28 @@ const statusSub = defineCommand({
     await runDeviceCommand(json, async () => {
       const ctx = await context(args);
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
-      const { session } = await DeviceGateway.status(ctx.apiUrl, ctx.auth, id);
+      // The summary does not say whether a person handed the session back,
+      // so ask. An API without the route (or a failure) just leaves it out.
+      const [{ session }, human] = await Promise.all([
+        DeviceGateway.status(ctx.apiUrl, ctx.auth, id),
+        DeviceGateway.human(ctx.apiUrl, ctx.auth, id).then(
+          (r) => r.human ?? null,
+          () => null,
+        ),
+      ]);
       return {
         session,
-        data: null,
+        data: human ? { human } : null,
         print() {
           logger.log(ui.section('Device session'));
           printSession(session);
+          if (human?.handed_back) {
+            logger.log(ui.info(`A person handed it back${human.note ? `: ${human.note}` : ' (no note).'}`));
+          }
+
+          if (human?.human_in_control) {
+            logger.log(ui.warn(`A person has control. Wait with \`dcd device human ${session.id} --wait\`.`));
+          }
         },
       };
     });
@@ -441,7 +485,7 @@ const stopSub = defineCommand({
         }
 
         return {
-          session: null,
+          session: undefined,
           data: { stopped },
           print() {
             logger.log(
@@ -616,7 +660,7 @@ const modelsSub = defineCommand({
       const catalogue = await DeviceGateway.models(ctx.apiUrl, ctx.auth);
       const data: Partial<DeviceCatalogue> = platform ? { [platform]: catalogue[platform] } : catalogue;
       return {
-        session: null,
+        session: undefined,
         data,
         print() {
           for (const p of PLATFORMS) {
@@ -832,19 +876,10 @@ const runSub = defineCommand({
         session: response.session,
         data: { command_id: response.command_id, status: response.status, result },
         ...(!passed && {
-          failure: { code: null, message: result.error || 'The flow failed.' },
+          failure: { code: null, message: runFailureMessage(result, parseRunReport(result)) },
         }),
         print() {
-          logger.log(passed ? ui.success('Flow passed') : `${ui.statusSymbol('FAILED')} Flow failed`);
-          if (result.output) {
-            logger.log(ui.section('Output'));
-            logger.log(result.output);
-          }
-
-          if (result.error) {
-            logger.log(ui.section('Error'));
-            logger.log(colors.error(result.error));
-          }
+          printRunResult(logger.log, passed, result, entry ?? (flow ? path.basename(flow) : 'flow'));
         },
       };
     });
@@ -997,11 +1032,125 @@ const openSub = defineCommand({
   },
 });
 
+const HUMAN_POLL_MS = 5000;
+
+/** The session is with a person: they were asked for help, or took control. */
+function withPerson(human: DeviceHumanStatus): boolean {
+  return human.waiting || human.human_in_control;
+}
+
+type HumanResponse = { human: DeviceHumanStatus; session: DeviceSession };
+
+/**
+ * Poll GET .../human until the person hands the session back (or gives up
+ * control). A session that ends meanwhile is exit 4. Ctrl-C stops waiting
+ * and leaves the session as it is.
+ */
+async function waitForHandBack(ctx: Ctx, id: string, first: HumanResponse): Promise<HumanResponse> {
+  let current = first;
+  if (!withPerson(current.human)) return current;
+  ctx.progress(ui.running(`Waiting for a person to hand ${id} back. Ctrl-C stops waiting; the session stays open.`));
+  for (;;) {
+    if (ENDED_STATES.includes(current.session.state)) {
+      throw new DeviceApiError(
+        `Device session ${id} ended while waiting for a person (${current.session.release_reason ?? current.session.state}).`,
+        410,
+        'LIVE_SESSION_ENDED',
+        current.session,
+      );
+    }
+
+    if (!withPerson(current.human)) return current;
+    await sleep(HUMAN_POLL_MS);
+    current = await DeviceGateway.human(ctx.apiUrl, await freshAuth(ctx), id);
+  }
+}
+
+/** A person's part in a session, for `human` and `request-human`. */
+function printHuman(id: string, human: DeviceHumanStatus, waited: boolean): void {
+  if (waited && human.handed_back) logger.log(ui.success(`${id} was handed back`));
+  logger.log(ui.section('Human help'));
+  logger.log(ui.branch(ui.fields(humanFields(human))));
+  if (!waited && withPerson(human)) {
+    logger.log(ui.note(`Wait for the hand-back with \`dcd device human ${id} --wait\`.`));
+  }
+}
+
+const waitForPersonArg = {
+  type: 'boolean',
+  default: false,
+  description: `Wait until the person hands the session back (checks every ${HUMAN_POLL_MS / 1000}s; Ctrl-C stops waiting)`,
+} as const;
+
+const requestHumanSub = defineCommand({
+  meta: {
+    name: 'request-human',
+    description: 'Ask a person for help (a 2FA code, a CAPTCHA): the session waits for them to hand it back',
+  },
+  args: {
+    ...commonArgs,
+    reason: {
+      type: 'positional',
+      required: true,
+      description: 'What the person should do, e.g. "Enter the 2FA code sent to the test phone"',
+    },
+    id: idArg,
+    wait: waitForPersonArg,
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new CliError('Say what the person should do, e.g. dcd device request-human "Enter the 2FA code".');
+      if (reason.length > 500) throw new CliError('The reason is too long: keep it to 500 characters.');
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      let response = await DeviceGateway.requestHuman(ctx.apiUrl, ctx.auth, id, reason);
+      ctx.progress(ui.success(`Asked for a person on ${id}`));
+      if (args.wait) response = await waitForHandBack(ctx, id, response);
+      const { human, session } = response;
+      return {
+        session,
+        data: { human },
+        print() {
+          printHuman(session.id, human, Boolean(args.wait));
+        },
+      };
+    });
+  },
+});
+
+const humanSub = defineCommand({
+  meta: { name: 'human', description: 'Whether a session waits for a person, and their note when they hand it back' },
+  args: { ...commonArgs, id: idArg, wait: waitForPersonArg },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      let response = await DeviceGateway.human(ctx.apiUrl, ctx.auth, id);
+      if (args.wait) response = await waitForHandBack(ctx, id, response);
+      const { human, session } = response;
+      return {
+        session,
+        data: { human },
+        print() {
+          printHuman(session.id, human, Boolean(args.wait));
+        },
+      };
+    });
+  },
+});
+
 interface ArtifactsData {
   /** Where they were saved; null with --links. */
   dir: null | string;
   files: DeviceArtifactFile[];
   failed: { file: string; reason: string }[];
+  /** What is still uploading after the session ended; see pendingArtifacts. */
+  pending: ('logs' | 'recording')[];
+  /** Says so in words, or null. */
+  warning: null | string;
 }
 
 const artifactsSub = defineCommand({
@@ -1030,19 +1179,26 @@ const artifactsSub = defineCommand({
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
       const { pages, session } = await fetchAllArtifacts(ctx.apiUrl, ctx.auth, id);
       const files = planArtifactFiles(pages);
+      const pending = pendingArtifacts(pages);
+      const warning = pendingArtifactsWarning(pending);
+      const printWarning = () => {
+        if (warning) logger.log(ui.warn(warning));
+      };
 
       if (args.links) {
         return {
           session,
-          data: { dir: null, files, failed: [] },
+          data: { dir: null, files, failed: [], pending, warning },
           print() {
             if (files.length === 0) {
               logger.log(ui.info('This session has no artifacts yet.'));
+              printWarning();
               return;
             }
 
             logger.log(ui.section(`Artifacts (${files.length})`));
             logger.log(ui.branch(ui.fields(files.map((f) => [f.file, f.url ? formatUrl(f.url) : colors.dim('no link')]))));
+            printWarning();
           },
         };
       }
@@ -1053,7 +1209,7 @@ const artifactsSub = defineCommand({
       const saved = files.length - failed.length;
       return {
         session,
-        data: { dir, files, failed },
+        data: { dir, files, failed, pending, warning },
         ...(failed.length > 0 && {
           failure: {
             code: null,
@@ -1063,11 +1219,13 @@ const artifactsSub = defineCommand({
         print() {
           if (files.length === 0) {
             logger.log(ui.info('This session has no artifacts yet.'));
+            printWarning();
             return;
           }
 
           logger.log(ui.success(`Saved ${saved} of ${files.length} files to ${dir}`));
           for (const f of failed) logger.log(ui.warn(`${f.file}: ${f.reason}`));
+          printWarning();
           if (!ENDED_STATES.includes(session.state)) {
             logger.log(ui.note('The session is still open: its video and log are saved when it ends.'));
           }
@@ -1099,6 +1257,8 @@ export const deviceCommand = defineCommand({
     logs: logsSub,
     open: openSub,
     artifacts: artifactsSub,
+    'request-human': requestHumanSub,
+    human: humanSub,
   },
 });
 

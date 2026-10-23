@@ -5,6 +5,7 @@ import type {
   DeviceFlowBundle,
   DeviceCatalogue,
   DeviceCommandResult,
+  DeviceHumanStatus,
   DeviceInstalledApp,
   DeviceLogs,
   DeviceRunResponse,
@@ -45,7 +46,7 @@ export class DeviceApiError extends Error {
  * is either Nest's status text or a machine code such as LIVE_NOT_FOUND.
  * Only an upper-case code is kept, so "Not Found" never reads as one.
  */
-async function toDeviceApiError(res: Response): Promise<DeviceApiError> {
+async function toDeviceApiError(res: Response, path: string): Promise<DeviceApiError> {
   const text = await res.text();
   let body: { error?: unknown; message?: unknown; session?: unknown } = {};
   try {
@@ -64,6 +65,15 @@ async function toDeviceApiError(res: Response): Promise<DeviceApiError> {
 
   const code =
     typeof body.error === 'string' && /^[A-Z][A-Z0-9_]+$/.test(body.error) ? body.error : null;
+  if (code === 'LIVE_HUMAN_IN_CONTROL') {
+    // The API's text points at MCP and raw HTTP too; a CLI user needs the command.
+    const id = /^\/device\/sessions\/([^/?]+)/.exec(path)?.[1];
+    const name = id ? decodeURIComponent(id) : '<id>';
+    message =
+      `A person has taken control of ${name} in the console, so it takes no commands until they hand it back. ` +
+      `Wait for that with \`dcd device human ${name} --wait\`.`;
+  }
+
   const session =
     body.session && typeof body.session === 'object' ? (body.session as DeviceSession) : null;
   return new DeviceApiError(message, res.status, code, session);
@@ -97,7 +107,7 @@ async function request<T>(
     throw error;
   }
 
-  if (!res.ok) throw await toDeviceApiError(res);
+  if (!res.ok) throw await toDeviceApiError(res, path);
   try {
     return (await res.json()) as T;
   } catch (error) {
@@ -142,6 +152,15 @@ export const DeviceGateway = {
       'GET',
       `${sessionPath(id)}/commands/${encodeURIComponent(commandId)}`,
     );
+  },
+
+  /** Whether the session waits for a person, or was handed back. */
+  human(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+  ): Promise<{ human: DeviceHumanStatus; session: DeviceSession }> {
+    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/human`);
   },
 
   inspect(
@@ -204,6 +223,16 @@ export const DeviceGateway = {
     },
   ): Promise<{ bundle: DeviceFlowBundle }> {
     return request(baseUrl, auth, 'POST', '/device/bundles', body);
+  },
+
+  /** Ask a person for help: the session moves to needs_human until they hand it back. */
+  requestHuman(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+    reason: string,
+  ): Promise<{ human: DeviceHumanStatus; session: DeviceSession }> {
+    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/request-human`, { reason });
   },
 
   run(

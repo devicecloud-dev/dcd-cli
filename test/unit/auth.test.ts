@@ -3,8 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { SessionRefreshError } from '../../src/gateways/cli-auth-gateway.js';
-import { dropStoredSession, resolveAuth } from '../../src/utils/auth.js';
+import {
+  CliAuthGateway,
+  SessionRefreshError,
+} from '../../src/gateways/cli-auth-gateway.js';
+import { resolveAuth } from '../../src/utils/auth.js';
 import {
   clearConfig,
   configFileMode,
@@ -190,39 +193,48 @@ describe('resolveAuth precedence', () => {
     expect(dead).to.be.instanceOf(Error);
   });
 
-  it('dropStoredSession removes only the session, keeping env/org fields', async () => {
-    await withTempConfigDir(() => {
-      writeConfig({
-        version: 1,
-        env: 'dev',
-        api_url: 'https://api.dev.devicecloud.dev',
-        supabase_url: 'https://lbmsowehtjwnqlurpemb.supabase.co',
-        session: {
-          access_token: 'a',
-          refresh_token: 'consumed-by-another-client',
-          expires_at: Math.floor(Date.now() / 1000) - 60,
-          user_email: 'u@example.com',
-          user_id: 'u1',
-        },
-        current_org_id: '42',
-        current_org_name: 'Acme',
-      });
+  for (const definitive of [true, false]) {
+    it(`keeps the stored session when a refresh fails (definitive: ${definitive})`, async () => {
+      const original = CliAuthGateway.refresh;
+      CliAuthGateway.refresh = () =>
+        Promise.reject(new SessionRefreshError('Legacy API keys are disabled', definitive));
+      try {
+        await withTempConfigDir(async () => {
+          delete process.env.DEVICE_CLOUD_API_KEY;
+          const session = {
+            access_token: 'a',
+            refresh_token: 'r',
+            expires_at: Math.floor(Date.now() / 1000) - 60,
+            user_email: 'u@example.com',
+            user_id: 'u1',
+          };
+          writeConfig({
+            version: 1,
+            env: 'dev',
+            api_url: 'https://api.dev.devicecloud.dev',
+            supabase_url: 'https://lbmsowehtjwnqlurpemb.supabase.co',
+            session,
+            current_org_id: '42',
+            current_org_name: 'Acme',
+          });
 
-      dropStoredSession();
+          let caught: unknown = null;
+          try {
+            await resolveAuth({ apiKeyFlag: undefined });
+          } catch (error) {
+            caught = error;
+          }
+          expect(caught).to.be.instanceOf(SessionRefreshError);
 
-      const after = readConfig();
-      expect(after).to.not.equal(null);
-      expect(after!.session).to.equal(undefined);
-      expect(after!.env).to.equal('dev');
-      expect(after!.api_url).to.equal('https://api.dev.devicecloud.dev');
-      expect(after!.current_org_id).to.equal('42');
-      expect(after!.current_org_name).to.equal('Acme');
-
-      // Idempotent when there's no session to drop.
-      dropStoredSession();
-      expect(readConfig()!.session).to.equal(undefined);
+          const after = readConfig();
+          expect(after!.session).to.deep.equal(session);
+          expect(after!.current_org_id).to.equal('42');
+        });
+      } finally {
+        CliAuthGateway.refresh = original;
+      }
     });
-  });
+  }
 
   it('uses a non-expired stored session as a last resort', async () => {
     await withTempConfigDir(async () => {

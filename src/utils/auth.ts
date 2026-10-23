@@ -10,7 +10,6 @@
  */
 import { closeSync, openSync, rmSync, statSync } from 'node:fs';
 
-import { ENVIRONMENTS } from '../config/environments.js';
 import {
   CliAuthGateway,
   SessionRefreshError,
@@ -196,20 +195,18 @@ async function refreshSessionWithLock(
       return { config: current, session };
     }
 
-    const { anonKey } = ENVIRONMENTS[current.env].supabase;
-    let refreshed;
-    try {
-      refreshed = await CliAuthGateway.refresh(
-        current.supabase_url,
-        anonKey,
-        session,
-      );
-    } catch (error) {
-      if (error instanceof SessionRefreshError && error.definitive) {
-        dropStoredSession();
-      }
-      throw error;
-    }
+    // A failed refresh never deletes the stored session, even one Supabase
+    // refused outright. A refusal is not always the session's fault: an old
+    // CLI build sending a retired Supabase key gets a 401 ("Legacy API keys
+    // are disabled") for a session that is still good, and wiping it then
+    // forced a fresh login when an upgrade alone would have fixed it. The
+    // error tells the user to log in again; only `dcd logout` (or the next
+    // `dcd login`) replaces the stored session.
+    const refreshed = await CliAuthGateway.refresh(
+      current.supabase_url,
+      current.env,
+      session,
+    );
     // Re-read again and merge only `session` so a concurrent `switch-org`
     // write (org fields) isn't reverted by our pre-refresh snapshot.
     const merged: StoredConfig = { ...(readConfig() ?? current), session: refreshed };
@@ -218,20 +215,6 @@ async function refreshSessionWithLock(
   } finally {
     try { rmSync(lockPath, { force: true }); } catch { /* best effort */ }
   }
-}
-
-/**
- * Remove only the (definitively dead) session from the stored config, keeping
- * env/api_url/org so a re-login lands back in the same environment. With the
- * dead session gone, subsequent commands report "Not authenticated" instead
- * of failing the same refresh, and `dcd login` skips its "already logged in"
- * confirm. Exported for tests.
- */
-export function dropStoredSession(): void {
-  const config = readConfig();
-  if (!config?.session) return;
-  delete config.session;
-  writeConfig(config);
 }
 
 async function acquireRefreshLock(lockPath: string): Promise<void> {
