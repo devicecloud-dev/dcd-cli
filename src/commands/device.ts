@@ -456,7 +456,10 @@ const statusSub = defineCommand({
             logger.log(ui.info(`A person handed it back${human.note ? `: ${human.note}` : ' (no note).'}`));
           }
 
-          if (human?.human_in_control) {
+          // The API's own warning already says a person has control and how
+          // to wait; only add ours when an older API leaves it out.
+          const apiSaysWaiting = (session.warnings ?? []).some((w) => w.startsWith('Waiting for a human'));
+          if (human?.human_in_control && !apiSaysWaiting) {
             logger.log(ui.warn(`A person has control. Wait with \`dcd device human ${session.id} --wait\`.`));
           }
         },
