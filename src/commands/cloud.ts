@@ -199,7 +199,7 @@ export const cloudCommand = defineCommand({
       // Client-side envelope encryption of every sensitive artifact: the
       // binary (#1138), the flow zip (#1151), and env vars (#1152). Kept as
       // given (--no-encrypt is an explicit false) and resolved once the
-      // compatibility data, which carries the org's default, is in.
+      // compatibility data, which carries the server default, is in.
       const encryptFlag = args.encrypt as boolean | undefined;
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
@@ -390,7 +390,7 @@ export const cloudCommand = defineCommand({
         out(`[DEBUG] API URL: ${apiUrl}`);
       }
 
-      const encryption = checkKekForEncryption(
+      const encryption = await checkKekForEncryption(
         resolveEncryption({
           flag: encryptFlag,
           serverDefault: compatibilityData.encryption?.defaultOn,
@@ -797,7 +797,7 @@ export const cloudCommand = defineCommand({
       }
 
       if (encrypt && encryption.source === 'server') {
-        out(ui.note('Encrypting uploads (beta); opt out with --no-encrypt'));
+        out(ui.note('Encrypting uploads; opt out with --no-encrypt'));
       }
 
       if (!finalBinaryId) {

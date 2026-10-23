@@ -1,5 +1,62 @@
 # Changelog
 
+## [5.10.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.9.0...v5.10.0) (2026-10-22)
+
+
+### Features
+
+* **encrypt:** list --encrypt in --help now encryption is on by defau… ([#250](https://github.com/devicecloud-dev/dcd-cli/issues/250)) ([55a0609](https://github.com/devicecloud-dev/dcd-cli/commit/55a0609abbc686021fe969c523bcaa1efa994658))
+* **encrypt:** list --encrypt in --help now encryption is on by default (dcd[#1138](https://github.com/devicecloud-dev/dcd-cli/issues/1138)) ([55a0609](https://github.com/devicecloud-dev/dcd-cli/commit/55a0609abbc686021fe969c523bcaa1efa994658))
+* fetch the KEK public key from the API instead of pinning it ([#251](https://github.com/devicecloud-dev/dcd-cli/issues/251)) ([452324b](https://github.com/devicecloud-dev/dcd-cli/commit/452324ba6f6313fe9e4d418c3db655e858f79540))
+
+
+### Miscellaneous
+
+* pin the 5.10.0 promotion ([d85115c](https://github.com/devicecloud-dev/dcd-cli/commit/d85115c1efc1da80b7eaeb9dacca49dd0d37257b))
+
+## [5.9.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.8.0...v5.9.0) (2026-10-22)
+
+
+### Features
+
+* **auth:** fetch the Supabase key from the API instead of compiling it in ([#245](https://github.com/devicecloud-dev/dcd-cli/issues/245)) ([8cedb4e](https://github.com/devicecloud-dev/dcd-cli/commit/8cedb4e2f133f4300b669f877896e65c61c38820))
+* **login:** reuse the last org and add --org ([#243](https://github.com/devicecloud-dev/dcd-cli/issues/243)) ([5f710d5](https://github.com/devicecloud-dev/dcd-cli/commit/5f710d55d024c6869d529c606f261530ac9013ad))
+
+
+### Dependencies
+
+* bump the minor-and-patch group across 1 directory with 5 updates ([#238](https://github.com/devicecloud-dev/dcd-cli/issues/238)) ([5fffd7a](https://github.com/devicecloud-dev/dcd-cli/commit/5fffd7ae00e2e6749271ae859c6cf6c47d98678f))
+
+
+### Miscellaneous
+
+* pin the 5.9.0 promotion ([57cf6b1](https://github.com/devicecloud-dev/dcd-cli/commit/57cf6b1fc0cb74ac4fe9f30b6659095d4321fbfc))
+
+## [5.8.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.7.1...v5.8.0) (2026-10-16)
+
+
+### Features
+
+* **cloud:** add --priority flag for within-org run ordering ([#222](https://github.com/devicecloud-dev/dcd-cli/issues/222)) ([510d64b](https://github.com/devicecloud-dev/dcd-cli/commit/510d64baa34e3f7f19c5483f693aced20c0f0758))
+* **cloud:** add --priority flag for within-org run ordering (dcd[#1581](https://github.com/devicecloud-dev/dcd-cli/issues/1581)) ([510d64b](https://github.com/devicecloud-dev/dcd-cli/commit/510d64baa34e3f7f19c5483f693aced20c0f0758))
+
+
+### Bug Fixes
+
+* **cloud:** re-send a flow submit whose response was lost ([#226](https://github.com/devicecloud-dev/dcd-cli/issues/226)) ([f4db8f9](https://github.com/devicecloud-dev/dcd-cli/commit/f4db8f9d0b51d358b62153f40c2164abc67cb078))
+* **device:** drop Android API 29-31 from the --android-api-level help ([#227](https://github.com/devicecloud-dev/dcd-cli/issues/227)) ([05ea2dc](https://github.com/devicecloud-dev/dcd-cli/commit/05ea2dc292b1c8d2d453a4ec05b3c34577cf2c61))
+* **validation:** mirror the API's Pixel 7 / API 36 Android default ([#225](https://github.com/devicecloud-dev/dcd-cli/issues/225)) ([3daeb94](https://github.com/devicecloud-dev/dcd-cli/commit/3daeb94e077a3819f4568c74cc5059bd8ac9ba9b))
+
+
+### Performance
+
+* **cloud:** poll results with ?view=summary and If-None-Match ([#219](https://github.com/devicecloud-dev/dcd-cli/issues/219)) ([e916c59](https://github.com/devicecloud-dev/dcd-cli/commit/e916c59631ee10aee0c315af016582747afa0b81))
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 6 updates ([#220](https://github.com/devicecloud-dev/dcd-cli/issues/220)) ([2b88b64](https://github.com/devicecloud-dev/dcd-cli/commit/2b88b6489d77591f3f47b00c980e11d5e6cc2e27))
+
 ## [5.7.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.7.0...v5.7.1) (2026-10-07)
 
 

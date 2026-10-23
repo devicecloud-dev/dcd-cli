@@ -4,7 +4,6 @@
  */
 import { defineCommand } from 'citty';
 
-import { ENVIRONMENTS } from '../config/environments.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
 import { CliAuthGateway } from '../gateways/cli-auth-gateway.js';
 import { logger } from '../utils/cli.js';
@@ -33,8 +32,7 @@ export const logoutCommand = defineCommand({
       return;
     }
 
-    const { anonKey } = ENVIRONMENTS[config.env].supabase;
-    await CliAuthGateway.signOut(config.supabase_url, anonKey, config.session);
+    await CliAuthGateway.signOut(config.supabase_url, config.env, config.session);
     clearConfig();
     if (json) {
       logger.json({ status: 'SUCCESS', loggedOut: true, user: config.session.user_email });

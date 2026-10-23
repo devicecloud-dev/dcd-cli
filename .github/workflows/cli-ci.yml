@@ -113,8 +113,11 @@ jobs:
   #
   # It has to be on a NORMAL commit, not the merge commit — release-please's
   # commit splitting is unreliable on merges.
+  #
+  # Release-please's own release PR also targets `production` but is not a
+  # promotion: it never carries a pin, so the check would always fail on it.
   promotion-pin:
-    if: github.event_name == 'pull_request' && github.base_ref == 'production'
+    if: github.event_name == 'pull_request' && github.base_ref == 'production' && !startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7

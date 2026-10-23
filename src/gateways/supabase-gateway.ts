@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as tus from 'tus-js-client';
 
 import { ENVIRONMENTS, type DcdEnvName } from '../config/environments.js';
+import { getSupabaseKey, supabaseKeyHeaders } from '../config/supabase-key.js';
 
 /** Disk-backed upload descriptor — see UploadSource in src/methods.ts. */
 export interface ResumableUploadSource {
@@ -16,7 +17,7 @@ export interface ResumableUploadSource {
 export class SupabaseGateway {
   /**
    * Upload to Supabase using resumable uploads (TUS protocol)
-   * Uploads to staging location (uploads/{id}/) using anon key
+   * Uploads to staging location (uploads/{id}/) using the publishable key
    * File is later moved to final location by API after finalization
    * @param env - Environment (dev or prod)
    * @param path - Staging storage path (uploads/{id}/file.ext)
@@ -32,8 +33,8 @@ export class SupabaseGateway {
     debug = false,
     onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
   ): Promise<void> {
-    const { anonKey: SUPABASE_PUBLIC_KEY, projectRef } =
-      ENVIRONMENTS[env].supabase;
+    const { projectRef } = ENVIRONMENTS[env].supabase;
+    const supabaseKey = await getSupabaseKey(env);
     const storageUrl = `https://${projectRef}.storage.supabase.co`;
 
     if (debug) {
@@ -58,9 +59,9 @@ export class SupabaseGateway {
         retryDelays: [0, 3000, 5000, 10_000, 20_000],
 
         // Authentication and headers
-        // Use anon key for staging uploads to uploads/* folder
+        // Publishable key for staging uploads to uploads/* folder
         headers: {
-          authorization: `Bearer ${SUPABASE_PUBLIC_KEY}`,
+          ...supabaseKeyHeaders(supabaseKey),
           'x-upsert': 'true', // Allow overwriting existing files
         },
 
@@ -137,7 +138,7 @@ export class SupabaseGateway {
     file: File,
     debug = false,
   ) {
-    const { url: SUPABASE_URL, anonKey: SUPABASE_PUBLIC_KEY } = ENVIRONMENTS[env].supabase;
+    const { url: SUPABASE_URL } = ENVIRONMENTS[env].supabase;
 
     if (debug) {
       console.log(`[DEBUG] Supabase upload starting...`);
@@ -148,7 +149,7 @@ export class SupabaseGateway {
     }
 
     try {
-      const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY);
+      const supabase = createClient(SUPABASE_URL, await getSupabaseKey(env));
       const uploadToUrl = await supabase.storage
         .from('organizations')
         .uploadToSignedUrl(path, token, file);

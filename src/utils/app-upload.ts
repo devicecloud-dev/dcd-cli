@@ -58,7 +58,7 @@ export async function uploadLocalApp(opts: UploadLocalAppOptions): Promise<strin
     serverDefault = undefined;
   }
 
-  const encryption = checkKekForEncryption(resolveEncryption({ serverDefault }), apiUrl);
+  const encryption = await checkKekForEncryption(resolveEncryption({ serverDefault }), apiUrl);
   if (encryption.notice) log(encryption.notice);
 
   const tempDirs: string[] = [];

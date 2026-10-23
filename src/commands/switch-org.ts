@@ -3,15 +3,17 @@
  *
  * With an argument (`dcd switch-org <name>`): update config immediately after
  * confirming the user is a member via GET /me/orgs.
- * Without an argument: fetch orgs and prompt the user to pick one.
+ * Without an argument: fetch orgs and prompt the user to pick one (an error
+ * instead when there's no TTY to answer the prompt).
  */
 import { defineCommand } from 'citty';
 
 import { jsonFlag } from '../config/flags/output.flags.js';
 import { apiKeyOverride, resolveAuth } from '../utils/auth.js';
+import { canPrompt } from '../utils/ci.js';
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, resolveApiUrl, writeConfig } from '../utils/config-store.js';
-import { fetchOrgs, pickOrg, OrgListItem } from '../utils/orgs.js';
+import { fetchOrgs, matchOrg, pickOrg, OrgListItem } from '../utils/orgs.js';
 import { colors } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
 
@@ -52,10 +54,17 @@ export const switchOrgCommand = defineCommand({
 
     let chosen: OrgListItem;
     if (target) {
-      chosen = matchOrg(orgs, target);
+      chosen = matchOrg(orgs, target, '`dcd switch-org` without arguments');
     } else {
       // Under --json the picker draws on stderr so stdout stays pure JSON.
-      chosen = await pickOrg(orgs, undefined, json ? process.stderr : undefined);
+      const output = json ? process.stderr : undefined;
+      // Without a TTY the picker would wait forever for a keypress.
+      if (orgs.length > 1 && !canPrompt(output)) {
+        throw new CliError(
+          `There's no terminal to pick an organization in. Run \`dcd switch-org <name>\` with one of: ${orgs.map((o) => o.name).join(', ')}`,
+        );
+      }
+      chosen = await pickOrg(orgs, { output });
     }
 
     writeConfig({
@@ -87,28 +96,5 @@ export const switchOrgCommand = defineCommand({
     }
   },
 });
-
-/**
- * Match a user-supplied string to an org. Prefers case-insensitive name match.
- * Falls back to slug / id so existing scripts keep working, but error output
- * only surfaces names.
- */
-function matchOrg(orgs: OrgListItem[], target: string): OrgListItem {
-  const needle = target.toLowerCase();
-  const nameMatches = orgs.filter((o) => o.name.toLowerCase() === needle);
-  if (nameMatches.length > 1) {
-    throw new CliError(
-      `Multiple orgs named "${target}". Run \`dcd switch-org\` without arguments to pick interactively.`,
-    );
-  }
-  const chosen =
-    nameMatches[0] ?? orgs.find((o) => o.slug === target || o.id === target);
-  if (!chosen) {
-    throw new CliError(
-      `No org named "${target}". Available: ${orgs.map((o) => o.name).join(', ')}`,
-    );
-  }
-  return chosen;
-}
 
 export default switchOrgCommand;

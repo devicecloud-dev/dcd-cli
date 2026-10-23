@@ -16,10 +16,12 @@
 import {
   createClient,
   REALTIME_SUBSCRIBE_STATES,
+  type RealtimeChannel,
   type SupabaseClient,
 } from '@supabase/supabase-js';
 
 import { ENVIRONMENTS, type DcdEnvName } from '../config/environments.js';
+import { getSupabaseKey } from '../config/supabase-key.js';
 
 export interface RealtimeResultsSubscription {
   /**
@@ -83,87 +85,99 @@ export class RealtimeResultsGateway {
     };
 
     let client: SupabaseClient | undefined;
-    try {
-      const { url, anonKey } = ENVIRONMENTS[env].supabase;
-      client = createClient(url, anonKey, {
-        // Match SupabaseClientGateway / the frontend; no session persistence —
-        // we set the token explicitly below.
-        auth: { autoRefreshToken: false, persistSession: false },
-        realtime: { params: { eventsPerSecond: 10 } },
+    let channel: RealtimeChannel | undefined;
+    let closed = false;
+    // The latest JWT, so a refresh that lands while the key is still being
+    // fetched is the one the socket joins with.
+    let token = accessToken;
+
+    // The publishable key comes from the API (dcd#1112), so the socket opens
+    // asynchronously. `subscribe` stays synchronous for the caller: until it
+    // connects, `isConnected` is false and the backstop poll covers the gap.
+    const ready = getSupabaseKey(env)
+      .then((supabaseKey) => {
+        if (closed) return;
+        const sb = createClient(ENVIRONMENTS[env].supabase.url, supabaseKey, {
+          // Match SupabaseClientGateway / the frontend; no session persistence —
+          // we set the token explicitly below.
+          auth: { autoRefreshToken: false, persistSession: false },
+          realtime: { params: { eventsPerSecond: 10 } },
+        });
+        client = sb;
+
+        // Attach the user's JWT to the socket so RLS is enforced on the channel.
+        sb.realtime.setAuth(token);
+
+        channel = sb
+          .channel(`results-cli-${uploadId}`)
+          .on(
+            // The typings don't cover the postgres_changes overload cleanly.
+            'postgres_changes' as never,
+            {
+              event: '*',
+              schema: 'public',
+              table: 'results',
+              filter: `org_id=eq.${orgId}`,
+            } as never,
+            (payload: ResultChangePayload) => {
+              if (payload.new?.test_upload_id === uploadId) {
+                dbg(`change for upload ${uploadId}`);
+                onChange();
+              }
+            },
+          )
+          .subscribe((status) => {
+            if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
+              dbg('subscribed');
+              setConnected(true);
+            } else if (
+              status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
+              status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
+              status === REALTIME_SUBSCRIBE_STATES.CLOSED
+            ) {
+              // Don't try to recover — the backstop poll covers us. Surface in
+              // debug so a network-blocked websocket is diagnosable.
+              dbg(`channel ${status}; relying on backstop poll`);
+              setConnected(false);
+            }
+          });
+      })
+      .catch((error: unknown) => {
+        dbg(`failed to subscribe: ${error instanceof Error ? error.message : String(error)}`);
+        // Best-effort cleanup of a half-built client, then degrade to polling.
+        try {
+          client?.realtime.disconnect();
+        } catch {
+          /* ignore */
+        }
+        client = undefined;
+        channel = undefined;
       });
 
-      // Attach the user's JWT to the socket so RLS is enforced on the channel.
-      client.realtime.setAuth(accessToken);
-
-      const channel = client
-        .channel(`results-cli-${uploadId}`)
-        .on(
-          // The typings don't cover the postgres_changes overload cleanly.
-          'postgres_changes' as never,
-          {
-            event: '*',
-            schema: 'public',
-            table: 'results',
-            filter: `org_id=eq.${orgId}`,
-          } as never,
-          (payload: ResultChangePayload) => {
-            if (payload.new?.test_upload_id === uploadId) {
-              dbg(`change for upload ${uploadId}`);
-              onChange();
-            }
-          },
-        )
-        .subscribe((status) => {
-          if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
-            dbg('subscribed');
-            setConnected(true);
-          } else if (
-            status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR ||
-            status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT ||
-            status === REALTIME_SUBSCRIBE_STATES.CLOSED
-          ) {
-            // Don't try to recover — the backstop poll covers us. Surface in
-            // debug so a network-blocked websocket is diagnosable.
-            dbg(`channel ${status}; relying on backstop poll`);
-            setConnected(false);
-          }
+    return {
+      isConnected: () => connected,
+      async unsubscribe() {
+        closed = true;
+        setConnected(false);
+        await ready;
+        if (!client) return;
+        try {
+          if (channel) await client.removeChannel(channel);
+          await client.realtime.disconnect();
+        } catch {
+          /* best effort — process is exiting anyway */
+        }
+      },
+      updateAccessToken(nextToken: string) {
+        token = nextToken;
+        // setAuth updates the join payload and pushes the token to joined
+        // channels. A failure only costs realtime; the backstop poll stays.
+        client?.realtime.setAuth(nextToken).catch((error: unknown) => {
+          dbg(
+            `failed to update the socket's token: ${error instanceof Error ? error.message : String(error)}`,
+          );
         });
-
-      const activeClient = client;
-      return {
-        isConnected: () => connected,
-        async unsubscribe() {
-          setConnected(false);
-          try {
-            await activeClient.removeChannel(channel);
-            await activeClient.realtime.disconnect();
-          } catch {
-            /* best effort — process is exiting anyway */
-          }
-        },
-        updateAccessToken(nextToken: string) {
-          // setAuth updates the join payload and pushes the token to joined
-          // channels. A failure only costs realtime; the backstop poll stays.
-          activeClient.realtime.setAuth(nextToken).catch((error: unknown) => {
-            dbg(
-              `failed to update the socket's token: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
-        },
-      };
-    } catch (error) {
-      dbg(`failed to subscribe: ${error instanceof Error ? error.message : String(error)}`);
-      // Best-effort cleanup of a half-built client, then degrade to polling.
-      try {
-        client?.realtime.disconnect();
-      } catch {
-        /* ignore */
-      }
-      return {
-        isConnected: () => false,
-        async unsubscribe() {},
-        updateAccessToken() {},
-      };
-    }
+      },
+    };
   }
 }
