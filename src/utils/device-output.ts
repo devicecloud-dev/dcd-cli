@@ -1,6 +1,6 @@
 import { DeviceApiError, DeviceGateway } from '../gateways/device-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
-import type { DeviceSession } from '../types/domain/device-session.types.js';
+import type { DeviceHumanStatus, DeviceSession } from '../types/domain/device-session.types.js';
 import { CliError, logger } from './cli.js';
 import { colors, formatUrl } from './styling.js';
 import { type Field, ui } from './ui.js';
@@ -153,7 +153,7 @@ export async function resolveSessionId(
   );
 }
 
-function formatSeconds(seconds: number): string {
+export function formatSeconds(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
@@ -199,4 +199,44 @@ export function sessionFields(session: DeviceSession): Field[] {
 export function printSession(session: DeviceSession): void {
   logger.log(ui.branch(ui.fields(sessionFields(session))));
   for (const warning of session.warnings) logger.log(ui.warn(warning));
+}
+
+/**
+ * An API timestamp for a person: how far off it is and the local time, e.g.
+ * "in 12m (14:32)" or "3m ago (14:17)". The text as given when unreadable.
+ */
+export function formatWhen(iso: string, now: number = Date.now()): string {
+  const at = Date.parse(iso);
+  if (!Number.isFinite(at)) return iso;
+  const clock = new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const seconds = Math.round((at - now) / 1000);
+  if (Math.abs(seconds) < 5) return `now (${clock})`;
+  return seconds > 0
+    ? `in ${formatSeconds(seconds)} (${clock})`
+    : `${formatSeconds(-seconds)} ago (${clock})`;
+}
+
+/** Where the hand-over stands, in a few words. */
+export function humanState(human: DeviceHumanStatus): string {
+  if (human.human_in_control) return 'a person has control';
+  if (human.waiting) return 'waiting for a person';
+  if (human.handed_back) return 'handed back';
+  return 'no help asked for';
+}
+
+/** The rows that describe a request for a person, for {@link ui.fields}. */
+export function humanFields(human: DeviceHumanStatus, now: number = Date.now()): Field[] {
+  const fields: Field[] = [['state', humanState(human)]];
+  if (human.reason) fields.push(['reason', human.reason]);
+  if (human.since) fields.push(['asked', formatWhen(human.since, now)]);
+  if (human.waiting && human.expires_at) {
+    fields.push(['ends', `${formatWhen(human.expires_at, now)} unless they hand it back`]);
+  }
+
+  if (human.handed_back && human.handed_back_at) {
+    fields.push(['handed back', formatWhen(human.handed_back_at, now)]);
+  }
+
+  if (human.handed_back) fields.push(['note', human.note ?? colors.dim('none')]);
+  return fields;
 }

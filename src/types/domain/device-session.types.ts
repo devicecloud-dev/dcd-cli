@@ -51,6 +51,29 @@ export interface DeviceSession {
   monitor_url: string;
 }
 
+/**
+ * GET .../human and POST .../request-human (ILiveHumanStatus in the API):
+ * whether the session waits for a person, and what they said on handing back.
+ */
+export interface DeviceHumanStatus {
+  /** The session is in needs_human: wait, polling this. */
+  waiting: boolean;
+  /** Why help was asked for, while waiting. */
+  reason: null | string;
+  /** When help was asked for, while waiting. */
+  since: null | string;
+  /** When the session ends unless a person hands it back, while waiting. */
+  expires_at: null | string;
+  /** A person handed the session back since help was last asked for. */
+  handed_back: boolean;
+  /** Their note, if they left one. */
+  note: null | string;
+  handed_back_at: null | string;
+  /** A person has taken control in the console; commands answer 409 meanwhile. */
+  human_in_control: boolean;
+  controller_user_id: null | string;
+}
+
 /** POST /device/sessions. */
 export interface StartDeviceSessionRequest {
   platform: 'android' | 'ios';

@@ -10,6 +10,7 @@ import type { AuthContext } from '../types/domain/auth.types.js';
 import {
   type DeviceCatalogue,
   type DeviceCommandResult,
+  type DeviceHumanStatus,
   type DeviceInstalledApp,
   type DeviceRunResponse,
   type DeviceScreenElement,
@@ -33,6 +34,7 @@ import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import {
   deviceProgress,
+  humanFields,
   printSession,
   resolveSessionId,
   runDeviceCommand,
@@ -435,13 +437,28 @@ const statusSub = defineCommand({
     await runDeviceCommand(json, async () => {
       const ctx = await context(args);
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
-      const { session } = await DeviceGateway.status(ctx.apiUrl, ctx.auth, id);
+      // The summary does not say whether a person handed the session back,
+      // so ask. An API without the route (or a failure) just leaves it out.
+      const [{ session }, human] = await Promise.all([
+        DeviceGateway.status(ctx.apiUrl, ctx.auth, id),
+        DeviceGateway.human(ctx.apiUrl, ctx.auth, id).then(
+          (r) => r.human ?? null,
+          () => null,
+        ),
+      ]);
       return {
         session,
-        data: null,
+        data: human ? { human } : null,
         print() {
           logger.log(ui.section('Device session'));
           printSession(session);
+          if (human?.handed_back) {
+            logger.log(ui.info(`A person handed it back${human.note ? `: ${human.note}` : ' (no note).'}`));
+          }
+
+          if (human?.human_in_control) {
+            logger.log(ui.warn(`A person has control. Wait with \`dcd device human ${session.id} --wait\`.`));
+          }
         },
       };
     });
@@ -1015,6 +1032,116 @@ const openSub = defineCommand({
   },
 });
 
+const HUMAN_POLL_MS = 5000;
+
+/** The session is with a person: they were asked for help, or took control. */
+function withPerson(human: DeviceHumanStatus): boolean {
+  return human.waiting || human.human_in_control;
+}
+
+type HumanResponse = { human: DeviceHumanStatus; session: DeviceSession };
+
+/**
+ * Poll GET .../human until the person hands the session back (or gives up
+ * control). A session that ends meanwhile is exit 4. Ctrl-C stops waiting
+ * and leaves the session as it is.
+ */
+async function waitForHandBack(ctx: Ctx, id: string, first: HumanResponse): Promise<HumanResponse> {
+  let current = first;
+  if (!withPerson(current.human)) return current;
+  ctx.progress(ui.running(`Waiting for a person to hand ${id} back. Ctrl-C stops waiting; the session stays open.`));
+  for (;;) {
+    if (ENDED_STATES.includes(current.session.state)) {
+      throw new DeviceApiError(
+        `Device session ${id} ended while waiting for a person (${current.session.release_reason ?? current.session.state}).`,
+        410,
+        'LIVE_SESSION_ENDED',
+        current.session,
+      );
+    }
+
+    if (!withPerson(current.human)) return current;
+    await sleep(HUMAN_POLL_MS);
+    current = await DeviceGateway.human(ctx.apiUrl, await freshAuth(ctx), id);
+  }
+}
+
+/** A person's part in a session, for `human` and `request-human`. */
+function printHuman(id: string, human: DeviceHumanStatus, waited: boolean): void {
+  if (waited && human.handed_back) logger.log(ui.success(`${id} was handed back`));
+  logger.log(ui.section('Human help'));
+  logger.log(ui.branch(ui.fields(humanFields(human))));
+  if (!waited && withPerson(human)) {
+    logger.log(ui.note(`Wait for the hand-back with \`dcd device human ${id} --wait\`.`));
+  }
+}
+
+const waitForPersonArg = {
+  type: 'boolean',
+  default: false,
+  description: `Wait until the person hands the session back (checks every ${HUMAN_POLL_MS / 1000}s; Ctrl-C stops waiting)`,
+} as const;
+
+const requestHumanSub = defineCommand({
+  meta: {
+    name: 'request-human',
+    description: 'Ask a person for help (a 2FA code, a CAPTCHA): the session waits for them to hand it back',
+  },
+  args: {
+    ...commonArgs,
+    reason: {
+      type: 'positional',
+      required: true,
+      description: 'What the person should do, e.g. "Enter the 2FA code sent to the test phone"',
+    },
+    id: idArg,
+    wait: waitForPersonArg,
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new CliError('Say what the person should do, e.g. dcd device request-human "Enter the 2FA code".');
+      if (reason.length > 500) throw new CliError('The reason is too long: keep it to 500 characters.');
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      let response = await DeviceGateway.requestHuman(ctx.apiUrl, ctx.auth, id, reason);
+      ctx.progress(ui.success(`Asked for a person on ${id}`));
+      if (args.wait) response = await waitForHandBack(ctx, id, response);
+      const { human, session } = response;
+      return {
+        session,
+        data: { human },
+        print() {
+          printHuman(session.id, human, Boolean(args.wait));
+        },
+      };
+    });
+  },
+});
+
+const humanSub = defineCommand({
+  meta: { name: 'human', description: 'Whether a session waits for a person, and their note when they hand it back' },
+  args: { ...commonArgs, id: idArg, wait: waitForPersonArg },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const ctx = await context(args);
+      const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      let response = await DeviceGateway.human(ctx.apiUrl, ctx.auth, id);
+      if (args.wait) response = await waitForHandBack(ctx, id, response);
+      const { human, session } = response;
+      return {
+        session,
+        data: { human },
+        print() {
+          printHuman(session.id, human, Boolean(args.wait));
+        },
+      };
+    });
+  },
+});
+
 interface ArtifactsData {
   /** Where they were saved; null with --links. */
   dir: null | string;
@@ -1130,6 +1257,8 @@ export const deviceCommand = defineCommand({
     logs: logsSub,
     open: openSub,
     artifacts: artifactsSub,
+    'request-human': requestHumanSub,
+    human: humanSub,
   },
 });
 
