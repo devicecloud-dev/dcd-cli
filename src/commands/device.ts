@@ -25,6 +25,8 @@ import {
   type DeviceArtifactFile,
   downloadArtifactFiles,
   fetchAllArtifacts,
+  pendingArtifacts,
+  pendingArtifactsWarning,
   planArtifactFiles,
 } from '../utils/device-artifacts.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
@@ -1018,6 +1020,10 @@ interface ArtifactsData {
   dir: null | string;
   files: DeviceArtifactFile[];
   failed: { file: string; reason: string }[];
+  /** What is still uploading after the session ended; see pendingArtifacts. */
+  pending: ('logs' | 'recording')[];
+  /** Says so in words, or null. */
+  warning: null | string;
 }
 
 const artifactsSub = defineCommand({
@@ -1046,19 +1052,26 @@ const artifactsSub = defineCommand({
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
       const { pages, session } = await fetchAllArtifacts(ctx.apiUrl, ctx.auth, id);
       const files = planArtifactFiles(pages);
+      const pending = pendingArtifacts(pages);
+      const warning = pendingArtifactsWarning(pending);
+      const printWarning = () => {
+        if (warning) logger.log(ui.warn(warning));
+      };
 
       if (args.links) {
         return {
           session,
-          data: { dir: null, files, failed: [] },
+          data: { dir: null, files, failed: [], pending, warning },
           print() {
             if (files.length === 0) {
               logger.log(ui.info('This session has no artifacts yet.'));
+              printWarning();
               return;
             }
 
             logger.log(ui.section(`Artifacts (${files.length})`));
             logger.log(ui.branch(ui.fields(files.map((f) => [f.file, f.url ? formatUrl(f.url) : colors.dim('no link')]))));
+            printWarning();
           },
         };
       }
@@ -1069,7 +1082,7 @@ const artifactsSub = defineCommand({
       const saved = files.length - failed.length;
       return {
         session,
-        data: { dir, files, failed },
+        data: { dir, files, failed, pending, warning },
         ...(failed.length > 0 && {
           failure: {
             code: null,
@@ -1079,11 +1092,13 @@ const artifactsSub = defineCommand({
         print() {
           if (files.length === 0) {
             logger.log(ui.info('This session has no artifacts yet.'));
+            printWarning();
             return;
           }
 
           logger.log(ui.success(`Saved ${saved} of ${files.length} files to ${dir}`));
           for (const f of failed) logger.log(ui.warn(`${f.file}: ${f.reason}`));
+          printWarning();
           if (!ENDED_STATES.includes(session.state)) {
             logger.log(ui.note('The session is still open: its video and log are saved when it ends.'));
           }

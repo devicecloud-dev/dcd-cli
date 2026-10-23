@@ -168,6 +168,12 @@ export interface DeviceArtifactsPage {
   logs: DeviceArtifactLink | null;
   /** Pass as `before` for the next (older) page; null on the last page. */
   next_before: null | string;
+  /**
+   * Files the runner is still uploading after the session ended: the video
+   * and the device log land up to a minute or so later. Absent from APIs
+   * older than this field.
+   */
+  pending?: ('logs' | 'recording')[];
   recording: DeviceArtifactLink | null;
   session: DeviceSession;
 }
