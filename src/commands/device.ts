@@ -376,7 +376,7 @@ const listSub = defineCommand({
       const ctx = await context(args);
       const { sessions } = await DeviceGateway.list(ctx.apiUrl, ctx.auth, Boolean(args.all));
       return {
-        session: null,
+        session: undefined,
         data: { sessions },
         print() {
           if (sessions.length === 0) {
@@ -442,7 +442,7 @@ const stopSub = defineCommand({
         }
 
         return {
-          session: null,
+          session: undefined,
           data: { stopped },
           print() {
             logger.log(
@@ -617,7 +617,7 @@ const modelsSub = defineCommand({
       const catalogue = await DeviceGateway.models(ctx.apiUrl, ctx.auth);
       const data: Partial<DeviceCatalogue> = platform ? { [platform]: catalogue[platform] } : catalogue;
       return {
-        session: null,
+        session: undefined,
         data,
         print() {
           for (const p of PLATFORMS) {

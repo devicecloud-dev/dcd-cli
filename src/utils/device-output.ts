@@ -44,16 +44,21 @@ export function deviceExitCode(error: unknown): number {
   return DEVICE_EXIT.failed;
 }
 
-/** The one object `--json` prints, on success and on failure alike. */
+/**
+ * The one object `--json` prints, on success and on failure alike. `session`
+ * is left out by the commands that are not about one session (`list`,
+ * `models`, `stop --all`), so it never reads as "no session".
+ */
 export interface DeviceEnvelope<T> {
   ok: boolean;
-  session: DeviceSession | null;
+  session?: DeviceSession | null;
   data: T | null;
   error: { code: null | string; message: string } | null;
 }
 
 export interface DeviceOutcome<T> {
-  session: DeviceSession | null;
+  /** The session the command was about; undefined when it is not about one. */
+  session: DeviceSession | null | undefined;
   data: T;
   /** Prints the result for a person. Not called under --json. */
   print(): void;
@@ -94,7 +99,7 @@ export async function runDeviceCommand<T>(
   if (json) {
     const envelope: DeviceEnvelope<T> = {
       ok: !outcome.failure,
-      session: outcome.session,
+      ...(outcome.session !== undefined && { session: outcome.session }),
       data: outcome.data,
       error: outcome.failure ?? null,
     };

@@ -201,6 +201,13 @@ describe('dcd device', () => {
       expect(out.error).to.equal(null);
     });
 
+    it('leaves session out for commands that are not about one session', async () => {
+      stubFetch(() => ({ body: { sessions: [] } }));
+      const { out } = await runJson('list', {});
+      expect(out).to.have.keys('ok', 'data', 'error');
+      expect(out.data).to.deep.equal({ sessions: [] });
+    });
+
     it('carries the API code, the session and exit 4 for an ended session', async () => {
       const ended = session('brave-teal-otter', { state: 'released', release_reason: 'user_stop' });
       stubFetch(() => ({
