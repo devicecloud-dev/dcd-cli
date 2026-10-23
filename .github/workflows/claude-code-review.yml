@@ -13,7 +13,7 @@ on:
 jobs:
   claude-review:
     # Skip PRs we shouldn't (or can't) review:
-    #  - Dependabot / forks: no CLAUDE_CODE_OAUTH_TOKEN, so the action would fail.
+    #  - Dependabot / forks: no OIDC token to exchange, so the action would fail.
     #  - release-please release PRs: just version bumps + changelog — nothing to
     #    review, and it must never block a release.
     #  - Back-merge PRs (production -> dev, opened by release-please.yml): only
@@ -44,7 +44,13 @@ jobs:
         id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Workload identity federation: the action swaps the job's GitHub OIDC
+          # token (hence `id-token: write`) for a short-lived Anthropic token.
+          # No stored secret. These IDs aren't secret either.
+          anthropic_federation_rule_id: fdrl_01TQKFjxagS7QzsRp6royjYN
+          anthropic_organization_id: 43f1fdcd-16a2-46c9-902d-f939b82bb4f4
+          anthropic_service_account_id: svac_01TcDsbHiTCxQ5m7aNHrBgLg
+          anthropic_workspace_id: wrkspc_01SadkG1A6MDwLr3FVD1VmyN
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           # --comment is required for the review to be posted to the PR: the
@@ -76,12 +82,26 @@ jobs:
       # The plugin also stops early on PRs it judges trivial. The prompt above
       # tells Claude to post a one-line note in that case, so a deliberate skip
       # leaves a comment and only a real failure trips this check.
+      #
+      # Nor is a PR that edits THIS file: the action refuses to run unless the
+      # workflow is identical to the default branch's ("Workflow validation
+      # failed"), a deliberate guard against a PR rewriting its own reviewer. It
+      # exits green having posted nothing, so pass with a notice instead.
       - name: Check a review comment was posted
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          SELF: ${{ github.workflow_ref }}
         run: |
+          # workflow_ref is "owner/repo/.github/workflows/<file>@<ref>".
+          self_path="${SELF#"$REPO"/}"
+          self_path="${self_path%@*}"
+          if gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' | grep -qxF "$self_path"; then
+            echo "::notice::This PR edits $self_path, so the review action skipped it by design (it only runs the default branch's version of its own workflow). No review on this PR."
+            exit 0
+          fi
+
           # Prints the time of every claude[bot] comment, inline comment and review.
           claude_posts() {
             gh api "repos/$REPO/issues/$PR/comments" --paginate \
