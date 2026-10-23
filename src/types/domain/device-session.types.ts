@@ -86,9 +86,19 @@ export interface DeviceInstalledApp {
   reused: boolean;
 }
 
-/** The result of a typed action or a launch. */
+/** One flow of a run, as newer APIs report it in `result.flows`. */
+export interface DeviceFlowResult {
+  error: null | string;
+  /** The flow's path inside the bundle; null for a single flow. */
+  file: null | string;
+  success: boolean;
+}
+
+/** The result of a typed action, a launch or a run. */
 export interface DeviceCommandResult {
   error?: string;
+  /** Each flow of a run. Absent from APIs older than this field. */
+  flows?: DeviceFlowResult[];
   output?: string;
   success: boolean;
 }

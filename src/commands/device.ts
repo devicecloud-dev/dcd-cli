@@ -35,6 +35,7 @@ import {
   resolveSessionId,
   runDeviceCommand,
 } from '../utils/device-output.js';
+import { parseRunReport, printRunResult, runFailureMessage } from '../utils/device-run.js';
 import { isUrl } from '../utils/expo.js';
 import { colors, formatUrl } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
@@ -832,19 +833,10 @@ const runSub = defineCommand({
         session: response.session,
         data: { command_id: response.command_id, status: response.status, result },
         ...(!passed && {
-          failure: { code: null, message: result.error || 'The flow failed.' },
+          failure: { code: null, message: runFailureMessage(result, parseRunReport(result)) },
         }),
         print() {
-          logger.log(passed ? ui.success('Flow passed') : `${ui.statusSymbol('FAILED')} Flow failed`);
-          if (result.output) {
-            logger.log(ui.section('Output'));
-            logger.log(result.output);
-          }
-
-          if (result.error) {
-            logger.log(ui.section('Error'));
-            logger.log(colors.error(result.error));
-          }
+          printRunResult(logger.log, passed, result, entry ?? (flow ? path.basename(flow) : 'flow'));
         },
       };
     });

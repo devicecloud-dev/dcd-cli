@@ -465,6 +465,23 @@ describe('dcd device', () => {
       expect(out.error).to.deep.equal({ code: null, message: 'Element not found' });
     });
 
+    it('run reports the failing flows, not the runner JSON, and keeps the raw result in data', async () => {
+      const report = JSON.stringify({
+        success: false,
+        device_id: 'emulator-5554',
+        results: [{ file: 'run-test.yml', success: false, error: 'Assertion is false', message: 'Flow execution failed' }],
+        env_vars: { MAESTRO_CLI_NO_ANALYTICS: 'false' },
+        message: 'Some flows failed to execute',
+      });
+      stubFetch(() => ({
+        body: { command_id: 'c1', status: 'failed', result: { success: false, error: report }, session: session('a-b-c') },
+      }));
+      const { exit, out } = await runJson('run', { id: 'a-b-c', yaml: '- tapOn: Go' });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      expect(out.error).to.deep.equal({ code: null, message: 'run-test.yml: Assertion is false' });
+      expect((out.data as { result: { error: string } }).result.error).to.equal(report);
+    });
+
     it('run needs a file, a directory or --yaml', async () => {
       const { exit } = await runJson('run', { id: 'a-b-c' });
       expect(exit).to.equal(DEVICE_EXIT.usage);
