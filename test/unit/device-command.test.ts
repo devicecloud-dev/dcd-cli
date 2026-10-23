@@ -121,6 +121,31 @@ async function runJson(
   return { exit: code, out: JSON.parse(out) as Record<string, unknown> };
 }
 
+/** Run a subcommand's `run` without --json, capturing what it prints. */
+async function runText(name: string, args: Record<string, unknown>): Promise<string> {
+  const sub = (deviceCommand.subCommands as Record<string, { run: (c: unknown) => Promise<void> }>)[
+    name
+  ];
+  let out = '';
+  const write = process.stdout.write.bind(process.stdout);
+  const log = console.log;
+  process.stdout.write = ((chunk: string) => {
+    out += chunk;
+    return true;
+  }) as typeof process.stdout.write;
+  console.log = (...parts: unknown[]) => {
+    out += parts.join(' ') + '\n';
+  };
+  try {
+    await sub.run({ args: { json: false, 'api-url': API, 'api-key': 'k', ...args }, rawArgs: [] });
+  } finally {
+    process.stdout.write = write;
+    console.log = log;
+  }
+
+  return out;
+}
+
 describe('dcd device', () => {
   const realFetch = globalThis.fetch;
   const ORIGINAL_ENV = { ...process.env };
@@ -624,6 +649,27 @@ describe('dcd device', () => {
       );
       const { out } = await runJson('status', { id: 'a-b-c' });
       expect(out.data).to.deep.equal({ human: handedBack });
+    });
+
+    it('status says a person has control once, not twice', async () => {
+      const inControl = human({ waiting: true, reason: 'a@b.c took control', human_in_control: true });
+      const waitingWarning =
+        'Waiting for a human: a@b.c took control. The session ends in 900s unless they hand it back. Poll get_human_status (MCP) or run `dcd device human --wait`; the idle timer is paused meanwhile.';
+      stubFetch((call) =>
+        call.url.endsWith('/human')
+          ? { body: { human: inControl, session: session('a-b-c', { state: 'needs_human' }) } }
+          : { body: { session: session('a-b-c', { state: 'needs_human', warnings: [waitingWarning] }) } },
+      );
+      const withApiWarning = await runText('status', { id: 'a-b-c' });
+      expect(withApiWarning).to.include('Waiting for a human');
+      expect(withApiWarning).not.to.include('A person has control');
+
+      stubFetch((call) =>
+        call.url.endsWith('/human')
+          ? { body: { human: inControl, session: session('a-b-c', { state: 'needs_human' }) } }
+          : { body: { session: session('a-b-c', { state: 'needs_human' }) } },
+      );
+      expect(await runText('status', { id: 'a-b-c' })).to.include('A person has control');
     });
 
     it('status still works on an API without the human route', async () => {
