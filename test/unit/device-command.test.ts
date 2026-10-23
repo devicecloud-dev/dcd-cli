@@ -324,6 +324,36 @@ describe('dcd device', () => {
       });
     });
 
+    describe('start --model without --platform', () => {
+      const catalogue = {
+        ios: [{ model: 'iphone-16', name: 'iPhone 16', os: ['18'], default_os: '18', google_play: false, default: true }],
+        android: [
+          { model: 'pixel-10', name: 'Pixel 10', os: ['36'], default_os: '36', google_play: true, default: true },
+          { model: 'iphone-16', name: 'Clash', os: ['36'], default_os: '36', google_play: false, default: false },
+        ],
+      };
+
+      it('reads the platform from the model list', async () => {
+        const calls = stubFetch((call) =>
+          call.url.endsWith('/device/models') ? { body: catalogue } : { body: { session: session('a-b-c') } },
+        );
+        const { exit } = await runJson('start', { model: 'Pixel 10' });
+        expect(exit).to.equal(0);
+        const start = calls.find((c) => c.method === 'POST')!;
+        expect(start.body).to.include({ platform: 'android', model: 'Pixel 10' });
+      });
+
+      it('is a usage error for an unknown model, or one on both platforms', async () => {
+        stubFetch(() => ({ body: catalogue }));
+        const unknown = await runJson('start', { model: 'nokia-3310' });
+        expect(unknown.exit).to.equal(DEVICE_EXIT.usage);
+        expect((unknown.out.error as { message: string }).message).to.include('dcd device models');
+        const both = await runJson('start', { model: 'iphone-16' });
+        expect(both.exit).to.equal(DEVICE_EXIT.usage);
+        expect((both.out.error as { message: string }).message).to.include('--platform');
+      });
+    });
+
     it('start --app with a URL starts, then installs from the URL', async () => {
       const calls = stubFetch((call) =>
         call.url.endsWith('/install')

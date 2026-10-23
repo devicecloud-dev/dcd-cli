@@ -210,13 +210,33 @@ function parsePositiveInt(value: unknown, flag: string): number | undefined {
   return n;
 }
 
+/**
+ * The platform a `--model` belongs to, from GET /device/models. Matches the
+ * model id (iphone-16) or its name (iPhone 16), ignoring case. Unknown, or on
+ * both platforms: a usage error that says to pass --platform.
+ */
+export function platformOfModel(catalogue: DeviceCatalogue, model: string): 'android' | 'ios' {
+  const wanted = model.trim().toLowerCase();
+  const found = PLATFORMS.filter((p) =>
+    (catalogue[p] ?? []).some((m) => m.model.toLowerCase() === wanted || m.name.toLowerCase() === wanted),
+  );
+  if (found.length === 1) return found[0];
+  if (found.length === 0) {
+    throw new CliError(
+      `Unknown model "${model}". See \`dcd device models\` for the list, or pass --platform.`,
+    );
+  }
+
+  throw new CliError(`"${model}" is a model on both iOS and Android. Pass --platform ios or --platform android.`);
+}
+
 const startSub = defineCommand({
   meta: { name: 'start', description: 'Start a device session' },
   args: {
     ...commonArgs,
     platform: {
       type: 'string',
-      description: 'ios or android. Optional with --app, which implies it',
+      description: 'ios or android. Optional with --model or --app, which imply it',
     },
     model: {
       type: 'string',
@@ -268,14 +288,19 @@ const startSub = defineCommand({
       const binaryId = args['app-binary-id'] as string | undefined;
       if (app && binaryId) throw new CliError('Pass --app or --app-binary-id, not both.');
 
-      const platform =
-        validateEnum(args.platform as string | undefined, PLATFORMS, 'platform') ??
-        (app && !isUrl(app) ? platformOfAppFile(app) : undefined);
-      if (!platform) {
-        throw new CliError('--platform is required (ios or android).');
+      const model = args.model as string | undefined;
+      const appPlatform = app && !isUrl(app) ? platformOfAppFile(app) : undefined;
+      let platform =
+        validateEnum(args.platform as string | undefined, PLATFORMS, 'platform') ?? appPlatform;
+      if (!platform && !model) {
+        throw new CliError('Pass --platform ios or android, or a --model or --app that says which.');
       }
 
-      const appPlatform = app && !isUrl(app) ? platformOfAppFile(app) : undefined;
+      const ctx = await context(args);
+      if (!platform) {
+        platform = platformOfModel(await DeviceGateway.models(ctx.apiUrl, ctx.auth), model!);
+      }
+
       if (appPlatform && appPlatform !== platform) {
         throw new CliError(`${app} is a build for ${appPlatform}, not ${platform}.`);
       }
@@ -284,7 +309,6 @@ const startSub = defineCommand({
         throw new CliError('--google-play is only for Android.');
       }
 
-      const ctx = await context(args);
       const resolved = app ? await resolveApp(ctx, app) : undefined;
       const uploadedId =
         binaryId ?? (resolved && 'binaryUploadId' in resolved ? resolved.binaryUploadId : undefined);
@@ -293,7 +317,7 @@ const startSub = defineCommand({
         platform,
         clientLabel: (args.name as string | undefined) || DEFAULT_CLIENT_LABEL,
         ...(uploadedId && { binaryUploadId: uploadedId }),
-        ...(args.model ? { model: args.model as string } : {}),
+        ...(model ? { model } : {}),
         ...(args.os ? { os: String(args.os) } : {}),
         ...(args['google-play'] ? { googlePlay: true } : {}),
         ...(args.locale ? { deviceLocale: args.locale as string } : {}),
