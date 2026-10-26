@@ -12,7 +12,7 @@ import {
   writeJSONFile,
 } from '../methods.js';
 import { DeviceValidationService } from '../services/device-validation.service.js';
-import { plan } from '../services/execution-plan.service.js';
+import { countExtendedRuntimeFlows, plan } from '../services/execution-plan.service.js';
 import {
   isSubmitEndpointMissing,
   submitWithRetry,
@@ -771,6 +771,17 @@ export const cloudCommand = defineCommand({
               Object.entries(overrides).map(
                 ([key, value]) => [key, colors.highlight(String(value))] as Field,
               ),
+            ),
+          );
+        }
+
+        // The 2x is charged per flow, so say it before the run, not on the bill.
+        const extendedFlows = countExtendedRuntimeFlows(flowOverrides);
+        if (extendedFlows > 0) {
+          submitRows.push(
+            '',
+            ui.note(
+              `${extendedFlows} flow${extendedFlows === 1 ? '' : 's'} with extended runtime: up to 20 min each, billed at 2×`,
             ),
           );
         }

@@ -174,6 +174,19 @@ function extractDeviceCloudOverrides(
 }
 
 /**
+ * How many flows opt into the extended test runtime (up to 20 minutes, billed
+ * at 2x) with `DEVICECLOUD_OVERRIDE_EXTENDED_RUNTIME`. Matches what the API
+ * accepts: YAML `true` or the string `'true'` (dcd#1624).
+ */
+export function countExtendedRuntimeFlows(
+  flowOverrides: Record<string, Record<string, unknown>>,
+): number {
+  return Object.values(flowOverrides).filter(
+    ({ EXTENDED_RUNTIME }) => EXTENDED_RUNTIME === true || EXTENDED_RUNTIME === 'true',
+  ).length;
+}
+
+/**
  * Generate execution plan for a single flow file
  * @param normalizedInput - Normalized path to the flow file
  * @param warn - Sink for non-fatal config problems
