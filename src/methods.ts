@@ -23,6 +23,7 @@ import {
 } from './services/metadata-extractor.service.js';
 import { TAppMetadata } from './types.js';
 import type { AuthContext } from './types/domain/auth.types.js';
+import { assertB2Ok, B2HttpError, withB2Retry } from './utils/b2-retry.js';
 import {
   type BinaryEnvelope,
   encryptFileToPath,
@@ -667,7 +668,10 @@ async function handleBackblazeUpload(config: BackblazeUploadConfig): Promise<{ e
       );
     }
 
-    return { error: null, success: backblazeSuccess };
+    return {
+      error: backblazeSuccess ? null : new Error(`Backblaze upload strategy '${b2.strategy}' is not usable`),
+      success: backblazeSuccess,
+    };
   } catch (error) {
     const b2Error = error instanceof Error ? error : new Error(String(error));
     if (debug) {
@@ -780,30 +784,33 @@ async function extractBinaryMetadata(
   return metadata;
 }
 
+type UploadResult = { error: Error | null; success: boolean };
+
 /**
- * Validates upload results and throws if all uploads failed
- * @param supabaseSuccess - Whether Supabase upload succeeded
- * @param backblazeSuccess - Whether Backblaze upload succeeded
- * @param lastError - Last error encountered during uploads
+ * Validates upload results and throws if all uploads failed. The message names
+ * both failures: the Supabase error alone hid every Backblaze failure behind
+ * it, which is what made a dropped B2 request look like a Supabase outage.
+ * @param supabase - Result of the Supabase upload
+ * @param backblaze - Result of the Backblaze upload
  * @param b2 - Backblaze configuration
  * @param debug - Enable debug logging
  * @returns void - throws error if all uploads failed
  */
-function validateUploadResults(
-  supabaseSuccess: boolean,
-  backblazeSuccess: boolean,
-  lastError: Error | null,
+export function validateUploadResults(
+  supabase: UploadResult,
+  backblaze: UploadResult,
   b2: unknown,
   debug: boolean,
 ): void {
-  if (supabaseSuccess || backblazeSuccess) {
+  if (supabase.success || backblaze.success) {
     return;
   }
 
+  const lastError = supabase.error ?? backblaze.error;
   if (debug) {
     console.error(`[DEBUG] === ALL UPLOADS FAILED ===`);
-    console.error(`[DEBUG] Supabase upload: FAILED`);
-    console.error(`[DEBUG] Backblaze upload: ${b2 ? 'FAILED' : 'NOT CONFIGURED'}`);
+    console.error(`[DEBUG] Supabase upload: FAILED${supabase.error ? ` (${supabase.error.message})` : ''}`);
+    console.error(`[DEBUG] Backblaze upload: ${b2 ? `FAILED${backblaze.error ? ` (${backblaze.error.message})` : ''}` : 'NOT CONFIGURED'}`);
     if (lastError) {
       console.error(`[DEBUG] Final error details:`);
       console.error(`[DEBUG] - Message: ${lastError.message}`);
@@ -812,8 +819,9 @@ function validateUploadResults(
     }
   }
 
+  const backblazePart = b2 && backblaze.error ? `Backblaze error: ${backblaze.error.message}. ` : '';
   throw new Error(
-    `All uploads failed. ${lastError ? `Last error: ${JSON.stringify({ message: lastError.message, name: lastError.name, stack: lastError.stack })}` : 'No upload targets available.'}`
+    `All uploads failed. ${backblazePart}${lastError ? `Last error: ${JSON.stringify({ message: lastError.message, name: lastError.name, stack: lastError.stack })}` : 'No upload targets available.'}`
   );
 }
 
@@ -858,21 +866,16 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     finalPath,
     source,
   });
-  let lastError = backblazeResult.error;
 
   // Always upload to Supabase (re-enabled as always-on alongside Backblaze)
   if (debug) {
     console.log('[DEBUG] Uploading to Supabase...');
   }
 
-  const supabaseResult: { error: Error | null; success: boolean } =
-    await uploadToSupabase(env, tempPath, source, debug);
-  if (!supabaseResult.success && supabaseResult.error) {
-    lastError = supabaseResult.error;
-  }
+  const supabaseResult: UploadResult = await uploadToSupabase(env, tempPath, source, debug);
 
   // Validate results
-  validateUploadResults(supabaseResult.success, backblazeResult.success, lastError, b2, debug);
+  validateUploadResults(supabaseResult, backblazeResult, b2, debug);
 
   // Log upload summary
   if (debug) {
@@ -979,15 +982,11 @@ export const uploadFlowZip = async (config: {
       finalPath,
       source,
     });
-    let lastError = backblazeResult.error;
 
     // Always upload to Supabase (always-on alongside Backblaze)
     const supabaseResult = await uploadToSupabase(env, tempPath, source, debug);
-    if (!supabaseResult.success && supabaseResult.error) {
-      lastError = supabaseResult.error;
-    }
 
-    validateUploadResults(supabaseResult.success, backblazeResult.success, lastError, b2, debug);
+    validateUploadResults(supabaseResult, backblazeResult, b2, debug);
 
     if (debug) {
       console.log(`[DEBUG] Flow zip upload summary - Backblaze: ${backblazeResult.success ? '✓' : '✗'}, Supabase: ${supabaseResult.success ? '✓' : '✗'}`);
@@ -1013,7 +1012,8 @@ export const uploadFlowZip = async (config: {
  * @param fileName - Name/path of the file
  * @param source - Upload source descriptor (streamed from disk)
  * @param debug - Whether debug logging is enabled
- * @returns Promise that resolves when upload completes or fails gracefully
+ * @returns Promise resolving to true once the upload succeeds; throws the last
+ * error once transient failures have used up their retries
  */
 async function uploadToBackblaze(
   uploadUrl: string,
@@ -1022,87 +1022,79 @@ async function uploadToBackblaze(
   source: UploadSource,
   debug: boolean,
 ): Promise<boolean> {
-  try {
-    // The API only picks the simple strategy for small binaries (large files
-    // get the multi-part path), so one transient buffer here is bounded.
-    // S3 pre-signed PUTs reject chunked transfer encoding, which rules out a
-    // plain stream body.
-    const body = await readFile(source.diskPath);
+  // The API only picks the simple strategy for small binaries (large files
+  // get the multi-part path), so one transient buffer here is bounded.
+  // S3 pre-signed PUTs reject chunked transfer encoding, which rules out a
+  // plain stream body.
+  const body = await readFile(source.diskPath);
 
-    // Calculate SHA1 hash for Backblaze (B2 requires SHA1, not SHA256)
-    const sha1 = createHash('sha1');
-    sha1.update(body);
-    const sha1Hex = sha1.digest('hex');
+  // Calculate SHA1 hash for Backblaze (B2 requires SHA1, not SHA256)
+  const sha1 = createHash('sha1');
+  sha1.update(body);
+  const sha1Hex = sha1.digest('hex');
 
-    // Detect if this is an S3 pre-signed URL (authorization token is empty)
-    const isS3PreSignedUrl = !authorizationToken || authorizationToken === '';
+  // Detect if this is an S3 pre-signed URL (authorization token is empty)
+  const isS3PreSignedUrl = !authorizationToken || authorizationToken === '';
 
-    if (debug) {
-      console.log(`[DEBUG] Uploading to Backblaze URL: ${uploadUrl}`);
-      console.log(`[DEBUG] Upload method: ${isS3PreSignedUrl ? 'S3 pre-signed URL (PUT)' : 'B2 native API (POST)'}`);
-      console.log(`[DEBUG] File name: ${fileName}`);
-      console.log(`[DEBUG] File SHA1: ${sha1Hex}`);
-    }
-
-    // Build headers based on upload method
-    const headers: Record<string, string> = {
-      'Content-Length': body.length.toString(),
-      'Content-Type': source.contentType || 'application/octet-stream',
-      'X-Bz-Content-Sha1': sha1Hex,
-    };
-
-    // S3 pre-signed URLs have auth embedded in URL, native B2 uses Authorization header
-    if (!isS3PreSignedUrl) {
-      headers.Authorization = authorizationToken;
-      headers['X-Bz-File-Name'] = encodeURIComponent(fileName);
-    }
-
-    const response = await fetch(uploadUrl, {
-      // Zero-copy view over the buffer (new Uint8Array(buffer) would clone it).
-      body: new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
-      headers,
-      method: isS3PreSignedUrl ? 'PUT' : 'POST',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (debug) {
-        console.error(`[DEBUG] Backblaze upload failed with status ${response.status}: ${errorText}`);
-      }
-
-      // Don't throw and don't warn — Backblaze is the primary attempt and the
-      // Supabase fallback usually recovers. A user-facing error is raised only
-      // if every strategy fails (see validateUploadResults).
-      return false;
-    }
-
-    if (debug) {
-      console.log('[DEBUG] Backblaze upload successful');
-    }
-
-    return true;
-  } catch (error) {
-    if (debug) {
-      console.error('[DEBUG] === BACKBLAZE UPLOAD EXCEPTION ===');
-      console.error('[DEBUG] Backblaze upload exception:', error);
-      console.error(`[DEBUG] Error type: ${error instanceof Error ? error.name : typeof error}`);
-      console.error(`[DEBUG] Error message: ${error instanceof Error ? error.message : String(error)}`);
-      if (error instanceof Error && error.stack) {
-        console.error(`[DEBUG] Stack trace:\n${error.stack}`);
-      }
-    }
-
-    // Provide more specific error messages for common network errors
-    if (error instanceof TypeError && error.message === 'fetch failed') {
-      if (debug) {
-        console.error('[DEBUG] Network error detected - could be DNS, connection, or SSL issue');
-      }
-    }
-
-    // Don't throw and don't warn — the Supabase fallback usually recovers, and
-    // validateUploadResults raises a user-facing error only if all fail.
-    return false;
+  if (debug) {
+    console.log(`[DEBUG] Uploading to Backblaze URL: ${uploadUrl}`);
+    console.log(`[DEBUG] Upload method: ${isS3PreSignedUrl ? 'S3 pre-signed URL (PUT)' : 'B2 native API (POST)'}`);
+    console.log(`[DEBUG] File name: ${fileName}`);
+    console.log(`[DEBUG] File SHA1: ${sha1Hex}`);
   }
+
+  // Build headers based on upload method
+  const headers: Record<string, string> = {
+    'Content-Length': body.length.toString(),
+    'Content-Type': source.contentType || 'application/octet-stream',
+    'X-Bz-Content-Sha1': sha1Hex,
+  };
+
+  // S3 pre-signed URLs have auth embedded in URL, native B2 uses Authorization header
+  if (!isS3PreSignedUrl) {
+    headers.Authorization = authorizationToken;
+    headers['X-Bz-File-Name'] = encodeURIComponent(fileName);
+  }
+
+  // No user-facing warning on a failure: validateUploadResults raises the
+  // only user-facing error, and only when every strategy fails. The thrown
+  // error reaches it through handleBackblazeUpload.
+  await withB2Retry(
+    async () =>
+      assertB2Ok(
+        await fetch(uploadUrl, {
+          // Zero-copy view over the buffer (new Uint8Array(buffer) would clone it).
+          body: new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
+          headers,
+          method: isS3PreSignedUrl ? 'PUT' : 'POST',
+        }),
+        'Backblaze upload',
+      ),
+    {
+      onRetry(attempt, error, delayMs) {
+        if (debug) {
+          console.error(`[DEBUG] Backblaze upload attempt ${attempt} failed (${describeB2Error(error)}); retrying in ${delayMs}ms`);
+        }
+      },
+    },
+  );
+
+  if (debug) {
+    console.log('[DEBUG] Backblaze upload successful');
+  }
+
+  return true;
+}
+
+/** One line for a failed B2 attempt, including the response body when there is one. */
+function describeB2Error(error: unknown): string {
+  if (error instanceof B2HttpError) return `${error.message}${error.body ? `: ${error.body.slice(0, 300)}` : ''}`;
+  if (error instanceof Error) {
+    const cause = error.cause instanceof Error ? ` (${error.cause.message})` : '';
+    return `${error.message}${cause}`;
+  }
+
+  return String(error);
 }
 
 /**
@@ -1154,48 +1146,67 @@ function calculateSha1(buffer: Buffer): string {
 }
 
 interface UploadPartConfig {
-  authorizationToken: string;
   debug: boolean;
   partBuffer: Buffer;
   partLength: number;
   partNumber: number;
   sha1Hex: string;
   totalParts: number;
-  uploadUrl: string;
+  uploadPartUrls: Array<{ authorizationToken: string; uploadUrl: string }>;
 }
 
 /**
- * Uploads a single part to Backblaze
+ * Picks the upload URL for one attempt at one part. The API mints one URL per
+ * part, but each is bound to the large file rather than to a part number (the
+ * part number travels in `X-Bz-Part-Number`), so any of them can carry any
+ * part. A retry moves on to the next one, which is what B2 asks for after a
+ * 503 or a dropped connection. Parts upload one at a time, so no URL is ever
+ * in use twice at once.
+ */
+export function partUploadUrlFor<T>(urls: T[], partNumber: number, attempt: number): T {
+  return urls[(partNumber - 1 + attempt - 1) % urls.length];
+}
+
+/**
+ * Uploads a single part to Backblaze, retrying transient failures on a
+ * different upload URL each time
  * @param config - Configuration for the part upload
  * @returns Promise that resolves when upload completes
  */
 async function uploadPartToBackblaze(config: UploadPartConfig): Promise<void> {
-  const { uploadUrl, authorizationToken, partBuffer, partLength, sha1Hex, partNumber, totalParts, debug } = config;
+  const { uploadPartUrls, partBuffer, partLength, sha1Hex, partNumber, totalParts, debug } = config;
 
   if (debug) {
     console.log(`[DEBUG] Uploading part ${partNumber}/${totalParts} (${(partLength / 1024 / 1024).toFixed(2)} MB, SHA1: ${sha1Hex})`);
   }
 
   try {
-    const response = await fetch(uploadUrl, {
-      body: new Uint8Array(partBuffer),
-      headers: {
-        Authorization: authorizationToken,
-        'Content-Length': partLength.toString(),
-        'X-Bz-Content-Sha1': sha1Hex,
-        'X-Bz-Part-Number': partNumber.toString(),
+    await withB2Retry(
+      async (attempt) => {
+        const { authorizationToken, uploadUrl } = partUploadUrlFor(uploadPartUrls, partNumber, attempt);
+        return assertB2Ok(
+          await fetch(uploadUrl, {
+            body: new Uint8Array(partBuffer),
+            headers: {
+              Authorization: authorizationToken,
+              'Content-Length': partLength.toString(),
+              'X-Bz-Content-Sha1': sha1Hex,
+              'X-Bz-Part-Number': partNumber.toString(),
+            },
+            method: 'POST',
+          }),
+          `Part ${partNumber} upload`,
+        );
       },
-      method: 'POST',
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (debug) {
-        console.error(`[DEBUG] Part ${partNumber} upload failed with status ${response.status}: ${errorText}`);
-      }
-
-      throw new Error(`Part ${partNumber} upload failed with status ${response.status}`);
-    }
+      {
+        onRetry(attempt, error, delayMs) {
+          if (debug) {
+            console.error(`[DEBUG] Part ${partNumber} attempt ${attempt} failed (${describeB2Error(error)}); retrying on another upload URL in ${delayMs}ms`);
+          }
+        },
+        rotatesUrl: true,
+      },
+    );
   } catch (error) {
     if (error instanceof TypeError && error.message === 'fetch failed') {
       if (debug) {
@@ -1216,86 +1227,61 @@ async function uploadPartToBackblaze(config: UploadPartConfig): Promise<void> {
 }
 
 /**
- * Logs detailed error information for Backblaze upload failures
- * @param error - The error that occurred
- * @param debug - Whether debug logging is enabled
- * @returns void
- */
-function logBackblazeUploadError(error: unknown, debug: boolean): void {
-  if (debug) {
-    console.error('[DEBUG] === BACKBLAZE LARGE FILE UPLOAD EXCEPTION ===');
-    console.error('[DEBUG] Large file upload exception:', error);
-    console.error(`[DEBUG] Error type: ${error instanceof Error ? error.name : typeof error}`);
-    console.error(`[DEBUG] Error message: ${error instanceof Error ? error.message : String(error)}`);
-    if (error instanceof Error && error.stack) {
-      console.error(`[DEBUG] Stack trace:\n${error.stack}`);
-    }
-  }
-
-  // No user-facing warning: Backblaze is the primary attempt and the Supabase
-  // fallback usually recovers; validateUploadResults raises the only
-  // user-facing error, and only when every strategy fails.
-}
-
-/**
  * Upload large file to Backblaze using multi-part upload with streaming (for files >= 5MB)
  * Uses file streaming to avoid loading entire file into memory, preventing OOM errors on large files
  * @param config - Configuration object for the large file upload
- * @returns Promise that resolves when upload completes or fails gracefully
+ * @returns Promise resolving to true once the upload succeeds; throws the
+ * error of the part (or finish call) that failed. No user-facing warning:
+ * validateUploadResults raises the only user-facing error, and only when
+ * every strategy fails.
  */
 async function uploadLargeFileToBackblaze(config: LargeFileUploadConfig): Promise<boolean> {
   const { apiUrl, auth, fileId, uploadPartUrls, filePath, fileSize, debug } = config;
-  try {
-    const partSha1Array: string[] = [];
-    const partSize = Math.ceil(fileSize / uploadPartUrls.length);
+  const partSha1Array: string[] = [];
+  const partSize = Math.ceil(fileSize / uploadPartUrls.length);
 
-    if (debug) {
-      console.log(`[DEBUG] Uploading large file in ${uploadPartUrls.length} parts (streaming mode)`);
-      console.log(`[DEBUG] Part size: ${(partSize / 1024 / 1024).toFixed(2)} MB`);
-      console.log(`[DEBUG] Reading from: ${filePath}`);
-    }
-
-    // Upload each part using streaming to avoid loading entire file into memory
-    for (let i = 0; i < uploadPartUrls.length; i++) {
-      const partNumber = i + 1;
-      const start = i * partSize;
-      const end = Math.min(start + partSize, fileSize);
-      const partLength = end - start;
-
-      if (debug) {
-        console.log(`[DEBUG] Reading part ${partNumber}/${uploadPartUrls.length} bytes ${start}-${end}`);
-      }
-
-      const partBuffer = await readFileChunk(filePath, start, end);
-      const sha1Hex = calculateSha1(partBuffer);
-      partSha1Array.push(sha1Hex);
-
-      await uploadPartToBackblaze({
-        authorizationToken: uploadPartUrls[i].authorizationToken,
-        debug,
-        partBuffer,
-        partLength,
-        partNumber,
-        sha1Hex,
-        totalParts: uploadPartUrls.length,
-        uploadUrl: uploadPartUrls[i].uploadUrl,
-      });
-    }
-
-    if (debug) {
-      console.log('[DEBUG] Finishing large file upload...');
-      console.log(`[DEBUG] Finalizing ${partSha1Array.length} parts with fileId: ${fileId}`);
-    }
-
-    await ApiGateway.finishLargeFile(apiUrl, auth, fileId, partSha1Array);
-
-    if (debug) console.log('[DEBUG] Large file upload completed successfully');
-
-    return true;
-  } catch (error) {
-    logBackblazeUploadError(error, debug);
-    return false;
+  if (debug) {
+    console.log(`[DEBUG] Uploading large file in ${uploadPartUrls.length} parts (streaming mode)`);
+    console.log(`[DEBUG] Part size: ${(partSize / 1024 / 1024).toFixed(2)} MB`);
+    console.log(`[DEBUG] Reading from: ${filePath}`);
   }
+
+  // Upload each part using streaming to avoid loading entire file into memory
+  for (let i = 0; i < uploadPartUrls.length; i++) {
+    const partNumber = i + 1;
+    const start = i * partSize;
+    const end = Math.min(start + partSize, fileSize);
+    const partLength = end - start;
+
+    if (debug) {
+      console.log(`[DEBUG] Reading part ${partNumber}/${uploadPartUrls.length} bytes ${start}-${end}`);
+    }
+
+    const partBuffer = await readFileChunk(filePath, start, end);
+    const sha1Hex = calculateSha1(partBuffer);
+    partSha1Array.push(sha1Hex);
+
+    await uploadPartToBackblaze({
+      debug,
+      partBuffer,
+      partLength,
+      partNumber,
+      sha1Hex,
+      totalParts: uploadPartUrls.length,
+      uploadPartUrls,
+    });
+  }
+
+  if (debug) {
+    console.log('[DEBUG] Finishing large file upload...');
+    console.log(`[DEBUG] Finalizing ${partSha1Array.length} parts with fileId: ${fileId}`);
+  }
+
+  await ApiGateway.finishLargeFile(apiUrl, auth, fileId, partSha1Array);
+
+  if (debug) console.log('[DEBUG] Large file upload completed successfully');
+
+  return true;
 }
 
 async function getFileHashFromPath(filePath: string): Promise<string> {
