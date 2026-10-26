@@ -61,6 +61,8 @@ Top-level `defineCommand` in `src/index.ts` wires thirteen subcommands (`cloud`,
 
 Full guide in `CONTRIBUTING.md`; the operationally important parts (the ones that gate a merge or affect a release):
 
+- ⚠️ **This repo is public — write PR titles and bodies, commit messages, code comments, test names and issues for a stranger.** Work here is often prompted by a support ticket or incident in the private `dcd` repo; that context stays there. Keep out: customer or org names and ids, ticket refs (`SUP-…`), private-repo issue/PR numbers, customer usage numbers, internal hostnames, Supabase project refs and dashboard links, and anything about our own security posture — key rotations or revocations, when they happened, which CLI versions they broke. Describe the fault generically ("a dropped B2 request failed the upload") and link the private issue from the private side instead. Edits don't undo a leak: GitHub keeps every revision of a PR or issue body, and a pushed commit stays readable from the PR after a later commit fixes it, so get it right before the first push.
+
 - **Branch off `dev`** (the default branch) and open PRs **against `dev`**. `production` is the maintainer-only stable track — never target it directly.
 - PRs are **squash-merged**, so the **PR title becomes the commit** and must be a [Conventional Commit](https://www.conventionalcommits.org). The title — not the branch commits — is what release-please reads to compute the next version, so it matters even though individual commits are squashed away. A `PR Title` CI check enforces it.
 - Type → bump: `feat` **minor**; `fix`/`perf`/`deps`/`revert`/`refactor` **patch**; `docs`/`chore`/`test`/`ci`/`build`/`style` are hidden and bump nothing. Allowed scopes are free-form.
