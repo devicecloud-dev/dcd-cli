@@ -14,7 +14,7 @@ import { telemetry } from '../services/telemetry.service.js';
 export const mcpCommand = defineCommand({
   meta: {
     name: 'mcp',
-    description: 'Run the DeviceCloud MCP server on stdio (cloud tests and cloud devices)',
+    description: 'MCP server for AI agents, started by your MCP client (Claude, Cursor, VS Code)',
   },
   args: {
     'read-only': {
