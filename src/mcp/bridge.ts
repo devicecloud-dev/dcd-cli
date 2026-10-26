@@ -124,31 +124,48 @@ export async function resolveLocalInputs(
   return args;
 }
 
-/** The hosted device tools, connected lazily and remade when auth changes. */
+/**
+ * The hosted device tools, over one connection made on first use and shared
+ * by every call.
+ *
+ * Auth goes on each request, not on the connection. Remaking the connection
+ * when a session is renewed would close it under calls still running (a `run`
+ * can take minutes), and they would fail with "Connection closed" while the
+ * flow carried on. The hosted /mcp is stateless, so nothing ties the
+ * connection to the auth it started with.
+ */
 class RemoteDevices {
-  private client: Client | null = null;
-  private auth: AuthContext | null = null;
+  private connecting: Promise<Client> | null = null;
   private tools: Tool[] | null = null;
 
-  async connect(): Promise<{ client: Client; ctx: { apiUrl: string; auth: AuthContext } }> {
-    const ctx = await getContext();
-    if (this.client && this.auth === ctx.auth) return { client: this.client, ctx };
+  /** Calls that arrive together share one connect. A failed one is retried by the next call. */
+  connect(): Promise<Client> {
+    this.connecting ??= this.open().catch((error: unknown) => {
+      this.connecting = null;
+      throw error;
+    });
+    return this.connecting;
+  }
 
-    await this.client?.close().catch(() => {});
+  private async open(): Promise<Client> {
+    const { apiUrl } = await getContext();
     const client = new Client({ name: 'dcd-mcp-bridge', version: getCliVersion() });
     await client.connect(
-      new StreamableHTTPClientTransport(new URL(`${ctx.apiUrl}/mcp`), {
-        requestInit: { headers: { ...ctx.auth.headers } },
+      new StreamableHTTPClientTransport(new URL(`${apiUrl}/mcp`), {
+        fetch: async (url, init) => {
+          const { auth } = await getContext();
+          const headers = new Headers(init?.headers);
+          for (const [key, value] of Object.entries(auth.headers)) headers.set(key, value);
+          return fetch(url, { ...init, headers });
+        },
       }),
     );
-    this.client = client;
-    this.auth = ctx.auth;
-    return { client, ctx };
+    return client;
   }
 
   async list(): Promise<Tool[]> {
     if (this.tools) return this.tools;
-    const { client } = await this.connect();
+    const client = await this.connect();
     const { tools } = await client.listTools();
     this.tools = tools;
     return tools;
@@ -224,8 +241,8 @@ export async function createBridgeServer(
       if (readOnly && !remote.isReadOnly(name)) {
         return errorResult(`${name} is not available in read-only mode.`);
       }
-      const { client, ctx } = await remote.connect();
-      const remoteArgs = await resolveLocalInputs(name, args, ctx);
+      const client = await remote.connect();
+      const remoteArgs = await resolveLocalInputs(name, args, await getContext());
       return (await client.callTool({ name, arguments: remoteArgs }, undefined, options)) as CallToolResult;
     });
   });
