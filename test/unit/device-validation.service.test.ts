@@ -130,7 +130,7 @@ describe('DeviceValidationService', () => {
   });
 
   // The API fills an omitted half from the same global defaults (iphone-14 /
-  // iOS 17, pixel-7 / API 36) and rejects an incompatible pair, so the CLI
+  // iOS 17, pixel-10 / API 36) and rejects an incompatible pair, so the CLI
   // mirrors that — but must tell the user to pass the other half.
   describe('requests that rely on a default', () => {
     it('tells a device-only iOS request to pass the version explicitly', () => {
@@ -174,25 +174,30 @@ describe('DeviceValidationService', () => {
       expect(() => ios('99')).to.throw(
         /No iOS device was given, so the default \(iphone-14\) was checked: no iOS device offers iOS 99$/,
       );
-      expect(() => android('36', undefined, true)).to.throw(
-        /no Google Play device offers API level 36$/,
+      // The default device (pixel-10) has Play images, as it does in the API.
+      const playDefault = {
+        ...compat,
+        androidPlay: { ...compat.androidPlay, 'pixel-10': ['36', '37'] },
+      };
+      expect(() => android('35', undefined, true, playDefault)).to.throw(
+        /no Google Play device offers API level 35$/,
       );
     });
 
     it('leaves a version-only request to the API once the API no longer offers the assumed default device', () => {
       // The API has moved its default on; checking against the CLI's stale
       // assumption would refuse a request the API accepts.
-      const withoutPixel7 = {
+      const withoutPixel10 = {
         ...compat,
-        android: { 'pixel-10': ['36', '37'] },
+        android: { 'pixel-12': ['38'] },
       };
-      expect(() => android('36', undefined, false, withoutPixel7)).to.not.throw();
+      expect(() => android('38', undefined, false, withoutPixel10)).to.not.throw();
     });
   });
 
   // With Google Play the API does not apply the global default to an omitted
-  // half — pixel-7 / API 36 has no Play image — but picks whichever value
-  // makes the pair a Play cell, and only rejects when there is none.
+  // half when that would miss a Play image, but picks whichever value makes
+  // the pair a Play cell, and only rejects when there is none.
   describe('Google Play requests that name one half', () => {
     const play36 = {
       ...compat,
