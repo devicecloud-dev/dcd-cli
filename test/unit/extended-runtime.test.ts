@@ -4,7 +4,7 @@ import { countExtendedRuntimeFlows } from '../../src/services/execution-plan.ser
 
 /**
  * `dcd cloud` notes how many flows opted into the extended runtime, because
- * the API bills each of them at 2x (dcd#1624). It must count exactly the
+ * the API bills each of them at 2x. It must count exactly the
  * values the API treats as opted in: YAML `true` and the string 'true'.
  */
 describe('countExtendedRuntimeFlows', () => {
