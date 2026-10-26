@@ -365,11 +365,7 @@ export const cloudCommand = defineCommand({
       const ciContext = detectCiContext();
       let compatibilityData: CompatibilityData;
       try {
-        compatibilityData = await fetchCompatibilityData(apiUrl, auth, {
-          cliVersion,
-          ciProvider: ciContext.provider,
-          ciWrapperVersion: ciContext.wrapperVersion,
-        });
+        compatibilityData = await fetchCompatibilityData(apiUrl, auth);
         if (debug) {
           out('[DEBUG] Successfully fetched compatibility data from API');
         }

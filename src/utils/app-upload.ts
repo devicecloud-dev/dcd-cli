@@ -2,8 +2,7 @@ import { rm } from 'node:fs/promises';
 
 import { uploadBinary, verifyAppZip } from '../methods.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
-import { detectCiContext } from './ci.js';
-import { CliError, getCliVersion } from './cli.js';
+import { CliError } from './cli.js';
 import { fetchCompatibilityData } from './compatibility.js';
 import { checkKekForEncryption, resolveEncryption } from './envelope.js';
 import { extractTarGz, findAppBundle } from './expo.js';
@@ -47,12 +46,7 @@ export async function uploadLocalApp(opts: UploadLocalAppOptions): Promise<strin
   // rather than failing the upload.
   let serverDefault: boolean | undefined;
   try {
-    const ci = detectCiContext();
-    const compatibility = await fetchCompatibilityData(apiUrl, auth, {
-      cliVersion: getCliVersion(),
-      ciProvider: ci.provider,
-      ciWrapperVersion: ci.wrapperVersion,
-    });
+    const compatibility = await fetchCompatibilityData(apiUrl, auth);
     serverDefault = compatibility.encryption?.defaultOn;
   } catch {
     serverDefault = undefined;
