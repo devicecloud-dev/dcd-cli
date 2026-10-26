@@ -899,7 +899,13 @@ const runSub = defineCommand({
       let body: Parameters<typeof DeviceGateway.run>[3];
       if (dir) {
         ctx.progress(ui.running(`Uploading the flows in ${colors.highlight(dir)}…`));
-        const bundle = await uploadFlowBundle({ apiUrl: ctx.apiUrl, auth: ctx.auth, dir, log: ctx.progress });
+        const bundle = await uploadFlowBundle({
+          apiUrl: ctx.apiUrl,
+          auth: ctx.auth,
+          dir,
+          entry,
+          log: ctx.progress,
+        });
         ctx.progress(ui.success(`Uploaded ${bundle.files} files`));
         body = {
           flowUploadId: bundle.id,

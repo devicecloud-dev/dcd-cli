@@ -349,7 +349,7 @@ const INCLUDED_PATHS_BYTES_WARN_THRESHOLD = 50 * 1024 * 1024;
  * @returns Absolute paths of every matched file, deduped and sorted
  * @throws Error if a pattern escapes the workspace root
  */
-function resolveIncludedPaths(
+export function resolveIncludedPaths(
   workspaceConfig: IWorkspaceConfig,
   normalizedInput: string,
   warn: (message: string) => void,
