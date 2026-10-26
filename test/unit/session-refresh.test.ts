@@ -283,7 +283,10 @@ describe('session refresh for long-running processes', () => {
       const result = await poll(expiredBearer('stale', '42'));
 
       expect(result.status).to.equal('PASSED');
-      expect(seen).to.deep.equal([{ authorization: 'Bearer fresh', 'x-dcd-org': '42' }]);
+      // `include`, not equal: a resolved context also carries the CLI's
+      // identity headers (dcd#1622), which this test is not about.
+      expect(seen).to.have.length(1);
+      expect(seen[0]).to.include({ authorization: 'Bearer fresh', 'x-dcd-org': '42' });
       expect(realtime.joinedWith).to.deep.equal(['stale']);
       expect(realtime.updatedTo).to.deep.equal(['fresh']);
     });

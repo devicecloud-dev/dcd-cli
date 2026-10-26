@@ -19,34 +19,18 @@ export interface CompatibilityData {
   encryption?: { defaultOn: boolean };
 }
 
-/** Identity the CLI forwards so the API can target notices by version / CI. */
-export interface ClientContext {
-  cliVersion?: string;
-  ciProvider?: string | null;
-  ciWrapperVersion?: string | null;
-}
-
 let cachedCompatibilityData: CompatibilityData | null = null;
 
+/**
+ * The CLI / CI identity the API version-filters and targets notices by rides
+ * on `auth.headers`, like on every other request (see resolveAuth).
+ */
 export async function fetchCompatibilityData(
   apiUrl: string,
   auth: AuthContext,
-  clientContext?: ClientContext,
 ): Promise<CompatibilityData> {
   if (cachedCompatibilityData) {
     return cachedCompatibilityData;
-  }
-
-  // Forward CLI / CI identity so the API can version-filter and target notices.
-  const noticeHeaders: Record<string, string> = {};
-  if (clientContext?.cliVersion) {
-    noticeHeaders['x-dcd-cli-version'] = clientContext.cliVersion;
-  }
-  if (clientContext?.ciProvider) {
-    noticeHeaders['x-dcd-ci-provider'] = clientContext.ciProvider;
-  }
-  if (clientContext?.ciWrapperVersion) {
-    noticeHeaders['x-dcd-ci-wrapper-version'] = clientContext.ciWrapperVersion;
   }
 
   try {
@@ -54,7 +38,6 @@ export async function fetchCompatibilityData(
       headers: {
         'Content-Type': 'application/json',
         ...auth.headers,
-        ...noticeHeaders,
       },
       method: 'GET',
     });

@@ -13,8 +13,7 @@ import {
 } from '../services/execution-plan.utils.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type { DeviceFlowBundle } from '../types/domain/device-session.types.js';
-import { detectCiContext } from './ci.js';
-import { CliError, getCliVersion } from './cli.js';
+import { CliError } from './cli.js';
 import { fetchCompatibilityData } from './compatibility.js';
 import {
   checkKekForEncryption,
@@ -156,12 +155,7 @@ export async function uploadFlowBundle(
 
   let serverDefault: boolean | undefined;
   try {
-    const ci = detectCiContext();
-    const compatibility = await fetchCompatibilityData(apiUrl, auth, {
-      cliVersion: getCliVersion(),
-      ciProvider: ci.provider,
-      ciWrapperVersion: ci.wrapperVersion,
-    });
+    const compatibility = await fetchCompatibilityData(apiUrl, auth);
     serverDefault = compatibility.encryption?.defaultOn;
   } catch {
     serverDefault = undefined;

@@ -8,6 +8,7 @@ import {
   SessionRefreshError,
 } from '../../src/gateways/cli-auth-gateway.js';
 import { resolveAuth } from '../../src/utils/auth.js';
+import { getCliVersion } from '../../src/utils/cli.js';
 import {
   clearConfig,
   configFileMode,
@@ -258,5 +259,88 @@ describe('resolveAuth precedence', () => {
       expect(auth.headers.authorization).to.equal('Bearer bearer-token');
       expect(auth.headers['x-dcd-org']).to.equal('42');
     });
+  });
+});
+
+// the API records which CLI and CI wrapper sent each upload, so the
+// identity has to ride on every request, whichever credential is used.
+describe('resolveAuth client identity headers', () => {
+  // Everything ci.ts reads, so a run inside CI (GITHUB_ACTIONS) can't leak in.
+  const CI_ENV = [
+    'DCD_CI_PROVIDER',
+    'DCD_CI_WRAPPER_VERSION',
+    'GITHUB_ACTIONS',
+    'BITRISE_IO',
+    'BITRISE_BUILD_NUMBER',
+    'BITBUCKET_BUILD_NUMBER',
+    'EAS_BUILD',
+    'EAS_BUILD_RUNNER',
+    'EAS_BUILD_ID',
+    'GITLAB_CI',
+    'CIRCLECI',
+  ];
+  const cliVersion = getCliVersion();
+
+  beforeEach(() => {
+    delete process.env.DEVICE_CLOUD_API_KEY;
+    for (const name of CI_ENV) delete process.env[name];
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it('sends the CLI version on the --api-key, env and session paths', async () => {
+    await withTempConfigDir(async () => {
+      writeConfig({
+        version: 1,
+        env: 'prod',
+        api_url: 'https://api.devicecloud.dev',
+        supabase_url: 'https://cloud.devicecloud.dev',
+        session: {
+          access_token: 'bearer-token',
+          refresh_token: 'refresh',
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          user_email: 'u@example.com',
+          user_id: 'u1',
+        },
+        current_org_id: '42',
+      });
+
+      const flag = await resolveAuth({ apiKeyFlag: 'flag-key' });
+      process.env.DEVICE_CLOUD_API_KEY = 'env-key';
+      const env = await resolveAuth({ apiKeyFlag: undefined });
+      const session = await resolveAuth({ apiKeyFlag: undefined, sessionOnly: true });
+
+      for (const auth of [flag, env, session]) {
+        expect(auth.headers['x-dcd-cli-version']).to.equal(cliVersion);
+        expect(auth.headers).to.not.have.property('x-dcd-ci-provider');
+        expect(auth.headers).to.not.have.property('x-dcd-ci-wrapper-version');
+      }
+      expect(session.headers.authorization).to.equal('Bearer bearer-token');
+    });
+  });
+
+  it('sends the CI provider and wrapper version a DCD wrapper forwarded', async () => {
+    process.env.DCD_CI_PROVIDER = 'bitbucket';
+    process.env.DCD_CI_WRAPPER_VERSION = '1.5.0';
+
+    const auth = await resolveAuth({ apiKeyFlag: 'flag-key' });
+
+    expect(auth.headers).to.include({
+      'x-app-api-key': 'flag-key',
+      'x-dcd-cli-version': cliVersion,
+      'x-dcd-ci-provider': 'bitbucket',
+      'x-dcd-ci-wrapper-version': '1.5.0',
+    });
+  });
+
+  it('sends an inferred provider without a wrapper version', async () => {
+    process.env.GITLAB_CI = 'true';
+
+    const auth = await resolveAuth({ apiKeyFlag: 'flag-key' });
+
+    expect(auth.headers['x-dcd-ci-provider']).to.equal('gitlab');
+    expect(auth.headers).to.not.have.property('x-dcd-ci-wrapper-version');
   });
 });
