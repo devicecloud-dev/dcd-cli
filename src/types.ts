@@ -1,7 +1,18 @@
+import type { CpuArchitecture } from './services/metadata-extractor.service.js';
 import type { BinaryEnvelope } from './utils/envelope.js';
 
 export type TAppMetadata = {
+  /**
+   * APK only: the native ABIs under `lib/<abi>/` (e.g. `arm64-v8a`, `x86_64`).
+   * Stored on `binaries.metadata.abis`. Empty when the APK has no native code.
+   */
+  abis?: string[];
   appId: string;
+  /**
+   * APK only: the CPU families the APK can run on, `arm`, `x86` or both.
+   * Stored on `binaries.metadata.architectures`. Both when it has no native code.
+   */
+  architectures?: CpuArchitecture[];
   platform: 'android' | 'ios';
   /**
    * Present when the binary was client-side envelope-encrypted before upload
