@@ -195,7 +195,7 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
           ux.info(
             colors.dim('SHA hash matches existing binary with ID: ') + formatId(binaryId) + colors.dim(', skipping upload. Force upload with --ignore-sha-check'),
           );
-          ux.action.stop(colors.info('Skipping upload'));
+          ux.action.stop('Skipping upload');
         }
 
         return binaryId;
@@ -233,13 +233,13 @@ export const uploadBinary = async (config: UploadBinaryConfig) => {
     });
 
     if (log) {
-      ux.action.stop(colors.success('\n✓ Binary uploaded with ID: ') + formatId(uploadId));
+      ux.action.stop(colors.success('Binary uploaded with ID: ') + formatId(uploadId));
     }
 
     return uploadId;
   } catch (error) {
     if (log) {
-      ux.action.stop(colors.error('✗ Failed'));
+      ux.action.fail(colors.error('Failed'));
     }
 
     if (debug) {
