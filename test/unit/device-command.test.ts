@@ -3,6 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { runCommand } from 'citty';
+
 import {
   collectFlagValues,
   decodeDataUrl,
@@ -607,6 +609,38 @@ describe('dcd device', () => {
       const calls = stubFetch(() => ({ body: {} }));
       const { exit } = await runJson('request-human', { reason: '  ', id: 'a-b-c' });
       expect(exit).to.equal(DEVICE_EXIT.usage);
+      expect(calls).to.have.length(0);
+    });
+
+    it('request-human with no reason fails with the --json envelope', async () => {
+      // Through citty's parser, not run(): a required positional would be
+      // refused before run() and print a different shape.
+      const calls = stubFetch(() => ({ body: {} }));
+      let out = '';
+      const write = process.stdout.write.bind(process.stdout);
+      const exit = process.exit;
+      process.stdout.write = ((chunk: string) => {
+        out += chunk;
+        return true;
+      }) as typeof process.stdout.write;
+      process.exit = ((code?: number) => {
+        throw new ExitError(code ?? 0);
+      }) as typeof process.exit;
+      let code = 0;
+      try {
+        await runCommand(deviceCommand, { rawArgs: ['request-human', '--json', '--api-url', API, '--api-key', 'k'] });
+      } catch (error) {
+        if (!(error instanceof ExitError)) throw error;
+        code = error.code;
+      } finally {
+        process.stdout.write = write;
+        process.exit = exit;
+      }
+
+      const envelope = JSON.parse(out) as { error: { message: string }; ok: boolean };
+      expect(code).to.equal(DEVICE_EXIT.usage);
+      expect(envelope.ok).to.equal(false);
+      expect(envelope.error.message).to.match(/what the person should do/i);
       expect(calls).to.have.length(0);
     });
 

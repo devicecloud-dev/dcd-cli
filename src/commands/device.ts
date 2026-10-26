@@ -1094,7 +1094,8 @@ const requestHumanSub = defineCommand({
     ...commonArgs,
     reason: {
       type: 'positional',
-      required: true,
+      // Checked in run, so a missing reason still fails with the --json envelope.
+      required: false,
       description: 'What the person should do, e.g. "Enter the 2FA code sent to the test phone"',
     },
     id: idArg,
