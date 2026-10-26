@@ -36,9 +36,56 @@ See full documentation: [Docs](https://docs.devicecloud.dev)
 
 ## MCP server
 
-The same npm package ships an [MCP](https://modelcontextprotocol.io) server (`dcd-mcp` bin) so AI agents — Claude, Cursor, VS Code — can drive devicecloud.dev directly.
+devicecloud.dev has an [MCP](https://modelcontextprotocol.io) server, so AI agents (Claude, Cursor, VS Code) can run cloud tests and drive cloud devices. You don't run it yourself. You add it to your MCP client's config, and the client starts it.
 
-Add it to your MCP client config:
+There are three ways to connect:
+
+| | Install | Tools | Use it when |
+| --- | --- | --- | --- |
+| **`dcd mcp`** (recommended) | the CLI | device tools + `dcd_*` cloud-test tools | you want everything, including installing a local build or running local flow files |
+| **Hosted** `https://api.devicecloud.dev/mcp` | nothing | device tools | the agent only drives devices, with apps and flows that are already uploaded or at a URL |
+| **`dcd-mcp`** | the CLI | `dcd_*` cloud-test tools | you only run cloud tests (the older server; `dcd mcp` covers it) |
+
+### `dcd mcp`
+
+`dcd mcp` connects to the hosted server and passes its device tools through. It adds what only a local process can do: `install_app` takes `app_path` (a build on your machine, uploaded first) and `run` takes `path` (a flow file, or a directory uploaded as a bundle). It also serves the `dcd_*` tools below.
+
+Claude Code:
+
+```sh-session
+$ claude mcp add devicecloud -- npx -y @devicecloud.dev/dcd mcp
+```
+
+Other clients:
+
+```jsonc
+{
+  "mcpServers": {
+    "devicecloud": {
+      "command": "npx",
+      "args": ["-y", "@devicecloud.dev/dcd", "mcp"]
+    }
+  }
+}
+```
+
+If the CLI is installed globally, use `"command": "dcd", "args": ["mcp"]` instead.
+
+It signs in the same way as the CLI: run `dcd login` once, or set `DEVICE_CLOUD_API_KEY` in `env`. Add `--read-only` to the args (or set `DCD_MCP_READONLY=1`) to serve only the tools that change nothing. If the hosted server can't be reached, it serves the `dcd_*` tools only and says why on stderr.
+
+**Device tools:** `list_devices`, `start_device`, `get_device_status`, `install_app`, `launch_app`, `inspect_screen`, `take_screenshot`, `run`, `get_command_status`, `get_logs`, `request_human`, `get_human_status`, `stop_device`, and `cheat_sheet` (Maestro syntax for the agent).
+
+### Hosted
+
+Point an HTTP-capable client at the URL. It signs you in through the browser (OAuth), and you can disconnect it later under Settings → Connected apps.
+
+```sh-session
+$ claude mcp add --transport http devicecloud https://api.devicecloud.dev/mcp
+```
+
+### `dcd-mcp`
+
+The older server, with the `dcd_*` tools only. Add it to your MCP client config:
 
 ```jsonc
 {
@@ -56,7 +103,7 @@ Add it to your MCP client config:
 
 Auth is inherited from the CLI: set `DEVICE_CLOUD_API_KEY` as above, or run `dcd login` once and the server picks up the stored session. Point it at a non-prod environment with `DCD_API_URL`.
 
-**Tools**
+**`dcd_*` tools** (served by both `dcd mcp` and `dcd-mcp`)
 
 | Tool | What it does |
 | --- | --- |
