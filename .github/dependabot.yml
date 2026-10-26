@@ -1,7 +1,12 @@
 version: 2
 # No `target-branch`: Dependabot targets the default branch (`dev`), which is
 # what we want. Setting it explicitly also stops security-update PRs from
-# using the groups and commit prefixes below.
+# using the commit prefixes below.
+#
+# A group covers scheduled version updates only, unless it says
+# `applies-to: security-updates`. Security PRs open the day an advisory
+# lands, not on the schedule, so each npm entry carries a `security` group
+# too: a burst of advisories arrives as one PR instead of one per package.
 updates:
   # npm / pnpm dependencies.
   - package-ecosystem: npm
@@ -20,6 +25,10 @@ updates:
         update-types:
           - minor
           - patch
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   # GitHub Actions used by our workflows.
   - package-ecosystem: github-actions
