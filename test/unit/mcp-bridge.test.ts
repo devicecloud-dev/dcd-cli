@@ -18,8 +18,14 @@ import { clearContextCache } from '../../src/mcp/context.js';
  * A stand-in for the hosted /mcp: stateless Streamable HTTP, one server per
  * POST, as the API runs it. Records each call and the auth header it saw.
  */
-function startHosted(): Promise<{ calls: { args: unknown; auth?: string; name: string }[]; http: HttpServer; url: string }> {
+function startHosted(): Promise<{
+  calls: { args: unknown; auth?: string; name: string }[];
+  http: HttpServer;
+  inits: number;
+  url: string;
+}> {
   const calls: { args: unknown; auth?: string; name: string }[] = [];
+  const hosted = { calls, inits: 0 };
   const http = createHttpServer(async (req, res) => {
     // Stateless, as the API: no GET stream, no session to delete.
     if (req.method !== 'POST') {
@@ -30,6 +36,7 @@ function startHosted(): Promise<{ calls: { args: unknown; auth?: string; name: s
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+    if (body.method === 'initialize') hosted.inits++;
     const auth = req.headers['x-app-api-key'] as string | undefined;
     const server = new McpServer({ name: 'hosted', version: '1' });
     const record = (name: string) => async (args: unknown) => {
@@ -69,7 +76,7 @@ function startHosted(): Promise<{ calls: { args: unknown; auth?: string; name: s
   return new Promise((resolve) => {
     http.listen(0, '127.0.0.1', () => {
       const { port } = http.address() as AddressInfo;
-      resolve({ calls, http, url: `http://127.0.0.1:${port}` });
+      resolve(Object.assign(hosted, { http, url: `http://127.0.0.1:${port}` }));
     });
   });
 }
@@ -124,6 +131,30 @@ describe('dcd mcp bridge', () => {
     const result = await client.callTool({ name: 'inspect_screen', arguments: {} });
     expect(result.isError).to.not.equal(true);
     expect(hosted.calls).to.deep.equal([{ name: 'inspect_screen', args: {}, auth: 'test-key' }]);
+    await client.close();
+  });
+
+  it('keeps a running call when the session is renewed, and sends the new auth', async () => {
+    const client = await connect();
+    await client.listTools();
+    const slow = client.callTool({ name: 'get_logs', arguments: { ms: 300 } });
+    await new Promise((r) => setTimeout(r, 50));
+    // As if a `dcd login` session were renewed: getContext resolves new auth.
+    process.env.DEVICE_CLOUD_API_KEY = 'renewed-key';
+    clearContextCache();
+    await client.callTool({ name: 'inspect_screen', arguments: {} });
+    const result = await slow;
+    expect(result.isError).to.not.equal(true);
+    expect(JSON.stringify(result.content)).to.include('late');
+    expect(hosted.calls).to.deep.equal([{ name: 'inspect_screen', args: {}, auth: 'renewed-key' }]);
+    expect(hosted.inits).to.equal(1);
+    await client.close();
+  });
+
+  it('shares one connection between calls that arrive together', async () => {
+    const client = await connect();
+    await Promise.all([client.listTools(), client.listTools(), client.callTool({ name: 'inspect_screen', arguments: {} })]);
+    expect(hosted.inits).to.equal(1);
     await client.close();
   });
 
