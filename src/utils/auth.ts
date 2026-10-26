@@ -62,7 +62,7 @@ export function apiKeyOverride(
 
 /**
  * Who is calling, sent with every request next to the credential: the API
- * targets notices by it and records it on each upload and binary (dcd#1622).
+ * targets notices by it and records it on each upload and binary.
  * The CI headers are sent only when a DCD wrapper forwarded them or the
  * provider could be inferred.
  */
