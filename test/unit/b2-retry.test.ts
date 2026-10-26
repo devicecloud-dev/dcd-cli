@@ -10,9 +10,8 @@ import {
 } from '../../src/utils/b2-retry.js';
 
 /**
- * Direct-to-B2 uploads used to make one attempt. Once old CLIs lost their
- * Supabase fallback (legacy key revoked 2026-10-22), one dropped B2 request
- * failed the run; these pin the retry behaviour that replaced it.
+ * Direct-to-B2 uploads used to make one attempt, so one dropped B2 request
+ * failed the B2 upload; these pin the retry behaviour that replaced it.
  */
 describe('B2 upload retries', () => {
   const noSleep = async () => {};

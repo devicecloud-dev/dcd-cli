@@ -4,10 +4,8 @@
  * B2 expects clients to retry: an upload can be answered with 408, 429 or a
  * 5xx, or have its connection dropped, and B2's own guidance is to back off
  * and try again (for a large-file part, on a different upload URL). The CLI
- * used to make exactly one attempt, which was survivable only while the
- * Supabase upload behind it still worked. CLIs older than 5.9.0 lost that
- * fallback when the legacy Supabase key was revoked on 2026-10-22, and a
- * single dropped B2 request then failed the whole run.
+ * used to make exactly one attempt, so a single dropped B2 request failed the
+ * B2 upload outright and left the Supabase upload as the only path.
  */
 
 export const B2_RETRY = {
