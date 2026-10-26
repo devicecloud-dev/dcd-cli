@@ -11,6 +11,7 @@ import {
   deviceCommand,
   newLogLines,
   parseEnvFlags,
+  startNextSteps,
 } from '../../src/commands/device.js';
 import { DeviceApiError } from '../../src/gateways/device-gateway.js';
 import type { DeviceSession } from '../../src/types/domain/device-session.types.js';
@@ -730,6 +731,25 @@ describe('dcd device', () => {
   });
 
   describe('helpers', () => {
+    it('startNextSteps fits the session: check readiness first, install only with no app', () => {
+      const cmds = (s: DeviceSession, hasApp: boolean) => startNextSteps(s, hasApp).map(([, cmd]) => cmd);
+
+      expect(cmds(session('a', { state: 'queued' }), false)).to.deep.equal([
+        'dcd device status a',
+        'dcd device install a <app>',
+        'dcd device inspect a',
+        'dcd device run a flow.yaml',
+        'dcd device stop a',
+        'dcd device --help',
+      ]);
+      expect(cmds(session('a', { state: 'ready' }), true)).to.deep.equal([
+        'dcd device inspect a',
+        'dcd device run a flow.yaml',
+        'dcd device stop a',
+        'dcd device --help',
+      ]);
+    });
+
     it('formatWhen says how far off a time is', () => {
       const now = Date.parse('2026-10-19T10:00:00Z');
       expect(formatWhen('2026-10-19T10:12:00Z', now)).to.match(/^in 12m \(.+\)$/);

@@ -234,6 +234,28 @@ export function platformOfModel(catalogue: DeviceCatalogue, model: string): 'and
   throw new CliError(`"${model}" is a model on both iOS and Android. Pass --platform ios or --platform android.`);
 }
 
+/**
+ * The "Next steps" `dcd device start` prints. They follow the session: a
+ * device that isn't ready yet can't be inspected, so that comes first, and
+ * a session with no app gets the install step.
+ */
+export function startNextSteps(session: DeviceSession, hasApp: boolean): [string, string][] {
+  const { id } = session;
+  const steps: [string, string][] = [];
+  if (!USABLE_STATES.has(session.state)) {
+    steps.push(['check it is ready', `dcd device status ${id}`]);
+  }
+
+  if (!hasApp) steps.push(['install an app', `dcd device install ${id} <app>`]);
+  steps.push(
+    ['inspect the screen', `dcd device inspect ${id}`],
+    ['run a flow', `dcd device run ${id} flow.yaml`],
+    ['stop', `dcd device stop ${id}`],
+    ['all commands', 'dcd device --help'],
+  );
+  return steps;
+}
+
 const startSub = defineCommand({
   meta: { name: 'start', description: 'Start a device session' },
   args: {
@@ -373,15 +395,12 @@ const startSub = defineCommand({
           logger.log(ui.section('Device session'));
           printSession(session);
           logger.log(ui.section('Next steps'));
-          logger.log(
-            ui.branch(
-              ui.fields([
-                ['inspect the screen', colors.highlight(`dcd device inspect ${session.id}`)],
-                ['run a flow', colors.highlight(`dcd device run ${session.id} flow.yaml`)],
-                ['stop', colors.highlight(`dcd device stop ${session.id}`)],
-              ]),
-            ),
-          );
+          const hasApp = Boolean(installedId ?? uploadedId);
+          const steps = startNextSteps(session, hasApp);
+          logger.log(ui.branch(ui.fields(steps.map(([label, cmd]) => [label, colors.highlight(cmd)]))));
+          if (!USABLE_STATES.has(session.state)) {
+            logger.log(ui.info('Next time, `dcd device start --wait` waits until the device is ready.'));
+          }
         },
       };
     });
