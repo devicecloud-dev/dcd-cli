@@ -106,7 +106,7 @@ export class DeviceValidationService {
       // Mirrors the API, which applies these same global defaults to a
       // request that omits either half (execution-planner.service.ts)
       // and then rejects an incompatible pair.
-      defaultDevice: 'pixel-7',
+      defaultDevice: 'pixel-10',
       defaultVersion: '36',
       device,
       deviceArg: argNames.androidDevice,

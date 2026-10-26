@@ -69,7 +69,7 @@ export function registerRunCloudTest(server: McpServer): void {
         iosVersion: z.string().optional().describe('iOS version, e.g. "17"'),
         iosDevice: z.string().optional().describe('iOS device, e.g. "iphone-14"'),
         androidApiLevel: z.string().optional().describe('Android API level, e.g. "34"'),
-        androidDevice: z.string().optional().describe('Android device, e.g. "pixel-7"'),
+        androidDevice: z.string().optional().describe('Android device, e.g. "pixel-10"'),
         googlePlay: z.boolean().optional().describe('Use a Google Play-enabled Android image'),
         name: z.string().optional().describe('A name for this run'),
         env: z
