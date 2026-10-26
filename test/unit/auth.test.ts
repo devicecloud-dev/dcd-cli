@@ -262,7 +262,7 @@ describe('resolveAuth precedence', () => {
   });
 });
 
-// dcd#1622: the API records which CLI and CI wrapper sent each upload, so the
+// the API records which CLI and CI wrapper sent each upload, so the
 // identity has to ride on every request, whichever credential is used.
 describe('resolveAuth client identity headers', () => {
   // Everything ci.ts reads, so a run inside CI (GITHUB_ACTIONS) can't leak in.
