@@ -92,6 +92,20 @@ export function printRunResult(
   result: DeviceCommandResult,
   label: string,
 ): void {
+  printOutcome(log, passed, result, label);
+  // What the app showed after the failure: why an assertion missed.
+  if (!passed && result.screen_text?.length) {
+    log(ui.section('On screen after the failure'));
+    log(ui.branch(result.screen_text.map((t) => `"${t}"`)));
+  }
+}
+
+function printOutcome(
+  log: (line: string) => void,
+  passed: boolean,
+  result: DeviceCommandResult,
+  label: string,
+): void {
   const report = parseRunReport(result);
   if (!report || report.flows.length === 0) {
     log(passed ? ui.success('Flow passed') : `${ui.statusSymbol('FAILED')} Flow failed`);
