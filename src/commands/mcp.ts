@@ -15,8 +15,6 @@ export const mcpCommand = defineCommand({
   meta: {
     name: 'mcp',
     description: 'Run the DeviceCloud MCP server on stdio (cloud tests and cloud devices)',
-    // Listed in `dcd --help` with `dcd device`, once the device API is live.
-    hidden: true,
   },
   args: {
     'read-only': {
