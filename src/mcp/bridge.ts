@@ -63,7 +63,7 @@ const LOCAL_INPUTS: Record<string, { description: string; properties: Record<str
   },
   run: {
     description:
-      ' Or pass path: a flow file on this machine (sent as yaml), or a directory of flows (uploaded as a bundle; flow picks the entry file inside it).',
+      ' Or pass path: a flow file on this machine (sent as yaml), or a directory of flows (flow picks the entry file inside it). Only the YAML files and the files the flows use (scripts, media) are uploaded, not builds or anything else in the directory.',
     properties: {
       path: {
         type: 'string',
@@ -114,7 +114,12 @@ export async function resolveLocalInputs(
     if (!info) throw new Error(`No such file or directory: ${flowPath}`);
     if (info.isDirectory()) {
       logStderr(`Uploading the flows in ${flowPath}…`);
-      const bundle = await uploadFlowBundle({ ...ctx, dir: flowPath as string, log: logStderr });
+      const bundle = await uploadFlowBundle({
+        ...ctx,
+        dir: flowPath as string,
+        entry: typeof rest.flow === 'string' ? rest.flow : undefined,
+        log: logStderr,
+      });
       return { ...rest, flow_upload_id: bundle.id };
     }
 

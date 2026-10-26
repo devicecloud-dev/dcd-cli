@@ -82,8 +82,73 @@ describe('dcd device run <dir>: flow bundles', () => {
     fs.rmSync(dir, { force: true, recursive: true });
   });
 
-  it('bundles every file but dot-folders and node_modules', () => {
+  it('bundles the YAML files, leaving out dot-folders and node_modules', () => {
     expect(bundleFiles(dir)).to.deep.equal(['config.yaml', path.join('flows', 'login.yaml')]);
+  });
+
+  describe('which files go in', () => {
+    const write = (file: string, text = '') => {
+      fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+      fs.writeFileSync(path.join(dir, file), text);
+    };
+
+    beforeEach(() => {
+      write(
+        'flows/checkout.yaml',
+        'appId: x\n---\n- runFlow: ../subflows/pay.yaml\n- runScript: ../scripts/seed.js\n',
+      );
+      write('subflows/pay.yaml', 'appId: x\n---\n- addMedia:\n    - ../media/card.png\n');
+      write('scripts/seed.js', 'output.ok = true');
+      write('media/card.png', 'png');
+      write('media/unused.png', 'png');
+      write('builds/app.apk', 'apk');
+      write('builds/app.zip', 'zip');
+    });
+
+    it("takes the flows' scripts and media, but not builds or files no flow uses", () => {
+      expect(bundleFiles(dir)).to.deep.equal(
+        [
+          'config.yaml',
+          'flows/checkout.yaml',
+          'flows/login.yaml',
+          'media/card.png',
+          'scripts/seed.js',
+          'subflows/pay.yaml',
+        ].map((f) => path.normalize(f)),
+      );
+    });
+
+    it("adds config's includedPaths", () => {
+      write('config.yaml', 'flows: [flows/*]\nincludedPaths: [media/unused.png]\n');
+      expect(bundleFiles(dir)).to.include(path.normalize('media/unused.png'));
+    });
+
+    it("refuses an entry whose file is missing, naming it", () => {
+      fs.rmSync(path.join(dir, 'scripts', 'seed.js'));
+      expect(() => bundleFiles(dir, 'flows/checkout.yaml')).to.throw(/seed\.js/);
+    });
+
+    it("runs an entry even when another flow's file is missing", () => {
+      write('flows/broken.yaml', 'appId: x\n---\n- runScript: ../scripts/gone.js\n');
+      expect(bundleFiles(dir, 'flows/login.yaml')).to.include(path.normalize('flows/login.yaml'));
+      // Without an entry every flow may run, so the missing file matters.
+      expect(() => bundleFiles(dir)).to.throw(/gone\.js/);
+    });
+
+    it('refuses an entry that is not in the directory', () => {
+      expect(() => bundleFiles(dir, 'flows/nope.yaml')).to.throw('No flow flows/nope.yaml');
+    });
+
+    it('refuses a flow that uses a file outside the directory', () => {
+      const outside = path.join(path.dirname(dir), `${path.basename(dir)}-shared.js`);
+      fs.writeFileSync(outside, '');
+      try {
+        write('flows/out.yaml', `appId: x\n---\n- runScript: ../../${path.basename(outside)}\n`);
+        expect(() => bundleFiles(dir)).to.throw(/outside/);
+      } finally {
+        fs.rmSync(outside, { force: true });
+      }
+    });
   });
 
   it('uploads the zip to both copies and registers what landed', async () => {
