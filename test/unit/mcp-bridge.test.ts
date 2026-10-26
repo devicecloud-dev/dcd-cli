@@ -11,7 +11,13 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 
-import { createBridgeServer, resolveLocalInputs, withLocalInputs } from '../../src/mcp/bridge.js';
+import {
+  createBridgeServer,
+  explainFailedStart,
+  flowFileBundle,
+  resolveLocalInputs,
+  withLocalInputs,
+} from '../../src/mcp/bridge.js';
 import { clearContextCache } from '../../src/mcp/context.js';
 
 /**
@@ -20,13 +26,21 @@ import { clearContextCache } from '../../src/mcp/context.js';
  */
 function startHosted(): Promise<{
   calls: { args: unknown; auth?: string; name: string }[];
+  failStart: boolean;
   http: HttpServer;
   inits: number;
+  sessions: Record<string, unknown>[];
   url: string;
 }> {
   const calls: { args: unknown; auth?: string; name: string }[] = [];
-  const hosted = { calls, inits: 0 };
+  const hosted = { calls, failStart: false, inits: 0, sessions: [] as Record<string, unknown>[] };
   const http = createHttpServer(async (req, res) => {
+    // The open sessions, as GET /device/sessions answers.
+    if (req.method === 'GET' && req.url === '/device/sessions') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ sessions: hosted.sessions }));
+      return;
+    }
+
     // Stateless, as the API: no GET stream, no session to delete.
     if (req.method !== 'POST') {
       res.writeHead(405).end();
@@ -37,6 +51,11 @@ function startHosted(): Promise<{
     for await (const c of req) chunks.push(c as Buffer);
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
     if (body.method === 'initialize') hosted.inits++;
+    // A start whose answer never arrives, as when a proxy gives up on it.
+    if (hosted.failStart && body.method === 'tools/call' && body.params?.name === 'start_device') {
+      res.writeHead(502, { 'content-type': 'application/json' }).end('{"message":"Application failed to respond"}');
+      return;
+    }
     const auth = req.headers['x-app-api-key'] as string | undefined;
     const server = new McpServer({ name: 'hosted', version: '1' });
     const record = (name: string) => async (args: unknown) => {
@@ -63,6 +82,11 @@ function startHosted(): Promise<{
         await new Promise((r) => setTimeout(r, ms));
         return { content: [{ type: 'text' as const, text: 'late' }] };
       },
+    );
+    server.registerTool(
+      'start_device',
+      { description: 'Start a device.', inputSchema: { platform: z.string() } },
+      record('start_device'),
     );
     server.registerTool(
       'inspect_screen',
@@ -181,6 +205,34 @@ describe('dcd mcp bridge', () => {
     await client.close();
   });
 
+  it('says a failed start may have made a session, and lists the recent ones', async () => {
+    hosted.failStart = true;
+    const now = Date.now();
+    hosted.sessions = [
+      { client_label: 'claude-code', created_at: new Date(now - 30_000).toISOString(), id: 'new-one', state: 'provisioning' },
+      { client_label: 'other', created_at: new Date(now - 30 * 60_000).toISOString(), id: 'old-one', state: 'active' },
+    ];
+    const client = await connect();
+    await client.listTools();
+    const result = await client.callTool({ name: 'start_device', arguments: { platform: 'ios' } });
+    expect(result.isError).to.equal(true);
+    const text = JSON.stringify(result.content);
+    expect(text).to.include('may still have started a session');
+    expect(text).to.include('new-one');
+    expect(text).to.not.include('old-one');
+    expect(text).to.include('list_devices');
+    await client.close();
+  });
+
+  it('leaves a start that answered alone', async () => {
+    const client = await connect();
+    await client.listTools();
+    const result = await client.callTool({ name: 'start_device', arguments: { platform: 'ios' } });
+    expect(result.isError).to.not.equal(true);
+    expect(hosted.calls.map((c) => c.name)).to.deep.equal(['start_device']);
+    await client.close();
+  });
+
   it('read-only mode keeps only device tools that change nothing', async () => {
     process.env.DCD_MCP_READONLY = '1';
     const client = await connect();
@@ -211,6 +263,49 @@ describe('dcd mcp bridge', () => {
   });
 
   describe('helpers', () => {
+    it('explainFailedStart says it is safe to retry when no session started', async () => {
+      hosted.sessions = [];
+      const ctx = { apiUrl: hosted.url, auth: { headers: {}, mode: 'apiKey' as const } };
+      const text = await explainFailedStart('fetch failed', ctx);
+      expect(text).to.include('safe to call start_device again');
+    });
+
+    it('explainFailedStart still warns when the sessions cannot be read', async () => {
+      const ctx = { apiUrl: 'http://127.0.0.1:9', auth: { headers: {}, mode: 'apiKey' as const } };
+      const text = await explainFailedStart('fetch failed', ctx);
+      expect(text).to.include('Call list_devices to check');
+    });
+
+    it('flowFileBundle sends a flow that uses no other files as yaml', () => {
+      const flow = path.join(tempDir, 'plain.yaml');
+      fs.writeFileSync(flow, 'appId: x\n---\n- launchApp\n- tapOn: OK\n');
+      expect(flowFileBundle(flow)).to.equal(null);
+    });
+
+    it('flowFileBundle uploads the folder of a flow that runs a subflow or a script', () => {
+      fs.mkdirSync(path.join(tempDir, 'flows', 'subflows'), { recursive: true });
+      fs.writeFileSync(path.join(tempDir, 'flows', 'subflows', 'login.yaml'), 'appId: x\n---\n- tapOn: Log in\n');
+      fs.writeFileSync(path.join(tempDir, 'flows', 'setup.js'), 'output.ok = true\n');
+      const flow = path.join(tempDir, 'flows', 'main.yaml');
+      fs.writeFileSync(flow, 'appId: x\n---\n- runFlow: subflows/login.yaml\n- runScript: setup.js\n');
+      expect(flowFileBundle(flow)).to.deep.equal({ dir: path.join(tempDir, 'flows'), entry: 'main.yaml' });
+    });
+
+    it('flowFileBundle reaches up to a shared folder the flow uses', () => {
+      fs.mkdirSync(path.join(tempDir, 'shared'), { recursive: true });
+      fs.mkdirSync(path.join(tempDir, 'ios'), { recursive: true });
+      fs.writeFileSync(path.join(tempDir, 'shared', 'login.yaml'), 'appId: x\n---\n- tapOn: Log in\n');
+      const flow = path.join(tempDir, 'ios', 'main.yaml');
+      fs.writeFileSync(flow, 'appId: x\n---\n- runFlow: ../shared/login.yaml\n');
+      expect(flowFileBundle(flow)).to.deep.equal({ dir: tempDir, entry: path.join('ios', 'main.yaml') });
+    });
+
+    it('flowFileBundle still bundles a flow whose subflow is missing, so the upload names it', () => {
+      const flow = path.join(tempDir, 'broken.yaml');
+      fs.writeFileSync(flow, 'appId: x\n---\n- runFlow: subflows/missing.yaml\n');
+      expect(flowFileBundle(flow)).to.deep.equal({ dir: tempDir, entry: 'broken.yaml' });
+    });
+
     it('withLocalInputs adds the local inputs and leaves other tools alone', () => {
       const tool = { name: 'run', description: 'Run.', inputSchema: { type: 'object' as const, properties: { yaml: {} } } };
       const patched = withLocalInputs(tool);
