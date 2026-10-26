@@ -10,8 +10,8 @@
  *   a bundle).
  *
  * Auth is the CLI's: an API key or a `dcd login` session (getContext). The
- * hosted endpoint accepts both. A session is renewed before it expires, and
- * the remote connection is remade with it.
+ * hosted endpoint accepts both. A session is renewed before it expires; the
+ * one shared connection re-reads the auth on every request (RemoteDevices).
  *
  * stdout is the JSON-RPC channel: everything else goes to stderr.
  */

@@ -171,7 +171,7 @@ export const loginCommand = defineCommand({
     if (noBrowser) {
       rows.push(ui.note('Open this URL in a browser to finish login:'), colors.highlight(loginUrl));
     } else {
-      const opened = openBrowser(loginUrl);
+      const opened = await openBrowser(loginUrl);
       rows.push(
         ui.note(
           opened

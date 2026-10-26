@@ -1041,7 +1041,7 @@ const openSub = defineCommand({
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
       const { session } = await DeviceGateway.status(ctx.apiUrl, ctx.auth, id);
       // Only a person at a terminal gets a browser; a script gets the URL.
-      const opened = interactive(json) && openBrowser(session.monitor_url);
+      const opened = interactive(json) && (await openBrowser(session.monitor_url));
       return {
         session,
         data: { url: session.monitor_url, opened },
