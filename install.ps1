@@ -126,6 +126,9 @@ if (-not $alreadyOnPath) {
     Write-Host "Installed: $(& "$InstallDir\dcd.exe" --version)"
     Write-Host '  Try: dcd --help'
 }
+Write-Host ''
+Write-Host '  Connect an AI agent (Claude, Cursor, VS Code): dcd mcp install'
+Write-Host "  In an MCP config file, start dcd by its full path: $InstallDir\dcd.exe"
 
 # --- warn about a conflicting (shadowing) install ---
 # A leftover `npm install -g @devicecloud.dev/dcd` resolves earlier on PATH than

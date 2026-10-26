@@ -50,26 +50,51 @@ There are three ways to connect:
 
 `dcd mcp` connects to the hosted server and passes its device tools through. It adds what only a local process can do: `install_app` takes `app_path` (a build on your machine, uploaded first) and `run` takes `path` (a flow file, or a directory uploaded as a bundle). It also serves the `dcd_*` tools below.
 
-Claude Code:
+**Set it up with `dcd mcp install`.** Install the CLI (see the top of this page), sign in, then add the server to your AI tool:
 
 ```sh-session
-$ claude mcp add devicecloud -- npx -y @devicecloud.dev/dcd mcp
+$ dcd login
+$ dcd mcp install cursor     # or claude-code, claude-desktop, vscode
 ```
 
-Other clients:
+Leave out the client name to pick from a list. Add `--read-only` for a server that only offers tools that change nothing, or `--print` to see what would be added without changing anything. For Claude Code and VS Code it runs `claude mcp add` and `code --add-mcp`. For Claude Desktop and Cursor it adds an entry to their JSON config file and keeps everything else in it. Restart the app afterwards.
+
+**Setting it up by hand.** Start dcd by its **full path**. Desktop apps such as Claude Desktop and Cursor are usually opened from the Dock or Start menu, so they don't see the PATH your shell sets up, and a bare `dcd` gives "command not found". The installer prints the path at the end; it's `~/.dcd/bin/dcd` by default, written out in full because config files don't expand `~`.
+
+Claude Desktop (`claude_desktop_config.json`) and Cursor (`~/.cursor/mcp.json`):
 
 ```jsonc
 {
   "mcpServers": {
     "devicecloud": {
-      "command": "npx",
-      "args": ["-y", "@devicecloud.dev/dcd", "mcp"]
+      "command": "/Users/you/.dcd/bin/dcd",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-If the CLI is installed globally, use `"command": "dcd", "args": ["mcp"]` instead.
+VS Code (`.vscode/mcp.json`, or the user `mcp.json`) uses `servers` and a `type`:
+
+```jsonc
+{
+  "servers": {
+    "devicecloud": {
+      "type": "stdio",
+      "command": "/Users/you/.dcd/bin/dcd",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Claude Code, run from a terminal, does see your PATH:
+
+```sh-session
+$ claude mcp add --scope user devicecloud -- dcd mcp
+```
+
+If you use the npm package instead of the standalone binary, the command is `npx` with `"args": ["-y", "@devicecloud.dev/dcd", "mcp"]`. That needs Node 22 or newer on the app's PATH, and it checks npm each time it starts.
 
 It signs in the same way as the CLI: run `dcd login` once, or set `DEVICE_CLOUD_API_KEY` in `env`. Add `--read-only` to the args (or set `DCD_MCP_READONLY=1`) to serve only the tools that change nothing. If the hosted server can't be reached, it serves the `dcd_*` tools only and says why on stderr.
 
