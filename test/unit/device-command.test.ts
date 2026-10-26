@@ -793,6 +793,9 @@ describe('dcd device', () => {
       const labels = (h: typeof base | Record<string, unknown>) =>
         humanFields(h as typeof base, now).map(([label]) => label);
       expect(labels(base)).to.deep.equal(['state', 'reason', 'asked', 'ends']);
+      // Taken unasked: "since", not "asked". A request a person picked up stays "asked".
+      expect(labels({ ...base, human_in_control: true, reason: 'ann@x.com took control' })).to.deep.equal(['state', 'reason', 'since', 'ends']);
+      expect(labels({ ...base, human_in_control: true })).to.deep.equal(['state', 'reason', 'asked', 'ends']);
       const back = { ...base, waiting: false, reason: null, since: null, handed_back: true, note: 'Done', handed_back_at: '2026-10-19T10:00:00Z' };
       expect(humanFields(back, now)).to.deep.include(['note', 'Done']);
       expect(humanFields(back, now)[0]).to.deep.equal(['state', 'handed back']);

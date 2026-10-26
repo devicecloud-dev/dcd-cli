@@ -228,7 +228,10 @@ export function humanState(human: DeviceHumanStatus): string {
 export function humanFields(human: DeviceHumanStatus, now: number = Date.now()): Field[] {
   const fields: Field[] = [['state', humanState(human)]];
   if (human.reason) fields.push(['reason', human.reason]);
-  if (human.since) fields.push(['asked', formatWhen(human.since, now)]);
+  // A person who took control unasked: the reason is "<email> took control",
+  // and nobody asked for anything.
+  const tookControl = human.human_in_control && !!human.reason?.endsWith(' took control');
+  if (human.since) fields.push([tookControl ? 'since' : 'asked', formatWhen(human.since, now)]);
   if (human.waiting && human.expires_at) {
     fields.push(['ends', `${formatWhen(human.expires_at, now)} unless they hand it back`]);
   }
