@@ -10,12 +10,24 @@
  * non-interactive environments we skip the spinner entirely and instead print a
  * plain line once per *distinct* status, so CI logs show real progress without
  * the flood.
+ *
+ * Styling: the spinner uses the CLI's own palette (cyan braille frames) rather
+ * than clack's magenta default, and no `│` guide bar, since the rest of the CLI
+ * is a `⏺`/`⎿` tree rather than a clack session. The final line is written by
+ * us, not clack, so it carries the same `✓` / `✗` symbols as every other
+ * command (see STYLE_GUIDE.md).
  */
 import * as p from '@clack/prompts';
 
 import { isCI } from './ci.js';
+import { colors, symbols } from './styling.js';
 
 type ClackSpinner = ReturnType<typeof p.spinner>;
+
+// Braille dots where the terminal can draw them, plain ASCII otherwise.
+const FRAMES = p.unicode
+  ? ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+  : ['-', '\\', '|', '/'];
 
 class Action {
   private current: ClackSpinner | null = null;
@@ -29,37 +41,32 @@ class Action {
 
   start(title: string, initialStatus?: string, _opts?: unknown): void {
     this._status = initialStatus ?? '';
-    const line = initialStatus ? `${title} — ${initialStatus}` : title;
+    const line = initialStatus ? `${title} ${colors.dim('·')} ${initialStatus}` : title;
     if (!this.interactive()) {
       this.current = null;
       this.print(line);
       return;
     }
     if (this.current) {
-      this.current.stop();
+      this.current.clear();
     }
-    this.current = p.spinner();
+    this.current = p.spinner({
+      delay: 80,
+      frames: FRAMES,
+      styleFrame: colors.highlight,
+      withGuide: false,
+    });
     this.current.start(line);
   }
 
+  /** End the action as a success: `✓ message`. */
   stop(message?: string): void {
-    if (!this.interactive()) {
-      if (message) this.print(message);
-      this.current = null;
-      this._status = '';
-      this._lastPrinted = '';
-      return;
-    }
-    if (!this.current) {
-      if (message) {
-        // eslint-disable-next-line no-console
-        console.log(message);
-      }
-      return;
-    }
-    this.current.stop(message ?? '');
-    this.current = null;
-    this._status = '';
+    this.finish(symbols.success, message);
+  }
+
+  /** End the action as a failure: `✗ message`. */
+  fail(message?: string): void {
+    this.finish(symbols.error, message);
   }
 
   set status(value: string) {
@@ -76,6 +83,26 @@ class Action {
 
   get status(): string {
     return this._status;
+  }
+
+  // Erase the spinner (if one is live) and print the final line ourselves, so
+  // the symbol matches the rest of the CLI instead of clack's `◇`.
+  private finish(symbol: string, message?: string): void {
+    const line = message ? `${symbol} ${message}` : '';
+    if (!this.interactive()) {
+      if (line) this.print(line);
+      this.current = null;
+      this._status = '';
+      this._lastPrinted = '';
+      return;
+    }
+    this.current?.clear();
+    this.current = null;
+    this._status = '';
+    if (line) {
+      // eslint-disable-next-line no-console
+      console.log(line);
+    }
   }
 
   // Emit a line only when it differs from the previous one, so repeated polls

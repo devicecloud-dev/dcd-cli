@@ -92,7 +92,7 @@ export class MoropoService {
       return moropoDir;
     } catch (error) {
       if (!quiet && !json) {
-        ux.action.stop('failed');
+        ux.action.fail('failed');
       }
 
       // Remove the temp directory (and any partially-written zip inside it)

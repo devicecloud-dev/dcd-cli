@@ -196,7 +196,7 @@ export class ResultsPollingService {
       // displayFinalResults. Anything else aborts mid-poll with the spinner
       // still live, which would corrupt the terminal under the error output.
       if (!options.json && !(error instanceof RunFailedError)) {
-        ux.action.stop(colors.error('failed'));
+        ux.action.fail(colors.error('failed'));
       }
       throw error;
     }
