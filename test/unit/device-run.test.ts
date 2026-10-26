@@ -92,6 +92,17 @@ describe('dcd device run output', () => {
       expect(out).not.to.include('total_commands_executed');
     });
 
+    it("shows a failed run's screen text, so a near miss is plain", () => {
+      const out = printed(false, {
+        success: false,
+        error: 'Assertion is false',
+        screen_text: ['Star at the centre'],
+      });
+      expect(out).to.include('On screen after the failure');
+      expect(out).to.include('"Star at the centre"');
+      expect(printed(true, { success: true, screen_text: ['x'] })).not.to.include('On screen');
+    });
+
     it('counts the failures in a run of several flows', () => {
       const out = printed(false, {
         success: false,

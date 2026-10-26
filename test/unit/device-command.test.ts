@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 
 import { runCommand } from 'citty';
 
@@ -9,6 +10,7 @@ import {
   collectFlagValues,
   decodeDataUrl,
   deviceCommand,
+  formatElement,
   newLogLines,
   parseEnvFlags,
   startNextSteps,
@@ -451,6 +453,17 @@ describe('dcd device', () => {
       expect(out.data).to.deep.equal({ screen });
     });
 
+    it('inspect --all asks for the keyboard and System UI too', async () => {
+      const screen = { width: 390, height: 844, keys: {}, elements: [], fresh: true };
+      const calls = stubFetch(() => ({ body: { screen, session: session('a-b-c') } }));
+      await runJson('inspect', { id: 'a-b-c' });
+      await runJson('inspect', { id: 'a-b-c', all: true });
+      expect(calls.map((c) => c.url)).to.deep.equal([
+        `${API}/device/sessions/a-b-c/inspect`,
+        `${API}/device/sessions/a-b-c/inspect?all=true`,
+      ]);
+    });
+
     it('screenshot saves the image and reports its path', async () => {
       const file = path.join(tempDir, 'shot.jpg');
       const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
@@ -731,6 +744,13 @@ describe('dcd device', () => {
   });
 
   describe('helpers', () => {
+    it('formatElement shows state that is not the default', () => {
+      const line = stripVTControlCharacters(
+        formatElement({ b: '[0,0][1,1]', txt: 'English', selected: true, checked: true, enabled: false }),
+      );
+      expect(line).to.equal('"English"  checked  selected  disabled  [0,0][1,1]');
+    });
+
     it('startNextSteps fits the session: check readiness first, install only with no app', () => {
       const cmds = (s: DeviceSession, hasApp: boolean) => startNextSteps(s, hasApp).map(([, cmd]) => cmd);
 

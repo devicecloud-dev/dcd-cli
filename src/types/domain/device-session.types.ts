@@ -123,6 +123,8 @@ export interface DeviceCommandResult {
   /** Each flow of a run. Absent from APIs older than this field. */
   flows?: DeviceFlowResult[];
   output?: string;
+  /** A failed run: the app's visible text just after it failed. */
+  screen_text?: string[];
   success: boolean;
 }
 
@@ -131,8 +133,13 @@ export interface DeviceScreenElement {
   /** Bounds, "[left,top][right,bottom]". */
   b: string;
   a11y?: string;
+  checked?: true;
+  /** False when disabled; absent when enabled. */
+  enabled?: false;
+  focused?: true;
   hint?: string;
   rid?: string;
+  selected?: true;
   txt?: string;
 }
 
@@ -142,6 +149,10 @@ export interface DeviceScreen {
   /** False when no new frame came in time; this is then the latest. */
   fresh: boolean;
   height: number;
+  /** Keyboard keys and System UI left out (only when some were); --all shows them. */
+  hidden?: { keyboard: number; system: number };
+  /** An on-screen keyboard is showing (Android). */
+  keyboard_open?: true;
   keys: Record<string, string>;
   width: number;
 }

@@ -167,8 +167,9 @@ export const DeviceGateway = {
     baseUrl: string,
     auth: AuthContext,
     id: string,
+    all = false,
   ): Promise<{ screen: DeviceScreen; session: DeviceSession }> {
-    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/inspect`);
+    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/inspect${all ? '?all=true' : ''}`);
   },
 
   install(

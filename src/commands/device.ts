@@ -710,13 +710,21 @@ const modelsSub = defineCommand({
 
 const inspectSub = defineCommand({
   meta: { name: 'inspect', description: 'The screen as compact JSON: each element with text, an id or a label' },
-  args: { ...commonArgs, id: idArg },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    all: {
+      type: 'boolean',
+      default: false,
+      description: 'Also list the keyboard keys and the System UI (status and navigation bars)',
+    },
+  },
   async run({ args }) {
     const json = Boolean(args.json);
     await runDeviceCommand(json, async () => {
       const ctx = await context(args);
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
-      const { screen, session } = await DeviceGateway.inspect(ctx.apiUrl, ctx.auth, id);
+      const { screen, session } = await DeviceGateway.inspect(ctx.apiUrl, ctx.auth, id, Boolean(args.all));
       return {
         session,
         data: { screen },
@@ -728,6 +736,15 @@ const inspectSub = defineCommand({
             ),
           );
           logger.log(ui.branch(screen.elements.map((el) => formatElement(el))));
+          const notes: string[] = [];
+          if (screen.keyboard_open) notes.push('A keyboard is open.');
+          if (screen.hidden && (screen.hidden.keyboard > 0 || screen.hidden.system > 0)) {
+            notes.push(
+              `Left out ${screen.hidden.keyboard} keyboard and ${screen.hidden.system} System UI elements (--all shows them).`,
+            );
+          }
+
+          if (notes.length > 0) logger.log(ui.note(notes.join(' ')));
         },
       };
     });
@@ -741,6 +758,11 @@ export function formatElement(el: DeviceScreenElement): string {
   if (el.a11y && el.a11y !== el.txt) parts.push(`a11y:"${el.a11y}"`);
   if (el.rid) parts.push(`id:${el.rid}`);
   if (el.hint) parts.push(`hint:"${el.hint}"`);
+  for (const state of ['checked', 'selected', 'focused'] as const) {
+    if (el[state]) parts.push(state);
+  }
+
+  if (el.enabled === false) parts.push('disabled');
   return `${parts.join('  ')}  ${colors.dim(el.b)}`;
 }
 
