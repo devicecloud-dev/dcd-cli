@@ -312,8 +312,13 @@ main() {
       ;;
   esac
   info "  Get started:"
-  info "    ${CYAN}dcd login${RESET}    ${DIM}sign in to DeviceCloud${RESET}"
-  info "    ${CYAN}dcd --help${RESET}   ${DIM}see every command${RESET}"
+  info "    ${CYAN}dcd login${RESET}          ${DIM}sign in to DeviceCloud${RESET}"
+  info "    ${CYAN}dcd mcp install${RESET}    ${DIM}connect an AI agent (Claude, Cursor, VS Code)${RESET}"
+  info "    ${CYAN}dcd --help${RESET}         ${DIM}see every command${RESET}"
+  info ""
+  # Desktop apps don't read the shell rc that puts dcd on PATH, so an MCP
+  # config written by hand needs the full path (dcd mcp install uses it).
+  info "  ${DIM}In an MCP config file, start dcd by its full path: $INSTALL_DIR/dcd${RESET}"
   info ""
 }
 
