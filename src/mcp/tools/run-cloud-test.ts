@@ -115,7 +115,9 @@ export function registerRunCloudTest(server: McpServer): void {
           .min(30)
           .max(3600)
           .optional()
-          .describe('Max seconds to wait when wait is true (default 600)'),
+          .describe(
+            'Max seconds to wait when wait is true (default 600). A flow with DEVICECLOUD_OVERRIDE_EXTENDED_RUNTIME: true in its env can run for up to 20 minutes, so raise this when the run includes one.',
+          ),
       },
       annotations: {
         title: 'Run a cloud test',
