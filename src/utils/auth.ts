@@ -2,6 +2,7 @@
  * Resolves which credential a command should use and returns the fetch headers
  * to send. Precedence: --api-key flag > DEVICE_CLOUD_API_KEY env > stored
  * Supabase session (refreshed if near expiry). Throws CliError if none found.
+ * The headers also carry the CLI's own identity (see clientHeaders).
  *
  * The refresh path writes the rotated tokens back to disk atomically. Callers
  * resolve once per invocation, not per request — except where a process can
@@ -17,7 +18,8 @@ import {
 import { telemetry } from '../services/telemetry.service.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 
-import { CliError } from './cli.js';
+import { detectCiContext } from './ci.js';
+import { CliError, getCliVersion } from './cli.js';
 import {
   StoredConfig,
   StoredSession,
@@ -58,6 +60,22 @@ export function apiKeyOverride(
   return undefined;
 }
 
+/**
+ * Who is calling, sent with every request next to the credential: the API
+ * targets notices by it and records it on each upload and binary.
+ * The CI headers are sent only when a DCD wrapper forwarded them or the
+ * provider could be inferred.
+ */
+function clientHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'x-dcd-cli-version': getCliVersion(),
+  };
+  const ci = detectCiContext();
+  if (ci.provider) headers['x-dcd-ci-provider'] = ci.provider;
+  if (ci.wrapperVersion) headers['x-dcd-ci-wrapper-version'] = ci.wrapperVersion;
+  return headers;
+}
+
 export async function resolveAuth(
   opts: ResolveAuthOptions,
 ): Promise<AuthContext> {
@@ -66,7 +84,7 @@ export async function resolveAuth(
     if (flag) {
       const auth: AuthContext = {
         mode: 'apiKey',
-        headers: { 'x-app-api-key': flag },
+        headers: { ...clientHeaders(), 'x-app-api-key': flag },
       };
       telemetry.configure({ auth });
       return auth;
@@ -76,7 +94,7 @@ export async function resolveAuth(
     if (env) {
       const auth: AuthContext = {
         mode: 'apiKey',
-        headers: { 'x-app-api-key': env },
+        headers: { ...clientHeaders(), 'x-app-api-key': env },
       };
       telemetry.configure({ auth });
       return auth;
@@ -113,6 +131,7 @@ export async function resolveAuth(
     orgId: config.current_org_id,
     userEmail: session.user_email,
     headers: {
+      ...clientHeaders(),
       authorization: `Bearer ${session.access_token}`,
       'x-dcd-org': config.current_org_id,
     },
@@ -195,19 +214,18 @@ async function refreshSessionWithLock(
       return { config: current, session };
     }
 
-    let refreshed;
-    try {
-      refreshed = await CliAuthGateway.refresh(
-        current.supabase_url,
-        current.env,
-        session,
-      );
-    } catch (error) {
-      if (error instanceof SessionRefreshError && error.definitive) {
-        dropStoredSession();
-      }
-      throw error;
-    }
+    // A failed refresh never deletes the stored session, even one Supabase
+    // refused outright. A refusal is not always the session's fault: an old
+    // CLI build sending a retired Supabase key gets a 401 ("Legacy API keys
+    // are disabled") for a session that is still good, and wiping it then
+    // forced a fresh login when an upgrade alone would have fixed it. The
+    // error tells the user to log in again; only `dcd logout` (or the next
+    // `dcd login`) replaces the stored session.
+    const refreshed = await CliAuthGateway.refresh(
+      current.supabase_url,
+      current.env,
+      session,
+    );
     // Re-read again and merge only `session` so a concurrent `switch-org`
     // write (org fields) isn't reverted by our pre-refresh snapshot.
     const merged: StoredConfig = { ...(readConfig() ?? current), session: refreshed };
@@ -216,20 +234,6 @@ async function refreshSessionWithLock(
   } finally {
     try { rmSync(lockPath, { force: true }); } catch { /* best effort */ }
   }
-}
-
-/**
- * Remove only the (definitively dead) session from the stored config, keeping
- * env/api_url/org so a re-login lands back in the same environment. With the
- * dead session gone, subsequent commands report "Not authenticated" instead
- * of failing the same refresh, and `dcd login` skips its "already logged in"
- * confirm. Exported for tests.
- */
-export function dropStoredSession(): void {
-  const config = readConfig();
-  if (!config?.session) return;
-  delete config.session;
-  writeConfig(config);
 }
 
 async function acquireRefreshLock(lockPath: string): Promise<void> {

@@ -4,12 +4,16 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import { ApiGateway } from '../../gateways/api-gateway.js';
-import { plan } from '../../services/execution-plan.service.js';
+import { type IExecutionPlan, plan } from '../../services/execution-plan.service.js';
 import {
   isSubmitEndpointMissing,
   submitWithRetry,
 } from '../../services/flow-submit.service.js';
-import { computeCommonRoot, buildTestMetadataMap } from '../../services/flow-paths.js';
+import {
+  computeCommonRoot,
+  buildTestMetadataMap,
+  type FlowMetadataEntry,
+} from '../../services/flow-paths.js';
 import { DeviceValidationService } from '../../services/device-validation.service.js';
 import { platformFromAppFile } from '../../services/notices.service.js';
 import type { EncryptionTelemetry } from '../../services/telemetry.service.js';
@@ -20,6 +24,7 @@ import { refreshAuth } from '../../utils/auth.js';
 import { getCliVersion } from '../../utils/cli.js';
 import { fetchCompatibilityData } from '../../utils/compatibility.js';
 import { checkKekForEncryption, resolveEncryption } from '../../utils/envelope.js';
+import { toPortableRelativePath } from '../../utils/paths.js';
 import { getConsoleUrl } from '../../utils/styling.js';
 import { getContext, logStderr } from '../context.js';
 import { jsonResult, runTool } from '../helpers.js';
@@ -30,6 +35,24 @@ const TERMINAL_STATUSES = new Set(['PASSED', 'FAILED', 'CANCELLED', 'ERROR']);
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The flows a dry run lists: the ones a real run would submit, after the
+ * include/exclude tags and excludeFlows, as `dcd cloud --dry-run` lists
+ * them. `flowMetadata` holds every flow in the folder, filtered out or not,
+ * so it can't be the list.
+ */
+export function dryRunFlows(
+  executionPlan: Pick<IExecutionPlan, 'flowsToRun' | 'sequence'>,
+  testMetadataMap: Record<string, FlowMetadataEntry>,
+  commonRoot: string,
+): { file: string; flowName: string; tags: string[] }[] {
+  return [...executionPlan.flowsToRun, ...(executionPlan.sequence?.flows ?? [])].map((absolute) => {
+    const file = toPortableRelativePath(absolute, commonRoot);
+    const meta = testMetadataMap[file];
+    return { file, flowName: meta?.flowName ?? path.parse(absolute).name, tags: meta?.tags ?? [] };
+  });
+}
 
 /**
  * Submit a Maestro flow (or directory of flows) to devicecloud.dev.
@@ -69,7 +92,7 @@ export function registerRunCloudTest(server: McpServer): void {
         iosVersion: z.string().optional().describe('iOS version, e.g. "17"'),
         iosDevice: z.string().optional().describe('iOS device, e.g. "iphone-14"'),
         androidApiLevel: z.string().optional().describe('Android API level, e.g. "34"'),
-        androidDevice: z.string().optional().describe('Android device, e.g. "pixel-7"'),
+        androidDevice: z.string().optional().describe('Android device, e.g. "pixel-10"'),
         googlePlay: z.boolean().optional().describe('Use a Google Play-enabled Android image'),
         name: z.string().optional().describe('A name for this run'),
         env: z
@@ -115,7 +138,9 @@ export function registerRunCloudTest(server: McpServer): void {
           .min(30)
           .max(3600)
           .optional()
-          .describe('Max seconds to wait when wait is true (default 600)'),
+          .describe(
+            'Max seconds to wait when wait is true (default 600). A flow with DEVICECLOUD_OVERRIDE_EXTENDED_RUNTIME: true in its env can run for up to 20 minutes, so raise this when the run includes one.',
+          ),
       },
       annotations: {
         title: 'Run a cloud test',
@@ -196,11 +221,7 @@ export function registerRunCloudTest(server: McpServer): void {
         if (args.dryRun) {
           return jsonResult({
             dryRun: true,
-            flows: Object.entries(testMetadataMap).map(([file, meta]) => ({
-              file,
-              flowName: meta.flowName,
-              tags: meta.tags,
-            })),
+            flows: dryRunFlows(executionPlan, testMetadataMap, commonRoot),
             sequentialFlowCount: executionPlan.sequence?.flows.length ?? 0,
           });
         }

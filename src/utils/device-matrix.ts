@@ -77,7 +77,7 @@ export function parseDeviceMatrix(
       (parts.length === 3 && parts[2] !== 'play')
     ) {
       throw new CliError(
-        `Invalid --android-device-matrix "${raw}". Expected <device>:<apiLevel> or <device>:<apiLevel>:play, e.g. pixel-7:34 or pixel-7:34:play.`,
+        `Invalid --android-device-matrix "${raw}". Expected <device>:<apiLevel> or <device>:<apiLevel>:play, e.g. pixel-8:34 or pixel-8:34:play.`,
       );
     }
     configs.push({

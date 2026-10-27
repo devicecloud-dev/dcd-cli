@@ -32,9 +32,7 @@ export enum EiOSDevices {
 export enum EAndroidDevices {
   'generic-tablet' = 'generic-tablet',
   'pixel-6' = 'pixel-6',
-  'pixel-6-pro' = 'pixel-6-pro',
   'pixel-7' = 'pixel-7',
-  'pixel-7-pro' = 'pixel-7-pro',
   'pixel-8' = 'pixel-8',
   'pixel-10' = 'pixel-10',
   'pixel-10-pro' = 'pixel-10-pro',

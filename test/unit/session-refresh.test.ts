@@ -22,7 +22,6 @@ import {
   refreshAuth,
   resolveAuth,
 } from '../../src/utils/auth.js';
-import { CliError } from '../../src/utils/cli.js';
 import { readConfig, writeConfig } from '../../src/utils/config-store.js';
 
 /**
@@ -157,7 +156,7 @@ describe('session refresh for long-running processes', () => {
       expect(readConfig()!.session!.refresh_token).to.equal('refresh-2');
     });
 
-    it('classifies a refused refresh token as final and drops the dead session', async () => {
+    it('classifies a refused refresh token as final but keeps the stored session', async () => {
       storeSession('stale', 10);
       CliAuthGateway.refresh = async () => {
         throw new SessionRefreshError('Invalid Refresh Token: Already Used', true);
@@ -171,17 +170,9 @@ describe('session refresh for long-running processes', () => {
       }
 
       expect(isDefinitiveAuthFailure(caught)).to.equal(true);
-      expect(readConfig()!.session).to.equal(undefined);
-      // With the session gone, the next attempt is "not authenticated": final too.
-      let next: unknown;
-      try {
-        await refreshAuth(expiredBearer('stale'));
-      } catch (error) {
-        next = error;
-      }
-
-      expect(next).to.be.instanceOf(CliError);
-      expect(isDefinitiveAuthFailure(next)).to.equal(true);
+      // Only `dcd logout` / `dcd login` replace the session; a retry or an
+      // upgrade may still get past the refusal.
+      expect(readConfig()!.session!.access_token).to.equal('stale');
     });
 
     it('treats a network failure during refresh as retryable', () => {
@@ -292,7 +283,10 @@ describe('session refresh for long-running processes', () => {
       const result = await poll(expiredBearer('stale', '42'));
 
       expect(result.status).to.equal('PASSED');
-      expect(seen).to.deep.equal([{ authorization: 'Bearer fresh', 'x-dcd-org': '42' }]);
+      // `include`, not equal: a resolved context also carries the CLI's
+      // identity headers (dcd#1622), which this test is not about.
+      expect(seen).to.have.length(1);
+      expect(seen[0]).to.include({ authorization: 'Bearer fresh', 'x-dcd-org': '42' });
       expect(realtime.joinedWith).to.deep.equal(['stale']);
       expect(realtime.updatedTo).to.deep.equal(['fresh']);
     });

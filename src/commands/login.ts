@@ -33,7 +33,6 @@
  */
 import * as p from '@clack/prompts';
 import { defineCommand } from 'citty';
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 
 import {
@@ -44,6 +43,7 @@ import {
 } from '../config/environments.js';
 import { getSupabaseKey } from '../config/supabase-key.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
+import { openBrowser } from '../utils/browser.js';
 import { canPrompt } from '../utils/ci.js';
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, writeConfig } from '../utils/config-store.js';
@@ -171,7 +171,7 @@ export const loginCommand = defineCommand({
     if (noBrowser) {
       rows.push(ui.note('Open this URL in a browser to finish login:'), colors.highlight(loginUrl));
     } else {
-      const opened = openBrowser(loginUrl);
+      const opened = await openBrowser(loginUrl);
       rows.push(
         ui.note(
           opened
@@ -269,22 +269,6 @@ export const loginCommand = defineCommand({
     }
   },
 });
-
-function openBrowser(url: string): boolean {
-  const cmd =
-    process.platform === 'darwin'
-      ? { bin: 'open', args: [url] }
-      : process.platform === 'win32'
-        ? { bin: 'cmd', args: ['/c', 'start', '""', url] }
-        : { bin: 'xdg-open', args: [url] };
-  try {
-    const child = spawn(cmd.bin, cmd.args, { detached: true, stdio: 'ignore' });
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 async function pollForClaim(
   apiUrl: string,

@@ -6,8 +6,14 @@ import { parse } from 'plist';
 
 import { readManifestPackage } from '../utils/android-manifest.js';
 
+export type CpuArchitecture = 'arm' | 'x86';
+
 export interface TAppMetadata {
+  /** APK only: the native ABIs shipped under `lib/<abi>/`, sorted. */
+  abis?: string[];
   appId: string;
+  /** APK only: the CPU families the APK can run on. See `apkArchitectures`. */
+  architectures?: CpuArchitecture[];
   platform: 'android' | 'ios';
 }
 
@@ -38,6 +44,36 @@ function parseInfoPlist(buffer: Buffer): { CFBundleIdentifier: string } {
   return data;
 }
 
+const ABI_ARCHITECTURE: Record<string, CpuArchitecture> = {
+  armeabi: 'arm',
+  'armeabi-v7a': 'arm',
+  'arm64-v8a': 'arm',
+  x86: 'x86',
+  x86_64: 'x86',
+};
+
+/** The native ABIs in an APK: each `lib/<abi>/` directory that holds a file. */
+export function apkAbis(entryNames: string[]): string[] {
+  const abis = new Set<string>();
+  for (const name of entryNames) {
+    const match = /^lib\/([^/]+)\/[^/]+$/.exec(name);
+    if (match) abis.add(match[1]);
+  }
+
+  return [...abis].sort();
+}
+
+/**
+ * The CPU families an APK can run on, from its native ABIs. An APK with no
+ * native code runs on both. ABIs outside arm and x86 (mips, riscv64) are
+ * ignored, so an APK that ships only those gets an empty list.
+ */
+export function apkArchitectures(abis: string[]): CpuArchitecture[] {
+  if (abis.length === 0) return ['arm', 'x86'];
+  const found = new Set(abis.map((abi) => ABI_ARCHITECTURE[abi]).filter(Boolean));
+  return (['arm', 'x86'] as const).filter((arch) => found.has(arch));
+}
+
 /**
  * Extracts metadata from Android APK files
  */
@@ -50,7 +86,13 @@ export class AndroidMetadataExtractor implements IMetadataExtractor {
     const zip = new StreamZip.async({ file: filePath });
     try {
       const manifest = await zip.entryData('AndroidManifest.xml');
-      return { appId: readManifestPackage(manifest), platform: 'android' };
+      const abis = apkAbis(Object.keys(await zip.entries()));
+      return {
+        abis,
+        appId: readManifestPackage(manifest),
+        architectures: apkArchitectures(abis),
+        platform: 'android',
+      };
     } finally {
       await zip.close().catch(() => {});
     }

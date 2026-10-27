@@ -174,6 +174,19 @@ function extractDeviceCloudOverrides(
 }
 
 /**
+ * How many flows opt into the extended test runtime (up to 20 minutes, billed
+ * accepts: YAML `true` or the string `'true'`.
+ * accepts: YAML `true` or the string `'true'`.
+ */
+export function countExtendedRuntimeFlows(
+  flowOverrides: Record<string, Record<string, unknown>>,
+): number {
+  return Object.values(flowOverrides).filter(
+    ({ EXTENDED_RUNTIME }) => EXTENDED_RUNTIME === true || EXTENDED_RUNTIME === 'true',
+  ).length;
+}
+
+/**
  * Generate execution plan for a single flow file
  * @param normalizedInput - Normalized path to the flow file
  * @param warn - Sink for non-fatal config problems
@@ -336,7 +349,7 @@ const INCLUDED_PATHS_BYTES_WARN_THRESHOLD = 50 * 1024 * 1024;
  * @returns Absolute paths of every matched file, deduped and sorted
  * @throws Error if a pattern escapes the workspace root
  */
-function resolveIncludedPaths(
+export function resolveIncludedPaths(
   workspaceConfig: IWorkspaceConfig,
   normalizedInput: string,
   warn: (message: string) => void,

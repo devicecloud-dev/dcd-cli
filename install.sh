@@ -15,8 +15,32 @@
 
 set -eu
 
+# Colours are on only for a real terminal: not when output is piped or logged
+# (CI), not when NO_COLOR is set (https://no-color.org), and not on a dumb
+# terminal. stdout and stderr are checked separately, because either can be
+# redirected on its own. With colours off every variable is empty, so the
+# output is the same text with no escape codes.
+setup_colors() {
+  BOLD='' DIM='' GREEN='' YELLOW='' CYAN='' RESET=''
+  ERR_RED='' ERR_RESET=''
+  if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != dumb ]; then
+    if [ -t 1 ]; then
+      BOLD=$(printf '\033[1m')
+      DIM=$(printf '\033[2m')
+      GREEN=$(printf '\033[32m')
+      YELLOW=$(printf '\033[33m')
+      CYAN=$(printf '\033[36m')
+      RESET=$(printf '\033[0m')
+    fi
+    if [ -t 2 ]; then
+      ERR_RED=$(printf '\033[31m')
+      ERR_RESET=$(printf '\033[0m')
+    fi
+  fi
+}
+
 err() {
-  printf 'error: %s\n' "$1" >&2
+  printf '%s✗ error:%s %s\n' "$ERR_RED" "$ERR_RESET" "$1" >&2
   exit 1
 }
 
@@ -24,12 +48,39 @@ info() {
   printf '%s\n' "$1"
 }
 
+# The same tree shape the CLI itself prints (see STYLE_GUIDE.md): a `⏺` heading
+# for each stage, with `⎿` detail rows beneath it.
+step() {
+  printf '\n%s⏺%s %s%s%s\n' "$DIM" "$RESET" "$BOLD" "$1" "$RESET"
+}
+
+detail() {
+  printf '  %s⎿%s %s\n' "$DIM" "$RESET" "$1"
+}
+
+# A second row under detail(), aligned with its text.
+detail_more() {
+  printf '    %s\n' "$1"
+}
+
+success() {
+  printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$1"
+}
+
+warn() {
+  printf '%s!%s %s\n' "$YELLOW" "$RESET" "$1"
+}
+
+banner() {
+  printf '\n  %sdcd%s %s·%s DeviceCloud installer\n' "$BOLD$CYAN" "$RESET" "$DIM" "$RESET"
+}
+
 # Stable is the default channel and beta is strictly opt-in, so when no stable
 # release exists yet (only prereleases published) we refuse to silently install a
 # beta and instead point the user at the two explicit opt-ins. $DOWNLOAD_BASE is
 # echoed so a custom host shows the right command.
 no_stable_release_err() {
-  printf 'error: No stable dcd release is available yet.\n' >&2
+  printf '%s✗ error:%s No stable dcd release is available yet.\n' "$ERR_RED" "$ERR_RESET" >&2
   printf '  Install the latest beta:  curl -fsSL %s/install.sh | DCD_BETA=1 sh\n' "$DOWNLOAD_BASE" >&2
   printf '  Or pin a version:         curl -fsSL %s/install.sh | DCD_VERSION=5.0.0-beta.1 sh\n' "$DOWNLOAD_BASE" >&2
   exit 1
@@ -112,8 +163,11 @@ persist_path() {
 }
 
 main() {
+  setup_colors
   DOWNLOAD_BASE="${DCD_DOWNLOAD_BASE:-https://get.devicecloud.dev}"
   INSTALL_DIR="${DCD_INSTALL_DIR:-$HOME/.dcd/bin}"
+
+  banner
 
   # --- detect platform ---
   os=$(uname -s)
@@ -134,17 +188,17 @@ main() {
 
   # --- resolve version ---
   # Precedence: explicit DCD_VERSION pin > DCD_BETA opt-in > latest stable.
+  step "Resolving version"
   if [ -n "${DCD_VERSION:-}" ]; then
     version="$DCD_VERSION"
+    detail "${CYAN}${version}${RESET} ${DIM}(pinned by DCD_VERSION)${RESET}"
   else
     if [ -n "${DCD_BETA:-}" ]; then
       channel=beta
       manifest_url="$DOWNLOAD_BASE/latest.json?channel=beta"
-      info "Resolving latest beta version..."
     else
       channel=stable
       manifest_url="$DOWNLOAD_BASE/latest.json"
-      info "Resolving latest version..."
     fi
 
     # Fetch the manifest separately from parsing so we can tell a transient
@@ -167,14 +221,15 @@ main() {
         err "No beta release is available yet from $manifest_url"
       fi
     fi
+    detail "${CYAN}${version}${RESET} ${DIM}(latest ${channel})${RESET}"
   fi
 
   url="$DOWNLOAD_BASE/download/${version}/${asset}"
   sums_url="$DOWNLOAD_BASE/download/${version}/SHA256SUMS"
 
-  info "Installing dcd ${version} (${os_id}-${arch_id})"
-  info "  from: $url"
-  info "  to:   $INSTALL_DIR/dcd"
+  step "Downloading dcd ${version} ${DIM}(${os_id}-${arch_id})${RESET}"
+  detail "${DIM}from${RESET}  $url"
+  detail_more "${DIM}to${RESET}    $INSTALL_DIR/dcd"
 
   # --- download ---
   mkdir -p "$INSTALL_DIR"
@@ -182,6 +237,7 @@ main() {
   trap 'rm -f "$tmp" "$tmp.sums"' EXIT
   curl -fSL --progress-bar "$url" -o "$tmp" \
     || err "Download failed: $url"
+  success "Downloaded"
 
   # --- verify checksum ---
   curl -fsSL "$sums_url" -o "$tmp.sums" \
@@ -200,6 +256,7 @@ main() {
   if [ "$expected" != "$actual" ]; then
     err "Checksum mismatch for $asset: expected $expected, got $actual"
   fi
+  success "Checksum verified ${DIM}(SHA-256)${RESET}"
 
   # --- install ---
   chmod +x "$tmp"
@@ -213,36 +270,56 @@ main() {
     *)                  on_path=0 ;;
   esac
 
-  info ""
-  info "✓ Installed dcd $version to $INSTALL_DIR/dcd"
+  success "Installed to $INSTALL_DIR/dcd"
 
+  # Work out the PATH outcome now, but print it in the "next steps" block
+  # below, so the install log above stays a plain record of what happened.
+  path_state=on_path
   if [ "$on_path" -eq 0 ]; then
     rc=$(rc_file)
     if persist_path "$rc"; then
-      info ""
-      info "  Added $INSTALL_DIR to your PATH in $rc."
-      info "  Restart your shell, or run:  $path_line"
+      path_state=persisted
     else
-      info ""
-      info "  $INSTALL_DIR is not on your PATH. Add this to your shell rc:"
-      info "    $path_line"
+      path_state=manual
     fi
   fi
 
   # --- warn about a conflicting (shadowing) install ---
   if conflict=$(find_conflicting_dcd); then
     info ""
-    info "! Another dcd is already on your PATH:"
+    warn "Another dcd is already on your PATH:"
     info "    $conflict"
     info "  This is usually a previous 'npm install -g @devicecloud.dev/dcd', which"
     info "  can shadow this binary depending on PATH order. Remove it with:"
-    info "    npm uninstall -g @devicecloud.dev/dcd"
+    info "    ${CYAN}npm uninstall -g @devicecloud.dev/dcd${RESET}"
   fi
 
-  if [ "$on_path" -eq 1 ]; then
-    info ""
-    info "  Try: dcd --help"
-  fi
+  # --- next steps ---
+  info ""
+  info "  ${GREEN}${BOLD}dcd ${version} is installed.${RESET}"
+  info ""
+  case "$path_state" in
+    persisted)
+      info "  Added $INSTALL_DIR to your PATH in ${BOLD}$rc${RESET}."
+      info "  Restart your shell, or run:"
+      info "    ${CYAN}$path_line${RESET}"
+      info ""
+      ;;
+    manual)
+      info "  $INSTALL_DIR is not on your PATH. Add this to your shell rc:"
+      info "    ${CYAN}$path_line${RESET}"
+      info ""
+      ;;
+  esac
+  info "  Get started:"
+  info "    ${CYAN}dcd login${RESET}          ${DIM}sign in to DeviceCloud${RESET}"
+  info "    ${CYAN}dcd mcp install${RESET}    ${DIM}connect an AI agent (Claude, Cursor, VS Code)${RESET}"
+  info "    ${CYAN}dcd --help${RESET}         ${DIM}see every command${RESET}"
+  info ""
+  # Desktop apps don't read the shell rc that puts dcd on PATH, so an MCP
+  # config written by hand needs the full path (dcd mcp install uses it).
+  info "  ${DIM}In an MCP config file, start dcd by its full path: $INSTALL_DIR/dcd${RESET}"
+  info ""
 }
 
 main "$@"

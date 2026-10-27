@@ -16,6 +16,11 @@ import { type Field, ui } from '../utils/ui.js';
 const PLATFORM_OPTIONS = ['android', 'ios'] as const;
 type Platform = (typeof PLATFORM_OPTIONS)[number];
 
+/** Printed to stderr by every `dcd live` command. */
+export const LIVE_DEPRECATION = ui.deprecation(
+  '`dcd live` is deprecated and will be removed. Use `dcd device` instead: see `dcd device --help`.',
+);
+
 const READY_TIMEOUT_MS = 180_000;
 const READY_POLL_MS = 2_000;
 
@@ -161,7 +166,7 @@ const startSub = defineCommand({
     'android-device': {
       type: 'string',
       description:
-        '[Android] Device profile to match a cloud run (options: pixel-6, pixel-6-pro, pixel-7, pixel-7-pro, pixel-8, pixel-10, pixel-10-pro, pixel-10-pro-xl, pixel-11)',
+        '[Android] Device profile to match a cloud run (options: pixel-6, pixel-8, pixel-10, pixel-10-pro, pixel-10-pro-xl, pixel-11)',
     },
     'android-api-level': {
       type: 'string',
@@ -709,8 +714,15 @@ export const liveCommand = defineCommand({
   meta: {
     name: 'live',
     description: 'Start and interact with a live device session',
+    // Replaced by `dcd device` (Agent Devices plan 3.4). Kept working for
+    // existing scripts, but no longer listed in `dcd --help`.
+    hidden: true,
   },
   subCommands,
+  // Runs before any subcommand. On stderr, so --json output is unchanged.
+  setup() {
+    process.stderr.write(`${LIVE_DEPRECATION}\n`);
+  },
   // citty's runCommand does not early-return after dispatching to a
   // subcommand — it still invokes the parent `run` afterwards. So when a
   // subcommand was matched, bail out here; otherwise the menu would print

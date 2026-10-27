@@ -7,8 +7,7 @@ import { outputFlags } from '../config/flags/output.flags.js';
 import { uploadBinary, verifyAppZip } from '../methods.js';
 import { telemetry } from '../services/telemetry.service.js';
 import { resolveAuth } from '../utils/auth.js';
-import { detectCiContext } from '../utils/ci.js';
-import { CliError, getCliVersion, logger } from '../utils/cli.js';
+import { CliError, logger } from '../utils/cli.js';
 import { fetchCompatibilityData } from '../utils/compatibility.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import { checkKekForEncryption, resolveEncryption } from '../utils/envelope.js';
@@ -60,12 +59,7 @@ export const uploadCommand = defineCommand({
       // failed fetch leaves the default off rather than failing the upload.
       let serverDefault: boolean | undefined;
       try {
-        const ciContext = detectCiContext();
-        const compatibilityData = await fetchCompatibilityData(apiUrl, auth, {
-          cliVersion: getCliVersion(),
-          ciProvider: ciContext.provider,
-          ciWrapperVersion: ciContext.wrapperVersion,
-        });
+        const compatibilityData = await fetchCompatibilityData(apiUrl, auth);
         serverDefault = compatibilityData.encryption?.defaultOn;
       } catch (error) {
         if (debug) {
