@@ -1,5 +1,42 @@
 # Changelog
 
+## [5.11.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.10.0...v5.11.0) (2026-10-27)
+
+
+### Features
+
+* **api:** send the CLI version and CI identity on every API request ([#277](https://github.com/devicecloud-dev/dcd-cli/issues/277)) ([7d751d2](https://github.com/devicecloud-dev/dcd-cli/commit/7d751d299bc70e278b3a3edc352db12cbf9c666c))
+* **cloud:** say which flows use extended runtime, and that they cost 2x ([#272](https://github.com/devicecloud-dev/dcd-cli/issues/272)) ([7be9899](https://github.com/devicecloud-dev/dcd-cli/commit/7be9899fbeb2916ac16b18584845193ff309bdea))
+* **device:** add dcd device and dcd mcp for Agent Devices ([#260](https://github.com/devicecloud-dev/dcd-cli/issues/260)) ([8d87e67](https://github.com/devicecloud-dev/dcd-cli/commit/8d87e672d2d5bfd83d4538824ebe690ce0390a37))
+* **device:** bundle only the files a directory's flows use ([#275](https://github.com/devicecloud-dev/dcd-cli/issues/275)) ([7b31b1e](https://github.com/devicecloud-dev/dcd-cli/commit/7b31b1e787cebd5d7b3ecba13b2e9acb70b060f9))
+* **device:** inspect --all, element state, and screen text on a failed run ([#273](https://github.com/devicecloud-dev/dcd-cli/issues/273)) ([85cde1a](https://github.com/devicecloud-dev/dcd-cli/commit/85cde1af113dc12e2630fee739eb280d9c9b9ef2))
+* **encrypt:** list --encrypt in --help now encryption is on by default (dcd[#1138](https://github.com/devicecloud-dev/dcd-cli/issues/1138)) ([8d87e67](https://github.com/devicecloud-dev/dcd-cli/commit/8d87e672d2d5bfd83d4538824ebe690ce0390a37))
+* **mcp:** add dcd mcp install, and lead the docs with the standalone binary ([#267](https://github.com/devicecloud-dev/dcd-cli/issues/267)) ([8bff82e](https://github.com/devicecloud-dev/dcd-cli/commit/8bff82e4ed6fb06cedefca0d942bbd1ac349857c))
+* polish the install script and the progress spinner ([#264](https://github.com/devicecloud-dev/dcd-cli/issues/264)) ([eb7881f](https://github.com/devicecloud-dev/dcd-cli/commit/eb7881fe397ade839616fdef1fdec6f57268fd0c)), closes [#90](https://github.com/devicecloud-dev/dcd-cli/issues/90)
+* **upload:** record APK CPU architectures in binary metadata ([#269](https://github.com/devicecloud-dev/dcd-cli/issues/269)) ([5f4c45e](https://github.com/devicecloud-dev/dcd-cli/commit/5f4c45ee24dcf80762417e52d9f053cac34ef02a))
+
+
+### Bug Fixes
+
+* **device:** don't crash when no browser opener is installed ([#265](https://github.com/devicecloud-dev/dcd-cli/issues/265)) ([2e566ef](https://github.com/devicecloud-dev/dcd-cli/commit/2e566ef1bff7484409f2a3e4660c25ca58550847))
+* **device:** drop Pixel 6 Pro and Pixel 7 Pro, and mirror the Pixel 1… ([#268](https://github.com/devicecloud-dev/dcd-cli/issues/268)) ([b07af33](https://github.com/devicecloud-dev/dcd-cli/commit/b07af33c5b7ececf68d80e6e26fbd6cd33ff488d))
+* **device:** drop Pixel 6 Pro and Pixel 7 Pro, and mirror the Pixel 10 default ([b07af33](https://github.com/devicecloud-dev/dcd-cli/commit/b07af33c5b7ececf68d80e6e26fbd6cd33ff488d))
+* **device:** fit start's next steps to the session, and explain dcd mcp ([#266](https://github.com/devicecloud-dev/dcd-cli/issues/266)) ([13a7158](https://github.com/devicecloud-dev/dcd-cli/commit/13a7158d032fc089e8ad54540cc939c4a5bd33a7))
+* **device:** say "since", not "asked", when a person took control unasked ([#279](https://github.com/devicecloud-dev/dcd-cli/issues/279)) ([ec422fd](https://github.com/devicecloud-dev/dcd-cli/commit/ec422fd46197f1daf42bf94d53fed8aaa3c509a2))
+* **mcp:** dry runs honour tags, single flow files bring their subflows, failed starts say what to check ([#278](https://github.com/devicecloud-dev/dcd-cli/issues/278)) ([498f300](https://github.com/devicecloud-dev/dcd-cli/commit/498f3000060fa42e4646b2e153da231b629e010c))
+* **upload:** retry Backblaze uploads on transient failures ([#270](https://github.com/devicecloud-dev/dcd-cli/issues/270)) ([d1cdbd4](https://github.com/devicecloud-dev/dcd-cli/commit/d1cdbd4a1c47608a49ac2723563b89839b74db96))
+
+
+### Dependencies
+
+* patch body-parser and fast-uri advisories ([#262](https://github.com/devicecloud-dev/dcd-cli/issues/262)) ([8fe73cd](https://github.com/devicecloud-dev/dcd-cli/commit/8fe73cd8d5c35a0d2919c2e6940ab377ab258a03))
+* patch ip-address advisory ([#256](https://github.com/devicecloud-dev/dcd-cli/issues/256)) ([43cdf5f](https://github.com/devicecloud-dev/dcd-cli/commit/43cdf5fe437a00bad2d278a3ca6ccaae21df3d47))
+
+
+### Miscellaneous
+
+* pin the 5.11.0 promotion ([e83ae64](https://github.com/devicecloud-dev/dcd-cli/commit/e83ae6496f1452208ad6fba1b5b08dec004a6958))
+
 ## [5.10.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.9.0...v5.10.0) (2026-10-22)
 
 
