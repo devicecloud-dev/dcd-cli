@@ -27,6 +27,7 @@ export enum EiOSDevices {
   'iphone-18-pro' = 'iphone-18-pro',
   'iphone-18-pro-max' = 'iphone-18-pro-max',
   'iphone-air' = 'iphone-air',
+  'iphone-duo' = 'iphone-duo',
 }
 
 export enum EAndroidDevices {
