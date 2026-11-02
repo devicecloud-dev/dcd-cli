@@ -11,7 +11,7 @@ import type { CompatibilityData } from '../../src/utils/compatibility.js';
  */
 const compat: CompatibilityData = {
   ios: {
-    'iphone-14': ['18'],
+    'iphone-14': ['17', '18'],
     'iphone-16': ['18', '26', '27'],
     'iphone-17': ['26', '27'],
     'iphone-19': ['28'],
@@ -117,7 +117,7 @@ describe('DeviceValidationService', () => {
 
     it('rejects an unsupported explicit pair with the device\'s versions', () => {
       expect(() => ios('27', 'iphone-14')).to.throw(
-        /^iphone-14 only supports these iOS versions: 18$/,
+        /^iphone-14 only supports these iOS versions: 17, 18$/,
       );
       expect(() => android('34', 'pixel-10')).to.throw(
         /^pixel-10 only supports these Android API levels: 36, 37$/,
@@ -136,7 +136,7 @@ describe('DeviceValidationService', () => {
   describe('requests that rely on a default', () => {
     it('tells a device-only iOS request to pass the version explicitly', () => {
       expect(() => ios(undefined, 'iphone-14')).to.throw(
-        'iphone-14 only supports these iOS versions: 18. No iOS version was given, so the default (26) was checked: pass one of those explicitly with --ios-version',
+        'iphone-14 only supports these iOS versions: 17, 18. No iOS version was given, so the default (26) was checked: pass one of those explicitly with --ios-version',
       );
     });
 

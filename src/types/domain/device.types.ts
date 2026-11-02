@@ -18,6 +18,8 @@ export enum EiOSDevices {
   'ipad-pro-m5-13' = 'ipad-pro-m5-13',
   'iphone-14' = 'iphone-14',
   'iphone-16' = 'iphone-16',
+  'iphone-16-pro' = 'iphone-16-pro',
+  'iphone-16-pro-max' = 'iphone-16-pro-max',
   'iphone-17' = 'iphone-17',
   'iphone-18-pro' = 'iphone-18-pro',
   'iphone-18-pro-max' = 'iphone-18-pro-max',
@@ -39,6 +41,7 @@ export enum EAndroidDevices {
 
 export enum EiOSVersions {
   'eighteen' = '18',
+  'seventeen' = '17',
   'twentySeven' = '27',
   'twentySix' = '26',
 }
