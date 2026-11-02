@@ -155,8 +155,8 @@ export class DeviceValidationService {
         `[DEBUG] Supported iOS versions: ${supportedVersions.join(', ')}`,
       ],
       // Mirrors the API's global defaults, as for Android above.
-      defaultDevice: 'iphone-14',
-      defaultVersion: '17',
+      defaultDevice: 'iphone-16',
+      defaultVersion: '26',
       device: iOSDevice,
       deviceArg: argNames.iOSDevice,
       deviceKind: 'iOS',

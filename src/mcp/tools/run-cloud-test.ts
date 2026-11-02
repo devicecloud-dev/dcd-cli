@@ -89,8 +89,8 @@ export function registerRunCloudTest(server: McpServer): void {
           .string()
           .optional()
           .describe('ID of a previously uploaded binary. Mutually exclusive with appFile.'),
-        iosVersion: z.string().optional().describe('iOS version, e.g. "17"'),
-        iosDevice: z.string().optional().describe('iOS device, e.g. "iphone-14"'),
+        iosVersion: z.string().optional().describe('iOS version, e.g. "26"'),
+        iosDevice: z.string().optional().describe('iOS device, e.g. "iphone-16"'),
         androidApiLevel: z.string().optional().describe('Android API level, e.g. "34"'),
         androidDevice: z.string().optional().describe('Android device, e.g. "pixel-10"'),
         googlePlay: z.boolean().optional().describe('Use a Google Play-enabled Android image'),

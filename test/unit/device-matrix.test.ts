@@ -20,12 +20,12 @@ describe('parseDeviceMatrix', () => {
 
   it('parses each --ios-device-matrix as exactly one cell (no cross-product)', () => {
     const matrix = parseDeviceMatrix(
-      ['iphone-16:18', 'iphone-16-pro:26'],
+      ['iphone-16:18', 'iphone-17:26'],
       [],
     );
     expect(matrix).to.deep.equal([
       { iOSDevice: 'iphone-16', iOSVersion: '18' },
-      { iOSDevice: 'iphone-16-pro', iOSVersion: '26' },
+      { iOSDevice: 'iphone-17', iOSVersion: '26' },
     ]);
     expect(matrixIsIos(matrix)).to.equal(true);
   });
