@@ -1,5 +1,27 @@
 # Changelog
 
+## [5.11.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.11.0...v5.11.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **cloud:** show notices before rejecting an unsupported iOS device o… ([#289](https://github.com/devicecloud-dev/dcd-cli/issues/289)) ([ac75b8f](https://github.com/devicecloud-dev/dcd-cli/commit/ac75b8f5f2be75c352fc63baac6b8027570c0a2f))
+* **cloud:** show notices before rejecting an unsupported iOS device or version ([ac75b8f](https://github.com/devicecloud-dev/dcd-cli/commit/ac75b8f5f2be75c352fc63baac6b8027570c0a2f))
+* **device:** drop iOS 17 and five iOS devices, and mirror the iPhone … ([#288](https://github.com/devicecloud-dev/dcd-cli/issues/288)) ([86acd62](https://github.com/devicecloud-dev/dcd-cli/commit/86acd62c2ab04efb33f42f481898904c4f719d43))
+* **device:** drop iOS 17 and five iOS devices, and mirror the iPhone 16 / iOS 26 default ([86acd62](https://github.com/devicecloud-dev/dcd-cli/commit/86acd62c2ab04efb33f42f481898904c4f719d43))
+* **device:** keep iOS 17, iPhone 16 Pro and iPhone 16 Pro Max in the … ([#290](https://github.com/devicecloud-dev/dcd-cli/issues/290)) ([e8bf432](https://github.com/devicecloud-dev/dcd-cli/commit/e8bf43272aae7c218dd89dbb2dea275f773eca1e))
+* **device:** keep iOS 17, iPhone 16 Pro and iPhone 16 Pro Max in the help text ([e8bf432](https://github.com/devicecloud-dev/dcd-cli/commit/e8bf43272aae7c218dd89dbb2dea275f773eca1e))
+
+
+### Dependencies
+
+* bump the minor-and-patch group across 1 directory with 4 updates ([#291](https://github.com/devicecloud-dev/dcd-cli/issues/291)) ([2002ad3](https://github.com/devicecloud-dev/dcd-cli/commit/2002ad3ff194831db17dc66e16cdfd6f9d3d2f25))
+
+
+### Miscellaneous
+
+* pin the 5.11.1 promotion ([3b7bcf3](https://github.com/devicecloud-dev/dcd-cli/commit/3b7bcf37f69ced75c6e768c6e1efe0a893b83b3e))
+
 ## [5.11.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.10.0...v5.11.0) (2026-10-27)
 
 
