@@ -490,11 +490,6 @@ export const cloudCommand = defineCommand({
         throw new CliError('You must provide a flow file');
       }
 
-      deviceValidationService.validateiOSDevice(iOSVersion, iOSDevice, compatibilityData, {
-        debug,
-        logger: (m: string) => out(m),
-      });
-
       // Render DB-driven notices (deprecation/warn/info/marketing) the API
       // returned with the compatibility data. Replaces the previously hardcoded
       // iOS-16 deprecation warning — that is now a seeded notice gated on the
@@ -529,6 +524,13 @@ export const cloudCommand = defineCommand({
         learnMoreUrl: n.learnMoreUrl,
       }));
 
+      // Validated after the notices, so a notice aimed at a removed device or
+      // OS version (e.g. removed-ios-17-2026-11-02) is shown before the
+      // rejection it explains.
+      deviceValidationService.validateiOSDevice(iOSVersion, iOSDevice, compatibilityData, {
+        debug,
+        logger: (m: string) => out(m),
+      });
       deviceValidationService.validateAndroidDevice(
         androidApiLevel,
         androidDevice,
