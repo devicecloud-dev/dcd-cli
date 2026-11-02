@@ -108,6 +108,11 @@ describe('toolSpawn', () => {
     expect(cmdPass(spawn.args[3].slice(1, -1))).to.match(/^C:\\Program Files\\Microsoft VS Code\\bin\\code\.cmd /);
   });
 
+  it('refuses a line break in an argument to a .cmd', () => {
+    expect(() => toolSpawn('code', ['a\nb'], 'win32', env, exists)).to.throw(/line break/);
+    expect(toolSpawn('claude', ['a\nb'], 'win32', { ...env, PATH: 'C:\\tools' }, exists)?.args).to.deep.equal(['a\nb']);
+  });
+
   it('gets the --add-mcp JSON to VS Code unchanged', () => {
     const add = vscodeAddArgs({
       args: [String.raw`C:\Users\a b\AppData\Roaming\npm\node_modules\@devicecloud.dev\dcd\dist\index.js`, 'mcp', '--read-only'],

@@ -11,6 +11,8 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
+import { CliError } from './cli.js';
+
 export interface ToolSpawn {
   command: string;
   args: string[];
@@ -38,6 +40,10 @@ export function toolSpawn(
   const file = findOnWindowsPath(command, env, exists);
   if (!file) return undefined;
   if (!/\.(cmd|bat)$/i.test(file)) return { command: file, args };
+  // A line break ends cmd's line, and no escaping can stop that.
+  if (args.some((arg) => /[\0\n\r]/.test(arg))) {
+    throw new CliError(`Can't pass a line break to ${path.win32.basename(file)} through cmd.exe.`);
+  }
 
   // /s strips the outer quotes and runs the rest as one line.
   const line = [file.replace(CMD_META, '^$1'), ...args.map((arg) => cmdArgument(arg))].join(' ');
