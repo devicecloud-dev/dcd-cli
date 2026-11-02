@@ -141,7 +141,7 @@ appId: com.example.app
 
   describe('device management path', () => {
     it('should accept valid iOS device configuration', async () => {
-      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device iphone-14 --ios-version 17 --async --json`;
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device iphone-14 --ios-version 18 --async --json`;
 
       const { stdout } = await exec(command, { timeout: 30_000 });
       expectAsyncRunJson(stdout);
@@ -175,10 +175,10 @@ appId: com.example.app
     });
 
     it('asks for the version when a lone device needs a non-default one', async () => {
-      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device iphone-17 --dry-run`;
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device iphone-14 --dry-run`;
 
       const { output } = await runExpectingFailure(command);
-      expect(output).to.include('iphone-17 only supports these iOS versions');
+      expect(output).to.include('iphone-14 only supports these iOS versions');
       expect(output).to.include('--ios-version');
     });
   });
@@ -186,7 +186,7 @@ appId: com.example.app
   // #1105 device matrix: repeated --ios-device-matrix / --android-device-matrix cells.
   describe('device matrix', () => {
     it('accepts a repeated --ios-device-matrix matrix and still yields one upload', async () => {
-      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device-matrix iphone-16:18 --ios-device-matrix iphone-16-pro:26 --async --json`;
+      const command = `${CLI} cloud ${iosAppFile} ${testFlowFile} --api-key ${mockApiKey} --api-url ${mockApiUrl} --ios-device-matrix iphone-16:18 --ios-device-matrix iphone-17:26 --async --json`;
 
       const { stdout } = await exec(command, { timeout: 30_000 });
       // Still one upload with one uploadId — the matrix is a property of the
