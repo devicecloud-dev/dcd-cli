@@ -30,6 +30,7 @@ import {
   writeClientConfig,
 } from '../utils/mcp-install.js';
 import { colors } from '../utils/styling.js';
+import { toolSpawn } from '../utils/tool-spawn.js';
 import { type Field, ui } from '../utils/ui.js';
 
 const RELOAD_HINT: Record<McpClient, string> = {
@@ -41,7 +42,12 @@ const RELOAD_HINT: Record<McpClient, string> = {
 
 /** Run another tool's CLI without a shell. Undefined when it isn't installed. */
 function runTool(command: string, args: string[]): { ok: boolean; output: string } | undefined {
-  const result = spawnSync(command, args, { encoding: 'utf8' });
+  const spawn = toolSpawn(command, args);
+  if (!spawn) return undefined;
+  const result = spawnSync(spawn.command, spawn.args, {
+    encoding: 'utf8',
+    windowsVerbatimArguments: spawn.windowsVerbatimArguments,
+  });
   if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return undefined;
   return { ok: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trim() };
 }
