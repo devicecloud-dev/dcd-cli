@@ -86,6 +86,16 @@ no_stable_release_err() {
   exit 1
 }
 
+# A release version: 5.0.0 or 5.0.0-beta.1 (a leading v is fine). The case
+# check comes first because grep matches line by line, so it would accept a
+# value with a newline in it on its first line alone.
+valid_version() {
+  case "$1" in
+    '' | *[!0-9A-Za-z.-]*) return 1 ;;
+  esac
+  printf '%s\n' "$1" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+}
+
 # Find a dcd on PATH other than the one we just installed — usually a leftover
 # `npm install -g @devicecloud.dev/dcd` that can shadow this binary. Runs in a
 # subshell so the temporary IFS change never leaks back to the caller.
@@ -223,6 +233,10 @@ main() {
     fi
     detail "${CYAN}${version}${RESET} ${DIM}(latest ${channel})${RESET}"
   fi
+
+  # Only a release version goes into the download URLs below.
+  valid_version "$version" \
+    || err "Invalid version '$version'. Use a release version such as 5.0.0 or 5.0.0-beta.1."
 
   url="$DOWNLOAD_BASE/download/${version}/${asset}"
   sums_url="$DOWNLOAD_BASE/download/${version}/SHA256SUMS"
