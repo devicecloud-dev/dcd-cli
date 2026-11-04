@@ -29,11 +29,10 @@ import {
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 
-import { DeviceGateway } from '../gateways/device-gateway.js';
+import { DeviceGateway, START_RECOVERY_WINDOW_MS } from '../gateways/device-gateway.js';
 import { processDependencies, readTestYamlFileAsJson } from '../services/execution-plan.utils.js';
 import { computeCommonRoot } from '../services/flow-paths.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
-import type { DeviceSession } from '../types/domain/device-session.types.js';
 import { uploadLocalApp } from '../utils/app-upload.js';
 import { getCliVersion } from '../utils/cli.js';
 import { uploadFlowBundle } from '../utils/device-bundle.js';
@@ -165,9 +164,6 @@ export async function resolveLocalInputs(
   return args;
 }
 
-/** How recent an open session must be to count as one a failed start may have made. */
-export const START_RECOVERY_WINDOW_MS = 2 * 60 * 1000;
-
 /**
  * What to tell the agent when a start_device call failed without an answer
  * (the connection dropped, or the server never replied). The request may
@@ -181,11 +177,8 @@ export async function explainFailedStart(
   now = Date.now(),
 ): Promise<string> {
   const head = `start_device failed: ${message}. The request may still have started a session, and a session is billed while it runs.`;
-  let recent: DeviceSession[];
-  try {
-    const { sessions } = await DeviceGateway.list(ctx.apiUrl, ctx.auth);
-    recent = sessions.filter((s) => now - Date.parse(s.created_at) <= START_RECOVERY_WINDOW_MS);
-  } catch {
+  const recent = await DeviceGateway.recentlyStarted(ctx.apiUrl, ctx.auth, now);
+  if (recent === null) {
     return `${head} Call list_devices to check for one before you call start_device again.`;
   }
 
