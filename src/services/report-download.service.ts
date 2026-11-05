@@ -25,6 +25,30 @@ export interface ReportDownloadOptions extends DownloadOptions {
   reportType: 'allure' | 'html' | 'html-detailed' | 'junit';
 }
 
+/**
+ * The report formats retired on 7 December 2026, and what each one
+ * does from that date. `dcd cloud` users are told by the API's submit message
+ * and a notice; `dcd artifacts` fetches neither, so it prints this itself.
+ * The values stay valid after the date: a run that asks for one must not fail.
+ */
+export function reportFormatDeprecation(
+  report: string | undefined,
+): string | undefined {
+  switch (report) {
+    case 'allure': {
+      return '--report allure is deprecated and will be removed on 7 December 2026. From that date runs get no Allure report. Use --report html or --report junit instead.';
+    }
+
+    case 'html-detailed': {
+      return '--report html-detailed is deprecated and will be removed on 7 December 2026. From that date it gives the standard HTML report. Use --report html instead.';
+    }
+
+    default: {
+      return undefined;
+    }
+  }
+}
+
 /** What one download attempt did; failures are warned about, not thrown. */
 export interface DownloadResult {
   error?: string;

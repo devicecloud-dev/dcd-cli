@@ -37,7 +37,9 @@ export function registerDownloadArtifacts(server: McpServer): void {
         report: z
           .enum(['junit', 'allure', 'html'])
           .optional()
-          .describe('Also download a formatted report of this type'),
+          .describe(
+            'Also download a formatted report of this type. allure is deprecated and will be removed on 7 December 2026; prefer junit or html.',
+          ),
         reportPath: z
           .string()
           .optional()

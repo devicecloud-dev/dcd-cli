@@ -146,6 +146,32 @@ describe('Artifacts Command Integration Tests', () => {
     });
   });
 
+  // This command fetches no notices, so it prints the deprecation
+  // itself. On stderr, before any download is tried.
+  describe('report format deprecation', () => {
+    it('warns that --report allure goes on 7 December 2026', async () => {
+      const { stderr } = await run(
+        `--upload-id ${mockUploadId} --report allure --api-key ${mockApiKey} --api-url ${DEAD_API_URL}`,
+      );
+      expect(stderr).to.include('--report allure is deprecated');
+      expect(stderr).to.include('7 December 2026');
+    });
+
+    it('warns about --report html-detailed', async () => {
+      const { stderr } = await run(
+        `--upload-id ${mockUploadId} --report html-detailed --api-key ${mockApiKey} --api-url ${DEAD_API_URL}`,
+      );
+      expect(stderr).to.include('--report html-detailed is deprecated');
+    });
+
+    it('says nothing for --report junit', async () => {
+      const { stderr } = await run(
+        `--upload-id ${mockUploadId} --report junit --api-key ${mockApiKey} --api-url ${DEAD_API_URL}`,
+      );
+      expect(stderr).to.not.include('deprecated');
+    });
+  });
+
   describe('help', () => {
     it('should display help with all expected flags', async () => {
       const { stdout } = await exec(`${CLI} artifacts --help`, {

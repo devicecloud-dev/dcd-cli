@@ -26,7 +26,7 @@ export const outputFlags = {
   'allure-path': {
     type: 'string',
     description:
-      'Custom file path for downloaded Allure report (requires --report allure, default: ./report.html)',
+      'Custom file path for downloaded Allure report (requires --report allure, default: ./report.html). Deprecated: Allure reports will be removed on 7 December 2026.',
   },
   'html-path': {
     type: 'string',
@@ -79,6 +79,6 @@ export const outputFlags = {
     type: 'string',
     alias: ['format'],
     description:
-      'Generate and download test reports in the specified format (options: allure, junit, html, html-detailed). Use "allure" for a complete HTML report.',
+      'Generate and download test reports in the specified format (options: junit, html, html-detailed, allure). allure and html-detailed are deprecated and will be removed on 7 December 2026: from that date html-detailed gives the standard HTML report and allure gives none, and runs still run.',
   },
 } as const satisfies ArgsDef;
