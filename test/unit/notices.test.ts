@@ -24,3 +24,27 @@ describe('notice gating on runner_type', () => {
     expect(matchesRules(gpu1Gate, { platform: 'android' })).to.equal(false);
   });
 });
+
+// The allure and html-detailed retirement notices (dcd
+// `deprecate-report-{allure,html-detailed}-2026-12-07`) are gated on `report`
+// with no min_client_version, for the same reason as gpu1: a CLI from before
+// 5.12.0 has no report in its context and must evaluate the gate as false.
+describe('notice gating on report', () => {
+  const allureGate = {
+    rules: [{ field: 'report', op: 'equals' as const, value: 'allure' }],
+  };
+
+  it('shows the notice to a run that asks for allure', () => {
+    expect(matchesRules(allureGate, { report: 'allure' })).to.equal(true);
+  });
+
+  it('hides it from runs with another format, or none', () => {
+    expect(matchesRules(allureGate, { report: 'junit' })).to.equal(false);
+    expect(matchesRules(allureGate, { report: 'html-detailed' })).to.equal(false);
+    expect(matchesRules(allureGate, { report: undefined })).to.equal(false);
+  });
+
+  it('hides it from a context with no report, as an older CLI sends', () => {
+    expect(matchesRules(allureGate, { platform: 'android' })).to.equal(false);
+  });
+});

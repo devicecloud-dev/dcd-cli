@@ -509,6 +509,9 @@ export const cloudCommand = defineCommand({
           // As requested ('default' when not passed), not as the API resolves
           // it: the gpu1 retirement notice is aimed at runs that ask for gpu1.
           runner_type: runnerType,
+          // As passed (undefined without --report): the allure and
+          // html-detailed retirement notices are gated on it.
+          report,
           cli_version: cliVersion,
           ci_provider: ciContext.provider,
           ci_wrapper_version: ciContext.wrapperVersion,
