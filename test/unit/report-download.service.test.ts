@@ -4,7 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { ApiGateway } from '../../src/gateways/api-gateway.js';
-import { ReportDownloadService } from '../../src/services/report-download.service.js';
+import {
+  ReportDownloadService,
+  reportFormatDeprecation,
+} from '../../src/services/report-download.service.js';
 import type { AuthContext } from '../../src/types/domain/auth.types.js';
 
 const TEST_AUTH: AuthContext = {
@@ -548,5 +551,27 @@ describe('ReportDownloadService default report paths', () => {
       path.resolve(process.cwd(), 'report.xml'),
       path.resolve(process.cwd(), 'report.html'),
     ]);
+  });
+});
+
+// allure and html-detailed go on 7 December 2026. The values stay
+// valid (a run that asks for one must not fail), so the only signal is this.
+describe('reportFormatDeprecation', () => {
+  it('names the date and the replacement for allure', () => {
+    const message = reportFormatDeprecation('allure');
+    expect(message).to.include('7 December 2026');
+    expect(message).to.include('--report html or --report junit');
+  });
+
+  it('names the date and the replacement for html-detailed', () => {
+    const message = reportFormatDeprecation('html-detailed');
+    expect(message).to.include('7 December 2026');
+    expect(message).to.include('--report html instead');
+  });
+
+  it('says nothing for the formats that stay, or for no format', () => {
+    for (const report of ['junit', 'html', undefined]) {
+      expect(reportFormatDeprecation(report)).to.equal(undefined);
+    }
   });
 });

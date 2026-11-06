@@ -360,6 +360,88 @@ describe('dcd device', () => {
       });
     });
 
+    describe('a start that may have made a session anyway', () => {
+      // What Railway's proxy answers when the API did not reply in time.
+      const proxy502 = {
+        status: 502,
+        body: { status: 'error', code: 502, message: 'Application failed to respond', request_id: 'r-1' },
+      };
+      const justNow = () => new Date().toISOString();
+      const tenMinutesAgo = () => new Date(Date.now() - 10 * 60_000).toISOString();
+
+      it('names the session a proxy 502 hid, and says how to stop it', async () => {
+        const calls = stubFetch((call) =>
+          call.method === 'POST'
+            ? proxy502
+            : {
+                body: {
+                  sessions: [
+                    session('jolly-orange-lion', { state: 'provisioning', created_at: justNow() }),
+                    session('old-one', { created_at: tenMinutesAgo() }),
+                  ],
+                },
+              },
+        );
+        const { exit, out } = await runJson('start', { platform: 'ios' });
+        expect(exit).to.equal(DEVICE_EXIT.failed);
+        const message = (out.error as { message: string }).message;
+        expect(message)
+          .to.include('Application failed to respond')
+          .and.include('may still have started a session')
+          .and.include('jolly-orange-lion')
+          .and.include('dcd device stop');
+        expect(message).to.not.include('old-one');
+        expect((out.session as DeviceSession).id).to.equal('jolly-orange-lion');
+        expect(calls.map((c) => c.method)).to.deep.equal(['POST', 'GET']);
+      });
+
+      it('says it is safe to start again when no session was made', async () => {
+        stubFetch((call) =>
+          call.method === 'POST'
+            ? proxy502
+            : { body: { sessions: [session('old-one', { created_at: tenMinutesAgo() })] } },
+        );
+        const { exit, out } = await runJson('start', { platform: 'ios' });
+        expect(exit).to.equal(DEVICE_EXIT.failed);
+        expect((out.error as { message: string }).message).to.include('safe to start one again');
+        expect(out.session ?? null).to.equal(null);
+      });
+
+      it('treats a start with no answer at all the same way', async () => {
+        stubFetch((call) => {
+          if (call.method === 'POST') throw new TypeError('fetch failed');
+          return { body: { sessions: [session('jolly-orange-lion', { created_at: justNow() })] } };
+        });
+        const { exit, out } = await runJson('start', { platform: 'ios' });
+        expect(exit).to.equal(DEVICE_EXIT.failed);
+        expect((out.error as { message: string }).message)
+          .to.include('may still have started a session')
+          .and.include('jolly-orange-lion');
+      });
+
+      it('says to check `dcd device list` when the sessions cannot be read either', async () => {
+        stubFetch(() => proxy502);
+        const { exit, out } = await runJson('start', { platform: 'ios' });
+        expect(exit).to.equal(DEVICE_EXIT.failed);
+        expect((out.error as { message: string }).message)
+          .to.include('may still have started a session')
+          .and.include('dcd device list');
+      });
+
+      it("leaves the API's own errors alone: they come before any session exists", async () => {
+        for (const [status, message] of [
+          [500, 'Failed to create live session'],
+          [503, 'Could not check your live spend cap right now (a temporary problem on our side). Please retry.'],
+        ] as const) {
+          const calls = stubFetch(() => ({ status, body: { statusCode: status, message, error: 'Error' } }));
+          const { exit, out } = await runJson('start', { platform: 'ios' });
+          expect(exit).to.equal(DEVICE_EXIT.failed);
+          expect((out.error as { message: string }).message).to.equal(message);
+          expect(calls).to.have.length(1);
+        }
+      });
+    });
+
     describe('start --model without --platform', () => {
       const catalogue = {
         ios: [{ model: 'iphone-16', name: 'iPhone 16', os: ['18'], default_os: '18', google_play: false, default: true }],

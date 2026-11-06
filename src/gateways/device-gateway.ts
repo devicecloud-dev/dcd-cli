@@ -24,6 +24,11 @@ import { ApiGateway } from './api-gateway.js';
  */
 export class DeviceApiError extends Error {
   code: null | string;
+  /**
+   * The API itself answered (its `{ statusCode, message }` envelope), not a
+   * proxy in front of it. A proxy's 502 can come after the API did the work.
+   */
+  fromApi: boolean;
   session: DeviceSession | null;
   status: number;
 
@@ -32,13 +37,29 @@ export class DeviceApiError extends Error {
     status: number,
     code: null | string,
     session: DeviceSession | null,
+    fromApi = false,
   ) {
     super(message);
     this.name = 'DeviceApiError';
     this.status = status;
     this.code = code;
     this.session = session;
+    this.fromApi = fromApi;
   }
+}
+
+/** How recent an open session must be to count as one a failed start may have made. */
+export const START_RECOVERY_WINDOW_MS = 2 * 60 * 1000;
+
+/**
+ * Whether a failed start may still have made a session: no answer arrived
+ * (the connection failed, or the reply was unreadable), or a proxy answered
+ * with a 5xx in the API's place. The API's own errors are refusals made
+ * before any session exists.
+ */
+export function startOutcomeUnknown(error: unknown): boolean {
+  if (!(error instanceof DeviceApiError)) return true;
+  return error.status >= 500 && !error.fromApi;
 }
 
 /**
@@ -48,7 +69,7 @@ export class DeviceApiError extends Error {
  */
 async function toDeviceApiError(res: Response, path: string): Promise<DeviceApiError> {
   const text = await res.text();
-  let body: { error?: unknown; message?: unknown; session?: unknown } = {};
+  let body: { error?: unknown; message?: unknown; session?: unknown; statusCode?: unknown } = {};
   try {
     body = JSON.parse(text);
   } catch {
@@ -76,7 +97,10 @@ async function toDeviceApiError(res: Response, path: string): Promise<DeviceApiE
 
   const session =
     body.session && typeof body.session === 'object' ? (body.session as DeviceSession) : null;
-  return new DeviceApiError(message, res.status, code, session);
+  // Nest's envelope always has a numeric statusCode. Railway's proxy answers
+  // `{ status, code, message }`, or a page that isn't JSON at all.
+  const fromApi = typeof body.statusCode === 'number';
+  return new DeviceApiError(message, res.status, code, session, fromApi);
 }
 
 async function request<T>(
@@ -209,6 +233,23 @@ export const DeviceGateway = {
 
   models(baseUrl: string, auth: AuthContext): Promise<DeviceCatalogue> {
     return request(baseUrl, auth, 'GET', '/device/models');
+  },
+
+  /**
+   * The open sessions started in the last START_RECOVERY_WINDOW_MS: the ones
+   * a start that got no answer may have made. Null when they can't be read.
+   */
+  async recentlyStarted(
+    baseUrl: string,
+    auth: AuthContext,
+    now = Date.now(),
+  ): Promise<DeviceSession[] | null> {
+    try {
+      const { sessions } = await DeviceGateway.list(baseUrl, auth);
+      return sessions.filter((s) => now - Date.parse(s.created_at) <= START_RECOVERY_WINDOW_MS);
+    } catch {
+      return null;
+    }
   },
 
   registerBundle(
