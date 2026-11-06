@@ -1,5 +1,25 @@
 # Changelog
 
+## [5.12.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.11.1...v5.12.0) (2026-11-06)
+
+
+### Features
+
+* **report:** deprecate allure and html-detailed, removed on 7 Decemb… ([#298](https://github.com/devicecloud-dev/dcd-cli/issues/298)) ([9bfcdb9](https://github.com/devicecloud-dev/dcd-cli/commit/9bfcdb9105e4115649e23863476ad9d5a33170c4))
+* **report:** deprecate allure and html-detailed, removed on 7 December 2026 ([9bfcdb9](https://github.com/devicecloud-dev/dcd-cli/commit/9bfcdb9105e4115649e23863476ad9d5a33170c4))
+
+
+### Bug Fixes
+
+* **device:** a start that got no answer says a session may still have started ([7015a77](https://github.com/devicecloud-dev/dcd-cli/commit/7015a776740d796d8d944560e3993710debab256))
+* **device:** a start that got no answer says a session may still have… ([#297](https://github.com/devicecloud-dev/dcd-cli/issues/297)) ([7015a77](https://github.com/devicecloud-dev/dcd-cli/commit/7015a776740d796d8d944560e3993710debab256))
+* **install:** reject a DCD_VERSION that isn't a release version ([#296](https://github.com/devicecloud-dev/dcd-cli/issues/296)) ([4a2719c](https://github.com/devicecloud-dev/dcd-cli/commit/4a2719c9cae70eba7a12a952d84a43e49f2f370f))
+
+
+### Miscellaneous
+
+* pin the 5.12.0 promotion ([2d1ad50](https://github.com/devicecloud-dev/dcd-cli/commit/2d1ad50bd89669805812efd920804c4dce1e410f))
+
 ## [5.11.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.11.0...v5.11.1) (2026-11-02)
 
 
