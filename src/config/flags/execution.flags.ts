@@ -1,5 +1,15 @@
 import type { ArgsDef } from 'citty';
 
+/** The runner types offered in help text, error messages and the MCP schema. */
+export const RUNNER_TYPE_OPTIONS = ['default', 'm4', 'm1', 'cpu1'] as const;
+
+/**
+ * Runner types that were removed but are still accepted, so scripts that pass
+ * them keep working. gpu1 was removed on 9 November 2026 and the API runs it
+ * on cpu1. Never offered anywhere a user picks from.
+ */
+export const RETIRED_RUNNER_TYPES = ['gpu1'] as const;
+
 /**
  * Test execution and flow management flags
  */
@@ -56,6 +66,6 @@ export const executionFlags = {
     type: 'string',
     default: 'default',
     description:
-      '[experimental] The type of runner to use (options: default, m4, m1, gpu1, cpu1) - note: anything other than default or cpu1 will incur premium pricing tiers; gpu1 is deprecated and will be removed on 9 November 2026 (gpu1 runs will then use cpu1). See https://docs.devicecloud.dev/configuration/runner-type for more information.',
+      '[experimental] The type of runner to use (options: default, m4, m1, cpu1) - note: anything other than default or cpu1 will incur premium pricing tiers. See https://docs.devicecloud.dev/configuration/runner-type for more information.',
   },
 } as const satisfies ArgsDef;

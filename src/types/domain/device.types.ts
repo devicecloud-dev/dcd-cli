@@ -19,7 +19,6 @@ export enum EiOSDevices {
   'iphone-14' = 'iphone-14',
   'iphone-16' = 'iphone-16',
   'iphone-16-pro' = 'iphone-16-pro',
-  'iphone-16-pro-max' = 'iphone-16-pro-max',
   'iphone-17' = 'iphone-17',
   'iphone-18-pro' = 'iphone-18-pro',
   'iphone-18-pro-max' = 'iphone-18-pro-max',
