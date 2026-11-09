@@ -206,6 +206,41 @@ describe('scripts/stable-release.mjs', () => {
     expect(read('notes.md')).to.include('No user-facing changes.');
   });
 
+  it('skips quietly with --skip-if-nothing, as a push run does', () => {
+    commit('docs: explain the flag (#42)');
+
+    const result = plan('--skip-if-nothing');
+    expect(result.status, result.stderr).to.equal(0);
+    expect(result.stdout).to.equal('');
+    expect(result.outputs).to.equal('release=false\n');
+    expect(fs.existsSync(path.join(dir, 'notes.md'))).to.equal(false);
+  });
+
+  it("keeps the open release PR's version unless the commits now call for more", () => {
+    commit('fix: handle an empty flow directory (#43)');
+
+    // A version set by hand, above what the commits call for, survives.
+    const kept = plan('--keep', '1.6.0');
+    expect(kept.stdout).to.equal('1.6.0\n');
+    expect(kept.outputs).to.include('bump=kept\n');
+
+    // A kept version equal to or below the derived one gives way to it.
+    expect(plan('--keep', '1.4.1').outputs).to.include('version=1.4.1\n').and.include('bump=patch\n');
+    commit('feat: add a --quiet flag (#44)');
+    expect(plan('--keep', '1.4.1').stdout).to.equal('1.5.0\n');
+
+    // One that is no longer ahead of production (its release merged) is ignored.
+    expect(plan('--keep', '1.4.0').stdout).to.equal('1.5.0\n');
+  });
+
+  it('keeps a major once it has been set by hand, but never derives one', () => {
+    commit('refactor(cloud)!: rename --flows to --flow-dir (#45)');
+
+    expect(plan('--keep', '1.5.0').status).to.equal(1);
+    expect(plan('--keep', '2.0.0').stdout).to.equal('2.0.0\n');
+    expect(plan('--keep', '2.0.0', '--skip-if-nothing').stdout).to.equal('2.0.0\n');
+  });
+
   it('refuses a version that is not new', () => {
     commit('feat: something (#50)');
 

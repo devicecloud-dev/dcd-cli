@@ -15,7 +15,8 @@
  * in one place, and the release PR is the only PR.
  *
  * Usage:
- *   node scripts/stable-release.mjs plan   [--version X.Y.Z] [--base <ref>] [--head <ref>]
+ *   node scripts/stable-release.mjs plan   [--version X.Y.Z] [--keep X.Y.Z] [--skip-if-nothing]
+ *                                          [--base <ref>] [--head <ref>]
  *                                          [--date YYYY-MM-DD] [--notes-out <file>]
  *   node scripts/stable-release.mjs apply  --version X.Y.Z --notes <file>
  *   node scripts/stable-release.mjs verify
@@ -24,6 +25,11 @@
  * plan   Derives the version from the commits in base..head (default
  *        origin/production..HEAD) and renders the changelog section. Writes
  *        nothing but --notes-out. Prints the version on stdout.
+ *        --keep is the version of the release PR already open: a derived
+ *        version never goes below it, so a version set by hand (a major, say)
+ *        survives the automatic rebuilds on later pushes to dev.
+ *        --skip-if-nothing exits 0 with release=false when nothing is
+ *        releasable, instead of failing.
  * apply  Sets the version in package.json and server.json, and puts the section
  *        at the top of CHANGELOG.md, in the working tree.
  * verify Checks the working tree is an unreleased, self-consistent release. The
@@ -320,11 +326,22 @@ function describe(commit) {
   return `  ${commit.sha.slice(0, 7)} ${commit.subject}${commit.pr ? ` (#${commit.pr})` : ''}`;
 }
 
+function majorError(commits, previous) {
+  const breaking = commits.filter((c) => c.breaking).map(describe).join('\n');
+  return new ReleaseError(
+    `these commits are marked breaking, which calls for ${bumpVersion(previous, 'major')}:\n${breaking}\n` +
+      'A major is never derived. If it is intended, run "Promote to stable" with that version once; ' +
+      'later runs keep it.',
+  );
+}
+
 function plan() {
   const base = arg('base') || 'origin/production';
   const head = arg('head') || 'HEAD';
   const requested = arg('version');
+  const keep = arg('keep');
   const date = arg('date') || new Date().toISOString().slice(0, 10);
+  if (keep && !parseVersion(keep)) throw new ReleaseError(`--keep "${keep}" is not a stable X.Y.Z version`);
 
   const basePackage = JSON.parse(git('show', `${base}:package.json`));
   const previous = basePackage.version;
@@ -337,26 +354,39 @@ function plan() {
 
   const commits = commitsBetween(base, head);
   const bump = bumpFor(commits);
+  const derived = bump && bump !== 'major' ? bumpVersion(previous, bump) : null;
+  // A kept version only counts while it is still ahead of the base: once its
+  // release has merged, the open PR it came from is gone anyway.
+  const kept = keep && compareVersions(keep, previous) > 0 ? keep : null;
 
   let version;
+  let how;
   if (requested) {
     if (!parseVersion(requested)) throw new ReleaseError(`"${requested}" is not a stable X.Y.Z version`);
     version = requested;
-  } else if (!bump) {
-    throw new ReleaseError(
-      `nothing to release: no ${[...RELEASABLE].join('/')} commits in ${base}..${head}. ` +
-        'Pass a version to release anyway.',
-    );
-  } else if (bump === 'major') {
+    how = 'requested';
+  } else if (!bump && !kept) {
+    const message = `nothing to release: no ${[...RELEASABLE].join('/')} commits in ${base}..${head}`;
+    if (process.argv.includes('--skip-if-nothing')) {
+      console.error(`${message}.`);
+      output({ release: 'false' });
+      return;
+    }
+    throw new ReleaseError(`${message}. Pass a version to release anyway.`);
+  } else if (kept && (!derived || compareVersions(kept, derived) > 0)) {
     // CLAUDE.md: a `!` in a PR title once turned a flag rename into a 6.0.0
-    // release PR. A major is never derived; it has to be asked for.
-    const breaking = commits.filter((c) => c.breaking).map(describe).join('\n');
-    throw new ReleaseError(
-      `these commits are marked breaking, which calls for ${bumpVersion(previous, 'major')}:\n${breaking}\n` +
-        'A major is never derived. If it is intended, pass the version explicitly.',
-    );
+    // release PR. A major is never derived; it has to be asked for once, and
+    // is kept from then on.
+    if (bump === 'major' && compareVersions(kept, bumpVersion(previous, 'major')) < 0) {
+      throw majorError(commits, previous);
+    }
+    version = kept;
+    how = 'kept';
+  } else if (bump === 'major') {
+    throw majorError(commits, previous);
   } else {
-    version = bumpVersion(previous, bump);
+    version = derived;
+    how = bump;
   }
 
   if (compareVersions(version, previous) <= 0) {
@@ -375,7 +405,7 @@ function plan() {
   const listed = commits.filter((c) => RELEASABLE.has(c.type) || c.breaking);
   const hidden = commits.filter((c) => HIDDEN.has(c.type) && !c.breaking);
   const unparsed = commits.filter((c) => !c.type);
-  console.error(`${previous} -> ${version} (${requested ? 'requested' : bump}), ${base}..${head}`);
+  console.error(`${previous} -> ${version} (${how}), ${base}..${head}`);
   console.error(`In the changelog (${listed.length}):\n${listed.map(describe).join('\n') || '  none'}`);
   if (hidden.length > 0) console.error(`Left out, hidden types (${hidden.length}):\n${hidden.map(describe).join('\n')}`);
   if (unparsed.length > 0) {
@@ -383,7 +413,7 @@ function plan() {
   }
 
   console.log(version);
-  output({ version, previous, bump: requested ? 'requested' : bump, tag: `v${version}` });
+  output({ release: 'true', version, previous, bump: how, tag: `v${version}` });
 }
 
 function apply() {

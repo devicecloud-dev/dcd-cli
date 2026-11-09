@@ -140,10 +140,10 @@ deps: bump @modelcontextprotocol/sdk to 1.x
 You don't need to do anything for releases — **do not bump the version in
 `package.json` or edit `CHANGELOG.md`** in your PR.
 
-Stable releases are automated: a maintainer runs the **Promote to stable**
-workflow, which opens a release PR from `dev` into `production` with the new
-version and changelog already in it. Merging that PR tags the release and
-publishes it to npm under the `latest` tag.
+Stable releases are automated. After every merge into `dev`, the **Promote to
+stable** workflow updates a release PR from `dev` into `production` that carries
+the next version and changelog. When a maintainer merges that PR, the release
+is tagged and published to npm under the `latest` tag.
 
 The workflow reads the Conventional Commit titles of merged PRs to work out the
 next version and write the changelog, which is why the PR title convention
