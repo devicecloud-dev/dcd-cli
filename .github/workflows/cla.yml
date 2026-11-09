@@ -34,6 +34,14 @@ name: CLA Assistant
 #
 # Until the App secrets exist the CLA step self-skips, so the check is green
 # (not failing) on every PR and auto-activates once they're set.
+#
+# TRIGGER: this stays on pull_request_target because it must write to fork PRs
+# (comments, statuses, the signatures branch). GitHub blocks pull_request_target
+# by default in public repositories from 2026-12-02. A repository Actions policy
+# (Settings > Actions > Policies, "Allow pull_request_target for CLA") allows
+# issue_comment and pull_request_target for this file only. If you rename this
+# file or add a trigger, update that policy too, or runs fail at startup with
+# no `cla` check. Never check out or run PR code in this workflow.
 on:
   issue_comment:
     types: [created]
