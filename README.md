@@ -36,7 +36,7 @@ See full documentation: [Docs](https://docs.devicecloud.dev)
 
 ## MCP server
 
-devicecloud.dev has an [MCP](https://modelcontextprotocol.io) server, so AI agents (Claude, Cursor, VS Code) can run cloud tests and drive cloud devices. You don't run it yourself. You add it to your MCP client's config, and the client starts it.
+devicecloud.dev has an [MCP](https://modelcontextprotocol.io) server, so AI agents (Claude, Codex, Cursor, VS Code) can run cloud tests and drive cloud devices. You don't run it yourself. You add it to your MCP client's config, and the client starts it.
 
 There are three ways to connect:
 
@@ -54,10 +54,10 @@ There are three ways to connect:
 
 ```sh-session
 $ dcd login
-$ dcd mcp install cursor     # or claude-code, claude-desktop, vscode
+$ dcd mcp install cursor     # or claude-code, claude-desktop, codex, vscode
 ```
 
-Leave out the client name to pick from a list. Add `--read-only` for a server that only offers tools that change nothing, or `--print` to see what would be added without changing anything. For Claude Code and VS Code it runs `claude mcp add` and `code --add-mcp`. For Claude Desktop and Cursor it adds an entry to their JSON config file and keeps everything else in it. Restart the app afterwards.
+Leave out the client name to pick from a list. Add `--read-only` for a server that only offers tools that change nothing, or `--print` to see what would be added without changing anything. For Claude Code, Codex and VS Code it runs `claude mcp add`, `codex mcp add` and `code --add-mcp`. For Claude Desktop and Cursor it adds an entry to their JSON config file and keeps everything else in it. Restart the app afterwards.
 
 **Setting it up by hand.** Start dcd by its **full path**. Desktop apps such as Claude Desktop and Cursor are usually opened from the Dock or Start menu, so they don't see the PATH your shell sets up, and a bare `dcd` gives "command not found". The installer prints the path at the end; it's `~/.dcd/bin/dcd` by default, written out in full because config files don't expand `~`.
 
@@ -88,10 +88,19 @@ VS Code (`.vscode/mcp.json`, or the user `mcp.json`) uses `servers` and a `type`
 }
 ```
 
-Claude Code, run from a terminal, does see your PATH:
+Codex (`~/.codex/config.toml`, shared by the Codex CLI, IDE extension and desktop app):
+
+```toml
+[mcp_servers.devicecloud]
+command = "/Users/you/.dcd/bin/dcd"
+args = ["mcp"]
+```
+
+Claude Code and the Codex CLI, run from a terminal, do see your PATH:
 
 ```sh-session
 $ claude mcp add --scope user devicecloud -- dcd mcp
+$ codex mcp add devicecloud -- dcd mcp
 ```
 
 If you use the npm package instead of the standalone binary, the command is `npx` with `"args": ["-y", "@devicecloud.dev/dcd", "mcp"]`. That needs Node 22 or newer on the app's PATH, and it checks npm each time it starts.
@@ -102,11 +111,46 @@ It signs in the same way as the CLI: run `dcd login` once, or set `DEVICE_CLOUD_
 
 ### Hosted
 
-Point an HTTP-capable client at the URL. It signs you in through the browser (OAuth), and you can disconnect it later under Settings → Connected apps.
+Point a client that speaks Streamable HTTP at `https://api.devicecloud.dev/mcp`. It signs you in through the browser (OAuth) the first time it connects, and you can disconnect it later under Settings → Account → Connected apps.
+
+Claude Code (then run `/mcp` in Claude Code and choose `devicecloud` to sign in):
 
 ```sh-session
-$ claude mcp add --transport http devicecloud https://api.devicecloud.dev/mcp
+$ claude mcp add --scope user --transport http devicecloud https://api.devicecloud.dev/mcp
 ```
+
+Cursor (`~/.cursor/mcp.json`):
+
+```jsonc
+{
+  "mcpServers": {
+    "devicecloud": { "url": "https://api.devicecloud.dev/mcp" }
+  }
+}
+```
+
+VS Code (`.vscode/mcp.json`, or the user `mcp.json`), or `code --add-mcp '{"name":"devicecloud","type":"http","url":"https://api.devicecloud.dev/mcp"}'`:
+
+```jsonc
+{
+  "servers": {
+    "devicecloud": { "type": "http", "url": "https://api.devicecloud.dev/mcp" }
+  }
+}
+```
+
+Codex:
+
+```sh-session
+$ codex mcp add devicecloud --url https://api.devicecloud.dev/mcp
+$ codex mcp login devicecloud
+```
+
+Claude Desktop: open Settings → Connectors, choose **Add custom connector**, name it DeviceCloud and paste the URL. Its config file only takes local servers.
+
+**Read-only.** `https://api.devicecloud.dev/mcp?read_only=true` serves only the device tools that change nothing (`list_devices`, `get_device_status`, `inspect_screen`, `take_screenshot`, `get_command_status`, `get_logs`, `get_human_status`, `cheat_sheet`). Quote it on a command line, since `?` is a wildcard in zsh: `claude mcp add --scope user --transport http devicecloud 'https://api.devicecloud.dev/mcp?read_only=true'`. Like `--read-only` locally, it keeps an agent from changing anything by mistake; it isn't a permission.
+
+**API key instead of signing in.** For an agent that can't open a browser, such as one in CI, send an API key from the console (Settings → API Keys) as `Authorization: Bearer <your-api-key>`, for example with `claude mcp add ... --header "Authorization: Bearer <your-api-key>"`.
 
 ### `dcd-mcp`
 

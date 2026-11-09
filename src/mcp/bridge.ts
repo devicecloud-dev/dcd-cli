@@ -221,8 +221,12 @@ class RemoteDevices {
   private async open(): Promise<Client> {
     const { apiUrl } = await getContext();
     const client = new Client({ name: 'dcd-mcp-bridge', version: getCliVersion() });
+    // In read-only mode, ask the hosted server for its read-only tools too, so
+    // it refuses the rest as well. The filter here stays: an API without the
+    // flag ignores it, and a refused call still gets the read-only message.
+    const url = new URL(`${apiUrl}/mcp${isReadOnly() ? '?read_only=true' : ''}`);
     await client.connect(
-      new StreamableHTTPClientTransport(new URL(`${apiUrl}/mcp`), {
+      new StreamableHTTPClientTransport(url, {
         fetch: async (url, init) => {
           const { auth } = await getContext();
           const headers = new Headers(init?.headers);
