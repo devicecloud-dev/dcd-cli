@@ -29,11 +29,12 @@ function startHosted(): Promise<{
   failStart: boolean;
   http: HttpServer;
   inits: number;
+  paths: string[];
   sessions: Record<string, unknown>[];
   url: string;
 }> {
   const calls: { args: unknown; auth?: string; name: string }[] = [];
-  const hosted = { calls, failStart: false, inits: 0, sessions: [] as Record<string, unknown>[] };
+  const hosted = { calls, failStart: false, inits: 0, paths: [] as string[], sessions: [] as Record<string, unknown>[] };
   const http = createHttpServer(async (req, res) => {
     // The open sessions, as GET /device/sessions answers.
     if (req.method === 'GET' && req.url === '/device/sessions') {
@@ -47,6 +48,7 @@ function startHosted(): Promise<{
       return;
     }
 
+    hosted.paths.push(req.url ?? '');
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
@@ -155,6 +157,7 @@ describe('dcd mcp bridge', () => {
     const result = await client.callTool({ name: 'inspect_screen', arguments: {} });
     expect(result.isError).to.not.equal(true);
     expect(hosted.calls).to.deep.equal([{ name: 'inspect_screen', args: {}, auth: 'test-key' }]);
+    expect(new Set(hosted.paths)).to.deep.equal(new Set(['/mcp']));
     await client.close();
   });
 
@@ -247,6 +250,9 @@ describe('dcd mcp bridge', () => {
     expect(hosted.calls).to.deep.equal([]);
     await client.callTool({ name: 'inspect_screen', arguments: {} });
     expect(hosted.calls.map((c) => c.name)).to.deep.equal(['inspect_screen']);
+    // The hosted server is asked for its read-only tools too.
+    expect(hosted.paths).to.not.be.empty;
+    expect(new Set(hosted.paths)).to.deep.equal(new Set(['/mcp?read_only=true']));
     await client.close();
   });
 

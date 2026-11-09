@@ -18,6 +18,7 @@ import {
   CLIENT_LABELS,
   claudeCodeAddArgs,
   clientConfigPath,
+  codexAddArgs,
   MCP_CLIENTS,
   type McpClient,
   mcpServersSnippet,
@@ -35,6 +36,7 @@ import { type Field, ui } from '../utils/ui.js';
 const RELOAD_HINT: Record<McpClient, string> = {
   'claude-code': 'Start a new Claude Code session to load it.',
   'claude-desktop': 'Restart Claude Desktop to load it.',
+  codex: 'Start a new Codex session to load it.',
   cursor: 'Restart Cursor, or reload its MCP servers, to load it.',
   vscode: 'VS Code asks you to trust the server the first time it starts.',
 };
@@ -84,6 +86,18 @@ function install(client: McpClient, launch: ServerLaunch): InstallResult {
     return { target: shellLine('claude', add), replaced: removed.ok };
   }
 
+  if (client === 'codex') {
+    const add = codexAddArgs(launch);
+    const removed = runTool('codex', ['mcp', 'remove', SERVER_NAME]);
+    if (!removed) {
+      throw new CliError(`The codex command isn't on PATH. Run this where it is:\n  ${shellLine('codex', add)}`);
+    }
+
+    const added = runTool('codex', add)!;
+    if (!added.ok) throw new CliError(`codex mcp add failed: ${added.output}`);
+    return { target: shellLine('codex', add), replaced: removed.ok };
+  }
+
   if (client === 'vscode') {
     const add = vscodeAddArgs(launch);
     const added = runTool('code', add);
@@ -110,6 +124,7 @@ function install(client: McpClient, launch: ServerLaunch): InstallResult {
 /** What `--print` shows: the command to run, or the file and the entry for it. */
 function preview(client: McpClient, launch: ServerLaunch): { target: string; text: string } {
   if (client === 'claude-code') return { target: 'command', text: shellLine('claude', claudeCodeAddArgs(launch)) };
+  if (client === 'codex') return { target: 'command', text: shellLine('codex', codexAddArgs(launch)) };
   if (client === 'vscode') return { target: 'command', text: shellLine('code', vscodeAddArgs(launch)) };
   return {
     target: clientConfigPath(client) ?? 'your MCP config file',
@@ -120,7 +135,7 @@ function preview(client: McpClient, launch: ServerLaunch): { target: string; tex
 const installSub = defineCommand({
   meta: {
     name: 'install',
-    description: 'Add the DeviceCloud MCP server to Claude Code, Claude Desktop, Cursor or VS Code',
+    description: 'Add the DeviceCloud MCP server to Claude Code, Claude Desktop, Codex, Cursor or VS Code',
   },
   args: {
     client: {
@@ -177,7 +192,7 @@ const installSub = defineCommand({
       ui.success(`${result.replaced ? 'Updated' : 'Added'} DeviceCloud in ${CLIENT_LABELS[client]}`),
     );
     const rows: Field[] = [
-      [client === 'claude-code' || client === 'vscode' ? 'ran' : 'wrote', result.target],
+      [client === 'claude-code' || client === 'codex' || client === 'vscode' ? 'ran' : 'wrote', result.target],
       ['starts', colors.highlight(shellLine(launch.command, launch.args))],
     ];
     logger.log(ui.branch(ui.fields(rows)));
@@ -199,7 +214,7 @@ const installSub = defineCommand({
 export const mcpCommand = defineCommand({
   meta: {
     name: 'mcp',
-    description: 'MCP server for AI agents, started by your MCP client (Claude, Cursor, VS Code)',
+    description: 'MCP server for AI agents, started by your MCP client (Claude, Codex, Cursor, VS Code)',
   },
   args: {
     'read-only': {
