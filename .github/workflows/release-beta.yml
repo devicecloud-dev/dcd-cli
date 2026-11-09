@@ -9,8 +9,8 @@ name: Release beta
 # version is derived from the registry, so a beta is always above the current
 # stable by construction. See scripts/next-beta-version.mjs.
 #
-# Stable releases are unaffected and stay automatic — release-please on
-# `production`, driven by .github/workflows/release-please.yml.
+# Stable releases are separate: .github/workflows/promote.yml opens the release
+# PR into `production`, and .github/workflows/release-please.yml publishes it.
 on:
   workflow_dispatch:
     inputs:
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Betas come off `dev` or a feature branch. `production` is the stable line
-      # and release-please owns its package.json version there; cutting a beta
+      # and the release PR sets its package.json version there; cutting a beta
       # from it would build from a tree that another process is also writing.
       - name: Reject beta releases from production
         if: github.ref_name == 'production'

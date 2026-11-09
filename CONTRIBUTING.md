@@ -140,15 +140,14 @@ deps: bump @modelcontextprotocol/sdk to 1.x
 You don't need to do anything for releases — **do not bump the version in
 `package.json` or edit `CHANGELOG.md`** in your PR.
 
-Stable releases are automated by
-[release-please](https://github.com/googleapis/release-please): maintainers
-promote `dev` → `production` (always with a **merge commit**, so the two branches
-stay in sync), which opens a Release PR; merging that publishes to npm under the
-`latest` tag.
+Stable releases are automated: a maintainer runs the **Promote to stable**
+workflow, which opens a release PR from `dev` into `production` with the new
+version and changelog already in it. Merging that PR tags the release and
+publishes it to npm under the `latest` tag.
 
-release-please reads the Conventional Commit titles of merged PRs to compute the
-next version and generate the changelog — which is exactly why the PR title
-convention matters.
+The workflow reads the Conventional Commit titles of merged PRs to work out the
+next version and write the changelog, which is why the PR title convention
+matters.
 
 Betas are published on demand by a maintainer running the **Release beta**
 workflow, so your change reaches npm's `beta` tag whenever the next one is cut
