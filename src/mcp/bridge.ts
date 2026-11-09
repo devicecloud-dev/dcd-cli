@@ -222,8 +222,8 @@ class RemoteDevices {
     const { apiUrl } = await getContext();
     const client = new Client({ name: 'dcd-mcp-bridge', version: getCliVersion() });
     // In read-only mode, ask the hosted server for its read-only tools too, so
-    // it refuses the rest as well. The filter here stays: an API without the
-    // flag ignores it, and a refused call still gets the read-only message.
+    // it refuses the rest as well. The filter here stays for an API without
+    // the flag, which ignores it and lists every tool.
     const url = new URL(`${apiUrl}/mcp${isReadOnly() ? '?read_only=true' : ''}`);
     await client.connect(
       new StreamableHTTPClientTransport(url, {
@@ -311,8 +311,17 @@ export async function createBridgeServer(
 
     return runTool(`device ${name}`, async () => {
       await remote.list();
-      if (!remote.has(name)) return errorResult(`Unknown tool: ${name}`);
-      // The list hides these in read-only mode; refuse them if called anyway.
+      if (!remote.has(name)) {
+        // In read-only mode the hosted server lists only its read-only tools,
+        // so a device tool that changes something is unknown here as well.
+        return errorResult(
+          readOnly
+            ? `Unknown tool: ${name}. In read-only mode this server offers only the tools that change nothing.`
+            : `Unknown tool: ${name}`,
+        );
+      }
+
+      // An API without the read-only flag lists every tool; refuse these here.
       if (readOnly && !remote.isReadOnly(name)) {
         return errorResult(`${name} is not available in read-only mode.`);
       }
