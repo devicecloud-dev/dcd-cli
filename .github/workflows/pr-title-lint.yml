@@ -1,9 +1,9 @@
 name: PR Title
 
 # Enforces Conventional Commits on the PR *title*. Because PRs are squash-merged
-# with the title as the commit subject, this is what release-please parses to
-# compute version bumps and the changelog — so the allowed types below must stay
-# in sync with `changelog-sections` in release-please-config.json.
+# with the title as the commit subject, this is what scripts/stable-release.mjs
+# parses to compute version bumps and the changelog, so the allowed types below
+# must stay in sync with SECTIONS and HIDDEN there.
 #
 # Uses pull_request_target so it also runs (and reports a required status check)
 # on PRs from forks. It only reads the title — no untrusted code is checked out.
@@ -27,7 +27,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Keep in lockstep with release-please-config.json changelog-sections.
+          # Keep in lockstep with SECTIONS and HIDDEN in scripts/stable-release.mjs.
           types: |
             feat
             fix
