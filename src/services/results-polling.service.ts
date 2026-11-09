@@ -628,8 +628,9 @@ export class ResultsPollingService {
       if (isDefinitiveAuthFailure(error)) {
         const reason = error instanceof Error ? error.message : String(error);
         throw new PollingAuthError(
-          `Your dcd login session expired and could not be refreshed: ${reason}\n\n` +
-            `The test is still running in the cloud. Run \`dcd login\`, then reconnect with:\n  dcd status --upload-id ${uploadId}`,
+          // The reason already says to run `dcd login`, so don't repeat it.
+          `${reason}\n\n` +
+            `The test is still running in the cloud. Once you've signed in again, reconnect with:\n  dcd status --upload-id ${uploadId}`,
         );
       }
 
