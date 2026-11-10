@@ -3,6 +3,10 @@ import { defineCommand } from 'citty';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
+import {
+  RETIRED_RUNNER_TYPES,
+  RUNNER_TYPE_OPTIONS,
+} from '../config/flags/execution.flags.js';
 import { flags as allFlags } from '../constants.js';
 import { ApiError, ApiGateway } from '../gateways/api-gateway.js';
 import {
@@ -83,7 +87,6 @@ process.on('warning', (warning) => {
 const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
 const REPORT_OPTIONS = ['allure', 'html', 'html-detailed', 'junit'] as const;
 const ORIENTATION_OPTIONS = ['0', '90'] as const;
-const RUNNER_TYPE_OPTIONS = ['default', 'm4', 'm1', 'gpu1', 'cpu1'] as const;
 const PRIORITY_OPTIONS = ['low', 'normal', 'high'] as const;
 const RENDER_ENGINE_OPTIONS = ['lavapipe', 'swiftshader'] as const;
 
@@ -252,6 +255,9 @@ export const cloudCommand = defineCommand({
           args['runner-type'] as string | undefined,
           RUNNER_TYPE_OPTIONS,
           'runner-type',
+          // gpu1 still validates so old scripts keep working; the API runs it
+          // on cpu1.
+          RETIRED_RUNNER_TYPES,
         ) ?? 'default';
       const renderEngine = validateEnum(
         args['render-engine'] as string | undefined,
@@ -490,11 +496,6 @@ export const cloudCommand = defineCommand({
         throw new CliError('You must provide a flow file');
       }
 
-      deviceValidationService.validateiOSDevice(iOSVersion, iOSDevice, compatibilityData, {
-        debug,
-        logger: (m: string) => out(m),
-      });
-
       // Render DB-driven notices (deprecation/warn/info/marketing) the API
       // returned with the compatibility data. Replaces the previously hardcoded
       // iOS-16 deprecation warning — that is now a seeded notice gated on the
@@ -514,6 +515,9 @@ export const cloudCommand = defineCommand({
           // As requested ('default' when not passed), not as the API resolves
           // it: the gpu1 retirement notice is aimed at runs that ask for gpu1.
           runner_type: runnerType,
+          // As passed (undefined without --report): the allure and
+          // html-detailed retirement notices are gated on it.
+          report,
           cli_version: cliVersion,
           ci_provider: ciContext.provider,
           ci_wrapper_version: ciContext.wrapperVersion,
@@ -529,6 +533,13 @@ export const cloudCommand = defineCommand({
         learnMoreUrl: n.learnMoreUrl,
       }));
 
+      // Validated after the notices, so a notice aimed at a removed device or
+      // OS version (e.g. removed-ios-17-2026-11-02) is shown before the
+      // rejection it explains.
+      deviceValidationService.validateiOSDevice(iOSVersion, iOSDevice, compatibilityData, {
+        debug,
+        logger: (m: string) => out(m),
+      });
       deviceValidationService.validateAndroidDevice(
         androidApiLevel,
         androidDevice,

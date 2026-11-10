@@ -61,6 +61,11 @@ No stable dcd release is available yet.
     }
 }
 
+# Only a release version goes into the download URLs below.
+if ($version -cnotmatch '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?\z') {
+    throw "Invalid version '$version'. Use a release version such as 5.0.0 or 5.0.0-beta.1."
+}
+
 $url     = "$DownloadBase/download/$version/$asset"
 $sumsUrl = "$DownloadBase/download/$version/SHA256SUMS"
 

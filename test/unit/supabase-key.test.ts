@@ -15,11 +15,12 @@ describe('Supabase key from /cli-config', () => {
   const realFetch = globalThis.fetch;
   let requested: string[];
 
-  function stubFetch(respond: () => Response | Promise<Response>): void {
+  function stubFetch(respond: (url: string) => Response | Promise<Response>): void {
     requested = [];
     globalThis.fetch = (async (input: string | URL | Request) => {
-      requested.push(String(input));
-      return respond();
+      const url = input instanceof Request ? input.url : String(input);
+      requested.push(url);
+      return respond(url);
     }) as typeof fetch;
   }
 
@@ -92,5 +93,103 @@ describe('Supabase key from /cli-config', () => {
     expect(caught).to.be.instanceOf(SessionRefreshError);
     // Not definitive, so resolveAuth will not delete the user's login.
     expect((caught as SessionRefreshError).definitive).to.equal(false);
+  });
+
+  /**
+   * Supabase Auth refuses a refresh with a 4xx and an error code: in `code`
+   * when the response is versioned (2024-01-01 and later), in `error_code`
+   * before that. The CLI names the common causes instead of echoing them.
+   */
+  describe('when Supabase refuses the refresh', () => {
+    const storedSession = {
+      access_token: 'a',
+      refresh_token: 'r',
+      expires_at: 0,
+      user_email: 'u@example.com',
+      user_id: 'u1',
+    };
+
+    function refuseRefresh(token: () => Response): void {
+      stubFetch((url) =>
+        url.endsWith('/cli-config')
+          ? json({ supabase_publishable_key: 'sb_publishable_abc' })
+          : token(),
+      );
+    }
+
+    const versioned = (status: number, code: string, message: string) =>
+      new Response(JSON.stringify({ code, message }), {
+        status,
+        headers: {
+          'content-type': 'application/json',
+          'x-supabase-api-version': '2024-01-01',
+        },
+      });
+
+    async function refreshError(): Promise<SessionRefreshError> {
+      try {
+        await CliAuthGateway.refresh('https://cloud.devicecloud.dev', 'prod', storedSession);
+      } catch (error) {
+        expect(error).to.be.instanceOf(SessionRefreshError);
+        return error as SessionRefreshError;
+      }
+      throw new Error('expected the refresh to fail');
+    }
+
+    it('says the session expired', async () => {
+      refuseRefresh(() => versioned(403, 'session_expired', 'Invalid Refresh Token: Session Expired'));
+
+      const error = await refreshError();
+
+      expect(error.message).to.equal('Your session expired. Run `dcd login` to sign in again.');
+      expect(error.code).to.equal('session_expired');
+      expect(error.definitive).to.equal(true);
+      expect(requested[1]).to.equal(
+        'https://cloud.devicecloud.dev/auth/v1/token?grant_type=refresh_token',
+      );
+    });
+
+    it('reads the code from an unversioned response too', async () => {
+      refuseRefresh(() =>
+        json(
+          { code: 403, error_code: 'session_expired', msg: 'Invalid Refresh Token: Session Expired (Inactivity)' },
+          403,
+        ),
+      );
+
+      const error = await refreshError();
+
+      expect(error.message).to.equal('Your session expired. Run `dcd login` to sign in again.');
+      expect(error.code).to.equal('session_expired');
+      expect(error.definitive).to.equal(true);
+    });
+
+    it('says the session was signed out when it no longer exists', async () => {
+      for (const code of ['refresh_token_not_found', 'session_not_found']) {
+        refuseRefresh(() => versioned(400, code, 'Invalid Refresh Token: Refresh Token Not Found'));
+
+        const error = await refreshError();
+
+        expect(error.message).to.equal(
+          'Your session was signed out. Run `dcd login` to sign in again.',
+        );
+        expect(error.code).to.equal(code);
+        expect(error.definitive).to.equal(true);
+      }
+    });
+
+    it("keeps Supabase's message for any other refusal", async () => {
+      refuseRefresh(() =>
+        versioned(400, 'refresh_token_already_used', 'Invalid Refresh Token: Already Used'),
+      );
+
+      const error = await refreshError();
+
+      expect(error.message).to.equal(
+        'Failed to refresh session: Invalid Refresh Token: Already Used. Run `dcd login` again.',
+      );
+      expect(error.code).to.equal('refresh_token_already_used');
+      expect(error.definitive).to.equal(true);
+    });
   });
 });

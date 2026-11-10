@@ -329,7 +329,11 @@ describe('session refresh for long-running processes', () => {
       stubRealtime();
       const seen = stubResults();
       CliAuthGateway.refresh = async () => {
-        throw new SessionRefreshError('Invalid Refresh Token: Already Used', true);
+        throw new SessionRefreshError(
+          'Failed to refresh session: Invalid Refresh Token: Already Used. Run `dcd login` again.',
+          true,
+          'refresh_token_already_used',
+        );
       };
 
       const started = realNow();
@@ -341,12 +345,41 @@ describe('session refresh for long-running processes', () => {
       }
 
       expect(caught).to.be.instanceOf(PollingAuthError);
-      expect((caught as Error).message).to.include('Invalid Refresh Token');
-      expect((caught as Error).message).to.include('dcd login');
-      expect((caught as Error).message).to.include('dcd status --upload-id u1');
+      const message = (caught as Error).message;
+      expect(message).to.include('Invalid Refresh Token');
+      // Said once, by the refresh error, not again by the poll.
+      expect(message.match(/dcd login/g)).to.have.length(1);
+      expect(message).to.include('dcd status --upload-id u1');
       expect(seen).to.deep.equal([]);
       // No trip through the 30-attempt retry budget and its backoff.
       expect(realNow() - started).to.be.below(2000);
+    });
+
+    it('leads with the expiry when the session passed its limit', async () => {
+      storeSession('stale', 10);
+      stubRealtime();
+      stubResults();
+      CliAuthGateway.refresh = async () => {
+        throw new SessionRefreshError(
+          'Your session expired. Run `dcd login` to sign in again.',
+          true,
+          'session_expired',
+        );
+      };
+
+      let caught: unknown;
+      try {
+        await poll(expiredBearer('stale'));
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).to.be.instanceOf(PollingAuthError);
+      expect((caught as Error).message).to.equal(
+        'Your session expired. Run `dcd login` to sign in again.\n\n' +
+          "The test is still running in the cloud. Once you've signed in again, reconnect with:\n" +
+          '  dcd status --upload-id u1',
+      );
     });
 
     it('downloads the report after a long poll with a refreshed token', async () => {

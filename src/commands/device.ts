@@ -5,7 +5,12 @@ import { resolve as resolvePath } from 'node:path';
 
 import { apiFlags } from '../config/flags/api.flags.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
-import { DeviceApiError, DeviceGateway } from '../gateways/device-gateway.js';
+import {
+  DeviceApiError,
+  DeviceGateway,
+  START_RECOVERY_WINDOW_MS,
+  startOutcomeUnknown,
+} from '../gateways/device-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import {
   type DeviceCatalogue,
@@ -204,6 +209,39 @@ async function resolveApp(
   return { binaryUploadId };
 }
 
+/**
+ * A start that got no answer, or a proxy's 5xx in the API's place, may still
+ * have made a session, which is billed while it runs. Someone who just runs
+ * `dcd device start` again would have two. So name the sessions started in
+ * the last couple of minutes, and say to check before starting again.
+ */
+async function failedStartError(ctx: Ctx, error: unknown): Promise<DeviceApiError> {
+  const reason = error instanceof Error ? error.message : String(error);
+  const status = error instanceof DeviceApiError ? error.status : 502;
+  const head =
+    'Starting the session failed, but the request may still have started a session, and a session is billed while it runs.';
+  // What to do first: a network error's message runs to a dozen lines.
+  const failed = (advice: string, session: DeviceSession | null = null) =>
+    new DeviceApiError(`${head} ${advice}\n\nThe error: ${reason}`, status, null, session);
+  const minutes = START_RECOVERY_WINDOW_MS / 60_000;
+  const recent = await DeviceGateway.recentlyStarted(ctx.apiUrl, ctx.auth);
+  if (recent === null) {
+    return failed('Check for one with `dcd device list` before you start another.');
+  }
+
+  if (recent.length === 0) {
+    return failed(`No session was started in the last ${minutes} minutes, so it is safe to start one again.`);
+  }
+
+  const listed = recent
+    .map((s) => `${s.id} (${s.client_label ?? 'no label'}, ${s.state}, started ${s.created_at})`)
+    .join(', ');
+  return failed(
+    `Open sessions started in the last ${minutes} minutes: ${listed}. If one is yours, use it instead of starting another; check it with \`dcd device status <id>\`. Otherwise stop it with \`dcd device stop <id>\`.`,
+    recent.length === 1 ? recent[0] : null,
+  );
+}
+
 function parsePositiveInt(value: unknown, flag: string): number | undefined {
   if (value === undefined || value === '') return undefined;
   const n = Number(value);
@@ -353,7 +391,14 @@ const startSub = defineCommand({
       if (ttl) body.maxDurationMin = ttl;
 
       ctx.progress(ui.running(`Starting ${platform} device session…`));
-      let { session } = await DeviceGateway.start(ctx.apiUrl, ctx.auth, body);
+      let session: DeviceSession;
+      try {
+        ({ session } = await DeviceGateway.start(ctx.apiUrl, ctx.auth, body));
+      } catch (error) {
+        if (!startOutcomeUnknown(error)) throw error;
+        throw await failedStartError(ctx, error);
+      }
+
       ctx.progress(ui.success(`Session ${session.id} started`));
 
       // The session exists and bills from here on: every later failure must

@@ -14,15 +14,11 @@
  */
 
 export enum EiOSDevices {
-  'ipad-pro-6th-gen' = 'ipad-pro-6th-gen',
   'ipad-pro-m5-11' = 'ipad-pro-m5-11',
   'ipad-pro-m5-13' = 'ipad-pro-m5-13',
   'iphone-14' = 'iphone-14',
-  'iphone-15' = 'iphone-15',
   'iphone-16' = 'iphone-16',
-  'iphone-16-plus' = 'iphone-16-plus',
   'iphone-16-pro' = 'iphone-16-pro',
-  'iphone-16-pro-max' = 'iphone-16-pro-max',
   'iphone-17' = 'iphone-17',
   'iphone-18-pro' = 'iphone-18-pro',
   'iphone-18-pro-max' = 'iphone-18-pro-max',

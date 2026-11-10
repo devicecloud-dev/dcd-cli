@@ -126,19 +126,23 @@ export function wantsJson(rawArgs: string[]): boolean {
 /**
  * Validate that a string flag value is one of the allowed options.
  * Returns the value untouched on success; throws CliError otherwise.
+ *
+ * `unlisted` values are accepted too but left out of the error message: a
+ * retired option that old scripts may still pass, which nobody should pick.
  */
-export function validateEnum<T extends string>(
+export function validateEnum<T extends string, U extends string = never>(
   value: string | undefined,
   allowed: readonly T[],
   flagName: string,
-): T | undefined {
+  unlisted: readonly U[] = [],
+): T | U | undefined {
   if (value === undefined || value === null || value === '') return undefined;
-  if (!allowed.includes(value as T)) {
+  if (!allowed.includes(value as T) && !unlisted.includes(value as U)) {
     throw new CliError(
       `Invalid value for --${flagName}: "${value}". Expected one of: ${allowed.join(', ')}`,
     );
   }
-  return value as T;
+  return value as T | U;
 }
 
 /**

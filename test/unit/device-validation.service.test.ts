@@ -12,6 +12,7 @@ import type { CompatibilityData } from '../../src/utils/compatibility.js';
 const compat: CompatibilityData = {
   ios: {
     'iphone-14': ['17', '18'],
+    'iphone-16': ['18', '26', '27'],
     'iphone-17': ['26', '27'],
     'iphone-19': ['28'],
     // A rollout gate can leave a device with nothing bookable.
@@ -65,14 +66,14 @@ describe('DeviceValidationService', () => {
 
   describe('unknown devices', () => {
     it('rejects an unknown iOS device, listing what the API offers in its order', () => {
-      expect(() => ios('17', 'iphone-99')).to.throw(
-        'iOS device "iphone-99" is not supported. Supported iOS devices: iphone-14, iphone-17, iphone-19. See https://docs.devicecloud.dev/getting-started/devices-configuration',
+      expect(() => ios('26', 'iphone-99')).to.throw(
+        'iOS device "iphone-99" is not supported. Supported iOS devices: iphone-14, iphone-16, iphone-17, iphone-19. See https://docs.devicecloud.dev/getting-started/devices-configuration',
       );
     });
 
     it('never offers a gated device, and treats it as unsupported', () => {
-      expect(() => ios('17', 'iphone-gated')).to.throw(
-        /iOS device "iphone-gated" is not supported\. Supported iOS devices: iphone-14, iphone-17, iphone-19\./,
+      expect(() => ios('26', 'iphone-gated')).to.throw(
+        /iOS device "iphone-gated" is not supported\. Supported iOS devices: iphone-14, iphone-16, iphone-17, iphone-19\./,
       );
     });
 
@@ -95,14 +96,14 @@ describe('DeviceValidationService', () => {
     });
 
     it('does not resolve a prototype member as a device', () => {
-      expect(() => ios('17', 'constructor')).to.throw(
+      expect(() => ios('26', 'constructor')).to.throw(
         /iOS device "constructor" is not supported/,
       );
     });
 
     it('still fails when the API sent no list at all, without an empty list', () => {
       const noIos = { ...compat, ios: {} };
-      expect(() => ios('17', 'iphone-14', noIos)).to.throw(
+      expect(() => ios('18', 'iphone-14', noIos)).to.throw(
         'iOS device "iphone-14" is not supported. See https://docs.devicecloud.dev/getting-started/devices-configuration',
       );
     });
@@ -129,13 +130,13 @@ describe('DeviceValidationService', () => {
     });
   });
 
-  // The API fills an omitted half from the same global defaults (iphone-14 /
-  // iOS 17, pixel-10 / API 36) and rejects an incompatible pair, so the CLI
+  // The API fills an omitted half from the same global defaults (iphone-16 /
+  // iOS 26, pixel-10 / API 36) and rejects an incompatible pair, so the CLI
   // mirrors that — but must tell the user to pass the other half.
   describe('requests that rely on a default', () => {
     it('tells a device-only iOS request to pass the version explicitly', () => {
-      expect(() => ios(undefined, 'iphone-17')).to.throw(
-        'iphone-17 only supports these iOS versions: 26, 27. No iOS version was given, so the default (17) was checked: pass one of those explicitly with --ios-version',
+      expect(() => ios(undefined, 'iphone-14')).to.throw(
+        'iphone-14 only supports these iOS versions: 17, 18. No iOS version was given, so the default (26) was checked: pass one of those explicitly with --ios-version',
       );
     });
 
@@ -146,14 +147,14 @@ describe('DeviceValidationService', () => {
     });
 
     it('accepts a device-only request when the default version fits', () => {
-      expect(() => ios(undefined, 'iphone-14')).to.not.throw();
+      expect(() => ios(undefined, 'iphone-17')).to.not.throw();
       expect(() => android(undefined, 'pixel-7')).to.not.throw();
       expect(() => android(undefined, 'pixel-10')).to.not.throw();
     });
 
     it('names the MCP tool parameters when asked to', () => {
       expect(() =>
-        service.validateiOSDevice(undefined, 'iphone-17', compat, {
+        service.validateiOSDevice(undefined, 'iphone-14', compat, {
           argNames: MCP_ARG_NAMES,
         }),
       ).to.throw(/pass one of those explicitly with iosVersion$/);
@@ -165,14 +166,14 @@ describe('DeviceValidationService', () => {
     });
 
     it('points a version-only request at the devices that offer that version', () => {
-      expect(() => ios('27')).to.throw(
-        'iphone-14 only supports these iOS versions: 17, 18. No iOS device was given, so the default (iphone-14) was checked: pass one that offers iOS 27 with --ios-device: iphone-17',
+      expect(() => ios('28')).to.throw(
+        'iphone-16 only supports these iOS versions: 18, 26, 27. No iOS device was given, so the default (iphone-16) was checked: pass one that offers iOS 28 with --ios-device: iphone-19',
       );
     });
 
     it('says when no device offers the requested version at all', () => {
       expect(() => ios('99')).to.throw(
-        /No iOS device was given, so the default \(iphone-14\) was checked: no iOS device offers iOS 99$/,
+        /No iOS device was given, so the default \(iphone-16\) was checked: no iOS device offers iOS 99$/,
       );
       // The default device (pixel-10) has Play images, as it does in the API.
       const playDefault = {

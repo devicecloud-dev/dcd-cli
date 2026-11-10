@@ -5,10 +5,12 @@ import { jsonFlag } from '../config/flags/output.flags.js';
 import {
   type DownloadResult,
   ReportDownloadService,
+  reportFormatDeprecation,
 } from '../services/report-download.service.js';
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
+import { ui } from '../utils/ui.js';
 
 const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
 const REPORT_OPTIONS = ['allure', 'html', 'html-detailed', 'junit'] as const;
@@ -43,12 +45,12 @@ export const artifactsCommand = defineCommand({
     report: {
       type: 'string',
       description:
-        'Download a test report in the specified format (options: allure, html, html-detailed, junit)',
+        'Download a test report in the specified format (options: junit, html, html-detailed, allure). allure and html-detailed are deprecated and will be removed on 7 December 2026.',
     },
     'allure-path': {
       type: 'string',
       description:
-        'Custom file path for downloaded Allure report (default: ./report.html)',
+        'Custom file path for downloaded Allure report (default: ./report.html). Deprecated: Allure reports will be removed on 7 December 2026.',
     },
     'html-path': {
       type: 'string',
@@ -84,6 +86,13 @@ export const artifactsCommand = defineCommand({
     const json = Boolean(args.json);
     // Success lines are dropped under --json; warnings stay on stderr.
     const log = json ? undefined : (m: string) => logger.log(m);
+
+    // This command fetches no notices and submits nothing, so neither the
+    // deprecation notice nor the API's submit warning reaches it.
+    const deprecation = reportFormatDeprecation(report);
+    if (deprecation) {
+      process.stderr.write(`${ui.deprecation(deprecation)}\n`);
+    }
 
     const auth = await resolveAuth({ apiKeyFlag });
 

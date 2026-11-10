@@ -5,7 +5,7 @@
  * Does not talk to the dcd API — the dcd-side session exchange lives in the
  * login command's PKCE rendezvous flow (see src/commands/login.ts).
  */
-import { createClient, isAuthApiError } from '@supabase/supabase-js';
+import { createClient, isAuthApiError, isAuthSessionMissingError } from '@supabase/supabase-js';
 
 import type { DcdEnvName } from '../config/environments.js';
 import { getSupabaseKey } from '../config/supabase-key.js';
@@ -21,11 +21,28 @@ export class SessionRefreshError extends Error {
   constructor(
     message: string,
     readonly definitive: boolean,
+    /** Supabase Auth's error code (`session_expired`, …), when it sent one. */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'SessionRefreshError';
   }
 }
+
+/**
+ * What to tell the user for the refusals that have a plain cause. Supabase
+ * Auth answers `session_expired` once a session passes the project's maximum
+ * length or inactivity timeout, and `session_not_found` /
+ * `refresh_token_not_found` once the session has been ended (signed out
+ * elsewhere, revoked, or removed after expiring). Any other refusal keeps
+ * Supabase's own message.
+ */
+const SIGNED_OUT = 'Your session was signed out. Run `dcd login` to sign in again.';
+const REFRESH_REFUSAL_MESSAGES = new Map<string, string>([
+  ['session_expired', 'Your session expired. Run `dcd login` to sign in again.'],
+  ['session_not_found', SIGNED_OUT],
+  ['refresh_token_not_found', SIGNED_OUT],
+]);
 
 export interface RefreshedSession {
   access_token: string;
@@ -66,15 +83,22 @@ export const CliAuthGateway = {
     if (error || !data.session || !data.user) {
       // 4xx from GoTrue means the token itself was rejected; anything else
       // (fetch failure, 5xx) could succeed on retry with the same token.
+      // supabase-js turns GoTrue's `session_not_found` into an
+      // AuthSessionMissingError rather than an AuthApiError (it throws the same
+      // for an empty refresh token); only `dcd login` fixes either.
+      const apiError = error != null && isAuthApiError(error) ? error : undefined;
+      const sessionMissing = error != null && isAuthSessionMissingError(error);
       const definitive =
-        error != null &&
-        isAuthApiError(error) &&
-        error.status >= 400 &&
-        error.status < 500;
+        sessionMissing ||
+        (apiError !== undefined && apiError.status >= 400 && apiError.status < 500);
+      const code = apiError?.code ?? (sessionMissing ? 'session_not_found' : undefined);
+      const known = definitive && code ? REFRESH_REFUSAL_MESSAGES.get(code) : undefined;
       throw new SessionRefreshError(
-        `Failed to refresh session: ${error?.message ?? 'no session returned'}. ` +
-          `Run \`dcd login\` again.`,
+        known ??
+          `Failed to refresh session: ${error?.message ?? 'no session returned'}. ` +
+            `Run \`dcd login\` again.`,
         definitive,
+        code,
       );
     }
     const s = data.session;

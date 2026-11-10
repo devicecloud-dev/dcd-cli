@@ -3,6 +3,10 @@ import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import {
+  RETIRED_RUNNER_TYPES,
+  RUNNER_TYPE_OPTIONS,
+} from '../../config/flags/execution.flags.js';
 import { ApiGateway } from '../../gateways/api-gateway.js';
 import { type IExecutionPlan, plan } from '../../services/execution-plan.service.js';
 import {
@@ -89,8 +93,8 @@ export function registerRunCloudTest(server: McpServer): void {
           .string()
           .optional()
           .describe('ID of a previously uploaded binary. Mutually exclusive with appFile.'),
-        iosVersion: z.string().optional().describe('iOS version, e.g. "17"'),
-        iosDevice: z.string().optional().describe('iOS device, e.g. "iphone-14"'),
+        iosVersion: z.string().optional().describe('iOS version, e.g. "26"'),
+        iosDevice: z.string().optional().describe('iOS device, e.g. "iphone-16"'),
         androidApiLevel: z.string().optional().describe('Android API level, e.g. "34"'),
         androidDevice: z.string().optional().describe('Android device, e.g. "pixel-10"'),
         googlePlay: z.boolean().optional().describe('Use a Google Play-enabled Android image'),
@@ -104,12 +108,14 @@ export function registerRunCloudTest(server: McpServer): void {
         excludeFlows: z.array(z.string()).optional().describe('Flow paths/patterns to exclude'),
         maestroVersion: z.string().optional().describe('Pin a specific Maestro version'),
         retry: z.number().int().min(0).max(2).optional().describe('Auto-retry failed tests (max 2)'),
+        // A retired runner type still validates, so an agent configured with
+        // one keeps working (the API runs gpu1 on cpu1), but the schema's
+        // `enum` lists only the current ones: zod metadata overrides it.
         runnerType: z
-          .enum(['default', 'm4', 'm1', 'gpu1', 'cpu1'])
+          .enum([...RUNNER_TYPE_OPTIONS, ...RETIRED_RUNNER_TYPES])
+          .meta({ enum: [...RUNNER_TYPE_OPTIONS] })
           .optional()
-          .describe(
-            'Runner type (default "default"). gpu1 is deprecated and will be removed on 9 November 2026; prefer cpu1.',
-          ),
+          .describe('Runner type (default "default").'),
         priority: z
           .enum(['low', 'normal', 'high'])
           .optional()

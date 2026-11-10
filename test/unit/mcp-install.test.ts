@@ -7,6 +7,7 @@ import { CliError } from '../../src/utils/cli.js';
 import {
   claudeCodeAddArgs,
   clientConfigPath,
+  codexAddArgs,
   serverLaunch,
   shellLine,
   stableNodePath,
@@ -67,6 +68,7 @@ describe('dcd mcp install', () => {
     );
     expect(clientConfigPath('claude-desktop', 'linux', '/h')).to.equal(undefined);
     expect(clientConfigPath('claude-code', 'darwin', '/h')).to.equal(undefined);
+    expect(clientConfigPath('codex', 'darwin', '/h')).to.equal(undefined);
   });
 
   describe('writeClientConfig', () => {
@@ -104,6 +106,9 @@ describe('dcd mcp install', () => {
     expect(JSON.parse(vscodeAddArgs(launch)[1])).to.deep.equal({ name: 'devicecloud', ...launch });
     expect(shellLine('claude', claudeCodeAddArgs(launch))).to.equal(
       "claude mcp add --scope user devicecloud -- '/Users/a b/.dcd/bin/dcd' mcp --read-only",
+    );
+    expect(shellLine('codex', codexAddArgs(launch))).to.equal(
+      "codex mcp add devicecloud -- '/Users/a b/.dcd/bin/dcd' mcp --read-only",
     );
   });
 });

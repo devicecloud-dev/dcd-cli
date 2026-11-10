@@ -1,7 +1,8 @@
 name: Publish Package to npmjs
 
 # Publishes the STABLE package to npm's `latest` tag. Called by
-# release-please.yml after a stable Release PR merges on `production`.
+# release-please.yml (the Release workflow) after a release PR merges on
+# `production`.
 #
 # Betas do NOT come through here — .github/workflows/release-beta.yml publishes
 # those directly. This file used to take a `release_type` of prod or beta, but
@@ -60,10 +61,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # Stable publishes land on the npm `latest` tag and must only ever come
-      # from the `production` branch (release-please's prod target branch).
-      # Without this guard, workflow_dispatch could publish any ref as `latest`,
-      # bypassing release-please. workflow_call is unaffected: release-please.yml
-      # only runs on pushes to `production`, so github.ref_name matches there.
+      # from the `production` branch. Without this guard, workflow_dispatch
+      # could publish any ref as `latest`, bypassing the release PR.
+      # workflow_call is unaffected: release-please.yml only runs on
+      # `production`, so github.ref_name matches there.
       - name: Enforce production branch
         if: ${{ github.ref_name != 'production' }}
         run: |
@@ -72,8 +73,9 @@ jobs:
 
       # Catches the failure mode that stalled 5.6.0: a promotion merge dragged
       # `dev`'s beta version onto `production`, so package.json read
-      # 5.6.0-beta.1 while the stable manifest still said 5.5.0. Publishing that
-      # to `latest` would have shipped a prerelease to every default install.
+      # 5.6.0-beta.1. Publishing that to `latest` would have shipped a
+      # prerelease to every default install. stable-release.mjs verify refuses
+      # such a version before the tag is made; this is the last backstop.
       - name: Validate Production Version
         run: |
           VERSION=$(node -p "require('./package.json').version")

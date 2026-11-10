@@ -11,7 +11,8 @@ import { readFileSync } from 'node:fs';
  * The runtime arguments end with a bare `--package`, so the
  * `<identifier>@<version>` the client appends becomes its value, and
  * `dcd-mcp` follows as the package argument. The pin therefore lives only in
- * `packages[].version`, a bare version string release-please can rewrite.
+ * `packages[].version`, a bare version string the release can rewrite
+ * (scripts/stable-release.mjs, tested in stable-release.test.ts).
  */
 interface Argument {
   name?: string;
@@ -28,13 +29,6 @@ interface ServerJson {
     version: string;
   }>;
   version: string;
-}
-
-interface ReleasePleaseConfig {
-  packages: Record<
-    string,
-    { 'extra-files'?: Array<{ jsonpath?: string; path: string; type: string }> }
-  >;
 }
 
 const readJson = <T>(file: string): T =>
@@ -70,29 +64,17 @@ describe('server.json (MCP registry manifest)', () => {
   });
 
   it('pins the last stable release, and only in the bare version fields', () => {
-    const { '.': stable } = readJson<Record<string, string>>(
-      '.release-please-manifest.json',
-    );
+    const { version: stable } = readJson<{ version: string }>('package.json');
 
     expect(server.version).to.equal(stable);
     expect(npmPackage.version).to.equal(stable);
 
-    // A version embedded in an argument can't be kept current: release-please's
-    // json updater replaces the whole matched value with the bare version.
+    // A version embedded in an argument can't be kept current: the release
+    // only rewrites bare `"version": "X.Y.Z"` fields.
     const argv = [
       ...render(npmPackage.runtimeArguments),
       ...render(npmPackage.packageArguments),
     ];
     expect(argv.filter((a) => /@\d/.test(a))).to.deep.equal([]);
-  });
-
-  it('only lets release-please rewrite bare version fields in server.json', () => {
-    const config = readJson<ReleasePleaseConfig>('release-please-config.json');
-    const serverJsonPaths = Object.values(config.packages)
-      .flatMap((pkg) => pkg['extra-files'] ?? [])
-      .filter((file) => file.path === 'server.json')
-      .map((file) => file.jsonpath);
-
-    expect(serverJsonPaths).to.have.members(['$.version', '$.packages[*].version']);
   });
 });

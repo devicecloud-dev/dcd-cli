@@ -15,12 +15,13 @@ import { CliError, type InstallMethod } from './cli.js';
 /** The server's name in every client's config. */
 export const SERVER_NAME = 'devicecloud';
 
-export const MCP_CLIENTS = ['claude-code', 'claude-desktop', 'cursor', 'vscode'] as const;
+export const MCP_CLIENTS = ['claude-code', 'claude-desktop', 'codex', 'cursor', 'vscode'] as const;
 export type McpClient = (typeof MCP_CLIENTS)[number];
 
 export const CLIENT_LABELS: Record<McpClient, string> = {
   'claude-code': 'Claude Code',
   'claude-desktop': 'Claude Desktop',
+  codex: 'Codex',
   cursor: 'Cursor',
   vscode: 'VS Code',
 };
@@ -92,7 +93,8 @@ export function stableNodePath(
 
 /**
  * The JSON config file a client reads, or undefined when it is configured
- * through its own CLI (Claude Code, VS Code) or has no known location here.
+ * through its own CLI (Claude Code, Codex, VS Code) or has no known location
+ * here.
  */
 export function clientConfigPath(
   client: McpClient,
@@ -158,6 +160,15 @@ export function writeClientConfig(file: string, launch: ServerLaunch): { replace
 /** `claude mcp add` arguments, at user scope so it works in every project. */
 export function claudeCodeAddArgs(launch: ServerLaunch): string[] {
   return ['mcp', 'add', '--scope', 'user', SERVER_NAME, '--', launch.command, ...launch.args];
+}
+
+/**
+ * `codex mcp add` arguments. Codex keeps MCP servers in ~/.codex/config.toml,
+ * which its CLI, IDE extension and desktop app share, so its own CLI writes
+ * the entry rather than this one parsing TOML.
+ */
+export function codexAddArgs(launch: ServerLaunch): string[] {
+  return ['mcp', 'add', SERVER_NAME, '--', launch.command, ...launch.args];
 }
 
 /** `code --add-mcp` arguments, which add the server to the VS Code user profile. */
