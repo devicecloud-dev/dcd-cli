@@ -40,8 +40,14 @@ import { getContext, isReadOnly, logStderr } from './context.js';
 import { errorResult, runTool } from './helpers.js';
 import { createServer } from './server.js';
 
+/*
+ * Sent at initialize, before this server knows which hosted tools the
+ * account has: the hosted server only serves its tools to organizations that
+ * have them. So these name only the dcd_* tools, and the hosted tools explain
+ * themselves in their own descriptions.
+ */
 const INSTRUCTIONS =
-  'DeviceCloud tools. dcd_* tools run Maestro test suites in the cloud. The device tools lease a cloud iOS or Android device for you to drive: start_device, then inspect_screen / take_screenshot, launch_app, run, and stop_device when done. Call cheat_sheet first for Maestro syntax. Local files: install_app takes app_path and run takes path (a flow file or a directory), which this server uploads for you.';
+  'DeviceCloud tools. dcd_* tools run Maestro test suites in the cloud: dcd_list_devices shows what you can test on, dcd_run_cloud_test submits flows (billable), and dcd_get_status follows a run. Any other tools describe their own use. Where a tool takes a path to a local file (an app build, a flow file or a directory), this server uploads it for you.';
 
 /**
  * How long one forwarded call may take. Longer than dcd_run_cloud_test's
@@ -51,7 +57,7 @@ const INSTRUCTIONS =
 export const CALL_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 const READ_ONLY_INSTRUCTIONS =
-  'DeviceCloud tools, read-only: nothing here starts a device, runs a test or changes anything. dcd_* tools read cloud test runs and their results. The device tools read open device sessions: list_devices, get_device_status, inspect_screen, take_screenshot, get_logs.';
+  'DeviceCloud tools, read-only: nothing here runs a test or changes anything. dcd_* tools read cloud test runs and their results. Any other tools describe their own use.';
 
 /** The inputs this bridge adds to hosted tools, and what they say. */
 const LOCAL_INPUTS: Record<string, { description: string; properties: Record<string, object> }> = {

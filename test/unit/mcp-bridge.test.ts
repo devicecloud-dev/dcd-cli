@@ -273,6 +273,19 @@ describe('dcd mcp bridge', () => {
     await client.close();
   });
 
+  it("names only the dcd_* tools in its instructions, since the hosted ones depend on the account", async () => {
+    for (const readOnly of [false, true]) {
+      if (readOnly) process.env.DCD_MCP_READONLY = '1';
+      const client = await connect();
+      const instructions = client.getInstructions() ?? '';
+      expect(instructions).to.include('dcd_');
+      for (const hosted of ['start_device', 'inspect_screen', 'install_app', 'cheat_sheet', 'device session']) {
+        expect(instructions).to.not.include(hosted);
+      }
+      await client.close();
+    }
+  });
+
   it('read-only mode still refuses on an API that lists every tool', async () => {
     hosted.ignoreReadOnly = true;
     process.env.DCD_MCP_READONLY = '1';
