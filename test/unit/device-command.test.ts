@@ -339,6 +339,16 @@ describe('dcd device', () => {
       expect(calls[1].body).to.deep.equal({ type: 'type', text: 'hello' });
     });
 
+    it('type without --text is a usage error inside the envelope, not a citty error', async () => {
+      const calls = stubFetch(ok);
+      const { exit, out } = await runJson('type', { id: 'a-b-c' });
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+      expect(out).to.have.keys('ok', 'session', 'data', 'error');
+      expect(out.ok).to.equal(false);
+      expect((out.error as { message: string }).message).to.include('--text');
+      expect(calls).to.have.length(0);
+    });
+
     it('swipe takes a direction as its only positional, or --from and --to', async () => {
       const calls = stubFetch((call) =>
         call.url.endsWith('/device/sessions') ? { body: { sessions: [session('a-b-c')] } } : ok(),

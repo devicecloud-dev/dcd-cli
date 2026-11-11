@@ -819,7 +819,9 @@ const typeSub = defineCommand({
   args: {
     ...commonArgs,
     id: idArg,
-    text: { type: 'string', description: 'What to type', required: true },
+    // Not `required`: citty would reject a missing value before runDeviceCommand,
+    // and --json would then print the top-level error instead of the envelope.
+    text: { type: 'string', description: 'What to type' },
     sensitive: {
       type: 'boolean',
       default: false,
