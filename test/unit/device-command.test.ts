@@ -293,6 +293,98 @@ describe('dcd device', () => {
     });
   });
 
+  describe('typed actions (tap, type, swipe, press-key)', () => {
+    const ok = () => ({ body: { result: { success: true }, session: session('a-b-c') } });
+
+    it('tap sends one target to /actions: text, id, or a point', async () => {
+      const calls = stubFetch(ok);
+      await runJson('tap', { id: 'a-b-c', text: 'Log in' });
+      await runJson('tap', { id: 'a-b-c', rid: 'login_button' });
+      await runJson('tap', { id: 'a-b-c', x: '50', y: '80.5' });
+      expect(calls.map((c) => [c.method, c.url, c.body])).to.deep.equal([
+        ['POST', `${API}/device/sessions/a-b-c/actions`, { type: 'tap', text: 'Log in' }],
+        ['POST', `${API}/device/sessions/a-b-c/actions`, { type: 'tap', id: 'login_button' }],
+        ['POST', `${API}/device/sessions/a-b-c/actions`, { type: 'tap', x: 50, y: 80.5 }],
+      ]);
+      expect(calls[0].headers['x-dcd-source']).to.equal('cli');
+    });
+
+    it('tap refuses no target, two targets and a bad percentage without calling the API', async () => {
+      const calls = stubFetch(ok);
+      for (const args of [
+        { id: 'a-b-c' },
+        { id: 'a-b-c', text: 'x', rid: 'y' },
+        { id: 'a-b-c', x: '150', y: '10' },
+        { id: 'a-b-c', x: 'left', y: '10' },
+      ]) {
+        const { exit, out } = await runJson('tap', args);
+        expect(exit).to.equal(DEVICE_EXIT.usage);
+        expect(out.ok).to.equal(false);
+      }
+      expect(calls).to.have.length(0);
+    });
+
+    it('--maestro asks for the Maestro path', async () => {
+      const calls = stubFetch(ok);
+      await runJson('tap', { id: 'a-b-c', text: 'OK', maestro: true });
+      expect(calls[0].body).to.deep.equal({ type: 'tap', text: 'OK', mode: 'maestro' });
+    });
+
+    it('type sends the text, sensitive when asked, and keeps it out of the envelope', async () => {
+      const calls = stubFetch(ok);
+      const { out } = await runJson('type', { id: 'a-b-c', text: 'hunter2', sensitive: true });
+      expect(calls[0].body).to.deep.equal({ type: 'type', text: 'hunter2', sensitive: true });
+      expect(JSON.stringify(out)).to.not.include('hunter2');
+      await runJson('type', { id: 'a-b-c', text: 'hello' });
+      expect(calls[1].body).to.deep.equal({ type: 'type', text: 'hello' });
+    });
+
+    it('swipe takes a direction as its only positional, or --from and --to', async () => {
+      const calls = stubFetch((call) =>
+        call.url.endsWith('/device/sessions') ? { body: { sessions: [session('a-b-c')] } } : ok(),
+      );
+      await runJson('swipe', { id: 'up' });
+      await runJson('swipe', { id: 'a-b-c', direction: 'left' });
+      await runJson('swipe', { id: 'a-b-c', from: '90,50', to: '10, 50' });
+      const posts = calls.filter((c) => c.method === 'POST');
+      expect(posts.map((c) => c.body)).to.deep.equal([
+        { type: 'swipe', direction: 'up' },
+        { type: 'swipe', direction: 'left' },
+        { type: 'swipe', from: { x: 90, y: 50 }, to: { x: 10, y: 50 } },
+      ]);
+      const { exit } = await runJson('swipe', { id: 'a-b-c', direction: 'sideways' });
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+      const both = await runJson('swipe', { id: 'a-b-c', direction: 'up', from: '1,1', to: '2,2' });
+      expect(both.exit).to.equal(DEVICE_EXIT.usage);
+    });
+
+    it('press-key takes the key as its only positional when the session is implied', async () => {
+      const calls = stubFetch((call) =>
+        call.url.endsWith('/device/sessions') ? { body: { sessions: [session('a-b-c')] } } : ok(),
+      );
+      await runJson('press-key', { id: 'back' });
+      await runJson('press-key', { id: 'a-b-c', key: 'enter' });
+      const posts = calls.filter((c) => c.method === 'POST');
+      expect(posts.map((c) => [c.url, c.body])).to.deep.equal([
+        [`${API}/device/sessions/a-b-c/actions`, { type: 'press_key', key: 'back' }],
+        [`${API}/device/sessions/a-b-c/actions`, { type: 'press_key', key: 'enter' }],
+      ]);
+      const { exit } = await runJson('press-key', { id: 'a-b-c', key: 'menu' });
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+    });
+
+    it('exits 2 with the result when the device could not do the action', async () => {
+      stubFetch(() => ({
+        body: { result: { success: false, error: 'Element not found: "Nope"' }, session: session('a-b-c') },
+      }));
+      const { exit, out } = await runJson('tap', { id: 'a-b-c', text: 'Nope' });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      expect(out.ok).to.equal(false);
+      expect(out.data).to.deep.equal({ result: { success: false, error: 'Element not found: "Nope"' } });
+      expect(out.error).to.deep.equal({ code: null, message: 'Element not found: "Nope"' });
+    });
+  });
+
   describe('install --wait', () => {
     const installed = { app: { binary_upload_id: 'b-2', app_id: 'com.x', reused: true } };
     const withInstall = (status: 'failed' | 'installed' | 'installing', error: null | string = null) =>

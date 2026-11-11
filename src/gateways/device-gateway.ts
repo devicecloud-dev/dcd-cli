@@ -1,10 +1,11 @@
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type {
+  DeviceActionRequest,
   DeviceArtifactsPage,
   DeviceBundleUploadUrls,
-  DeviceFlowBundle,
   DeviceCatalogue,
   DeviceCommandResult,
+  DeviceFlowBundle,
   DeviceHumanStatus,
   DeviceInstalledApp,
   DeviceLogs,
@@ -275,6 +276,16 @@ export const DeviceGateway = {
     reason: string,
   ): Promise<{ human: DeviceHumanStatus; session: DeviceSession }> {
     return request(baseUrl, auth, 'POST', `${sessionPath(id)}/request-human`, { reason });
+  },
+
+  /** One typed action: tap, type, swipe or press_key. Synchronous: answers with the outcome. */
+  action(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+    body: DeviceActionRequest,
+  ): Promise<{ result: DeviceCommandResult; session: DeviceSession }> {
+    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/actions`, body);
   },
 
   run(
