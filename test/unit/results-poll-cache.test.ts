@@ -192,7 +192,7 @@ describe('results poll: summary view and ETag revalidation', () => {
       );
       const service = new ResultsPollingService();
       // Poll back to back instead of every 20s.
-      (service as unknown as { APIKEY_POLL_INTERVAL_MS: number }).APIKEY_POLL_INTERVAL_MS = 0;
+      (service as unknown as { POLL_INTERVAL_MS: number }).POLL_INTERVAL_MS = 0;
       const logs: string[] = [];
 
       const result = await service.pollUntilComplete({
