@@ -8,7 +8,6 @@ import {
   CliAuthGateway,
   SessionRefreshError,
 } from '../../src/gateways/cli-auth-gateway.js';
-import { RealtimeResultsGateway } from '../../src/gateways/realtime-gateway.js';
 import { clearContextCache, getContext } from '../../src/mcp/context.js';
 import { ReportDownloadService } from '../../src/services/report-download.service.js';
 import {
@@ -34,7 +33,6 @@ const ORIGINAL_ENV = { ...process.env };
 const realNow = Date.now;
 const realRefresh = CliAuthGateway.refresh;
 const realGetResults = ApiGateway.getResultsForUpload;
-const realSubscribe = RealtimeResultsGateway.subscribe;
 const realFetch = (global as any).fetch;
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -97,7 +95,6 @@ describe('session refresh for long-running processes', () => {
     Date.now = realNow;
     CliAuthGateway.refresh = realRefresh;
     ApiGateway.getResultsForUpload = realGetResults;
-    RealtimeResultsGateway.subscribe = realSubscribe;
     (global as any).fetch = realFetch;
     clearContextCache();
     process.env = { ...ORIGINAL_ENV };
@@ -250,22 +247,6 @@ describe('session refresh for long-running processes', () => {
       return seen;
     }
 
-    /** Stand in for the Supabase socket and record the tokens it is handed. */
-    function stubRealtime(): { joinedWith: string[]; updatedTo: string[] } {
-      const calls = { joinedWith: [] as string[], updatedTo: [] as string[] };
-      RealtimeResultsGateway.subscribe = (options) => {
-        calls.joinedWith.push(options.accessToken);
-        return {
-          isConnected: () => false,
-          async unsubscribe() {},
-          updateAccessToken(token: string) {
-            calls.updatedTo.push(token);
-          },
-        };
-      };
-      return calls;
-    }
-
     const poll = (auth: AuthContext, service = new ResultsPollingService()) =>
       service.pollUntilComplete({
         auth,
@@ -275,10 +256,9 @@ describe('session refresh for long-running processes', () => {
         uploadId: 'u1',
       });
 
-    it('polls with a refreshed token, and hands it to the realtime socket', async () => {
+    it('polls with a refreshed token', async () => {
       storeSession('fresh', 3600, '99');
       const seen = stubResults();
-      const realtime = stubRealtime();
 
       const result = await poll(expiredBearer('stale', '42'));
 
@@ -287,8 +267,6 @@ describe('session refresh for long-running processes', () => {
       // identity headers (dcd#1622), which this test is not about.
       expect(seen).to.have.length(1);
       expect(seen[0]).to.include({ authorization: 'Bearer fresh', 'x-dcd-org': '42' });
-      expect(realtime.joinedWith).to.deep.equal(['stale']);
-      expect(realtime.updatedTo).to.deep.equal(['fresh']);
     });
 
     it('leaves API-key polling exactly as it was', async () => {
@@ -299,7 +277,6 @@ describe('session refresh for long-running processes', () => {
 
     it('retries a refresh that failed on a network blip, like any failed poll', async () => {
       storeSession('stale', 10);
-      stubRealtime();
       const seen = stubResults();
       let attempts = 0;
       CliAuthGateway.refresh = async () => {
@@ -326,7 +303,6 @@ describe('session refresh for long-running processes', () => {
 
     it('stops at once, with a reconnect hint, when only `dcd login` can help', async () => {
       storeSession('stale', 10);
-      stubRealtime();
       const seen = stubResults();
       CliAuthGateway.refresh = async () => {
         throw new SessionRefreshError(
@@ -357,7 +333,6 @@ describe('session refresh for long-running processes', () => {
 
     it('leads with the expiry when the session passed its limit', async () => {
       storeSession('stale', 10);
-      stubRealtime();
       stubResults();
       CliAuthGateway.refresh = async () => {
         throw new SessionRefreshError(

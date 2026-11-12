@@ -8,8 +8,8 @@ export interface AuthContext {
   headers: Record<string, string>;
   mode: 'apiKey' | 'bearer';
   /**
-   * Supabase JWT — present when mode === 'bearer'. Lets realtime subscriptions
-   * authenticate the socket (RLS) without re-reading the session from disk.
+   * Supabase JWT — present when mode === 'bearer'. Kept beside the headers so
+   * a refresh can swap it without re-reading the session from disk.
    */
   accessToken?: string;
   /** Environment the session belongs to — present when mode === 'bearer'. */
