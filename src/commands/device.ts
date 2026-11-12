@@ -718,11 +718,15 @@ const launchSub = defineCommand({
   },
 });
 
-/** Shared by the typed-action subcommands: the Maestro switch. */
+/**
+ * Shared by the typed-action subcommands. It chose Maestro over the device's
+ * direct path when a device session had two engines. It has one now, so the
+ * flag is still taken, for scripts that pass it, and does nothing.
+ */
 const maestroArg = {
   type: 'boolean',
   default: false,
-  description: 'Run the action as a Maestro flow instead of directly on the device',
+  description: 'Deprecated: has no effect. Device sessions have a single engine',
 } as const;
 
 /** A percentage of the screen from a flag value, or a usage error. */
@@ -755,10 +759,7 @@ async function performAction(
 ) {
   const ctx = await context(args);
   const sessionId = await resolveSessionId(ctx.apiUrl, ctx.auth, id);
-  const { result, session } = await DeviceGateway.action(ctx.apiUrl, ctx.auth, sessionId, {
-    ...body,
-    ...(args.maestro ? { mode: 'maestro' as const } : {}),
-  });
+  const { result, session } = await DeviceGateway.action(ctx.apiUrl, ctx.auth, sessionId, body);
   return {
     session,
     data: { result } as { result: DeviceCommandResult },
@@ -1087,7 +1088,12 @@ async function waitForCommand(ctx: Ctx, id: string, commandId: string): Promise<
 }
 
 const runSub = defineCommand({
-  meta: { name: 'run', description: 'Run a Maestro flow (or a directory of flows) on the device, and wait for the result' },
+  meta: {
+    name: 'run',
+    description:
+      'Run a Maestro flow (or a directory of flows) on the device, and wait for the result. ' +
+      'A device session runs the common Maestro commands and no flow scripts (runScript, evalScript)',
+  },
   args: {
     ...commonArgs,
     id: idArg,
