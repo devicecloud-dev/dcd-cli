@@ -358,12 +358,12 @@ export const cloudCommand = defineCommand({
 
       const auth = await resolveAuth({ apiKeyFlag });
 
-      // Nudge interactive api-key users toward `dcd login`, which unlocks live
-      // (realtime) status updates. Suppressed in CI and non-interactive output.
+      // Nudge interactive api-key users toward `dcd login`. Suppressed in CI and
+      // non-interactive output.
       if (auth.mode === 'apiKey' && !json && !quiet && !isCI()) {
         out(
           colors.dim(
-            'Tip: run `dcd login` for live test updates and a smoother experience than passing --api-key.',
+            'Tip: run `dcd login` for a smoother experience than passing --api-key.',
           ),
         );
       }

@@ -36,12 +36,10 @@ import { defineCommand } from 'citty';
 import { createHash, randomBytes } from 'node:crypto';
 
 import {
-  type DcdEnvName,
   ENVIRONMENTS,
   inferEnvFromApiUrl,
   resolveFrontendUrl,
 } from '../config/environments.js';
-import { getSupabaseKey } from '../config/supabase-key.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
 import { openBrowser } from '../utils/browser.js';
 import { canPrompt } from '../utils/ci.js';
@@ -201,17 +199,11 @@ export const loginCommand = defineCommand({
       try {
         orgs = await fetchOrgs(apiUrl, bearerHeaders);
       } catch (err) {
-        // The api rejected the JWT. Before blaming the api, hit Supabase's
-        // own /auth/v1/user directly with the same token — if Supabase also
-        // rejects it, the token itself is bad; if Supabase accepts, the
-        // api's JwtService is misconfigured.
+        // The api rejected the JWT it just minted. Name the token's issuer, so
+        // a token from the wrong environment is plain from the error.
         const iss = decodeJwtIssuer(payload.access_token);
-        const supabaseUser = await probeSupabaseUser(iss, env, payload.access_token);
-        const parts = [
-          iss ? `token iss: ${iss}` : null,
-          `supabase /auth/v1/user: ${supabaseUser}`,
-        ].filter(Boolean);
-        throw new CliError(`${(err as Error).message} [${parts.join(' | ')}]`);
+        const message = (err as Error).message;
+        throw new CliError(iss ? `${message} [token iss: ${iss}]` : message);
       }
       const { org: chosen, fromLastLogin } = await selectOrg(orgs, {
         requested: requestedOrg,
@@ -317,26 +309,6 @@ async function pollForClaim(
 
 function base64url(buf: Buffer): string {
   return buf.toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
-}
-
-async function probeSupabaseUser(
-  iss: string | null,
-  env: DcdEnvName,
-  token: string,
-): Promise<string> {
-  if (!iss) return 'skipped (no iss)';
-  try {
-    const res = await fetch(`${iss}/user`, {
-      headers: {
-        authorization: `Bearer ${token}`,
-        apikey: await getSupabaseKey(env),
-      },
-    });
-    const bodyText = await res.text().catch(() => '');
-    return `HTTP ${res.status}${bodyText ? ` — ${bodyText.slice(0, 200)}` : ''}`;
-  } catch (err) {
-    return `network error: ${(err as Error).message}`;
-  }
 }
 
 function decodeJwtIssuer(token: string): string | null {
