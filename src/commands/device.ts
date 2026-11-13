@@ -13,15 +13,20 @@ import {
 } from '../gateways/device-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import {
+  DEVICE_KEYS,
+  type DeviceActionRequest,
   type DeviceCatalogue,
   type DeviceCommandResult,
   type DeviceHumanStatus,
   type DeviceInstalledApp,
+  type DevicePoint,
   type DeviceRunResponse,
   type DeviceScreenElement,
   type DeviceSession,
+  type DeviceSwipeDirection,
   ENDED_STATES,
   type StartDeviceSessionRequest,
+  SWIPE_DIRECTIONS,
 } from '../types/domain/device-session.types.js';
 import { platformOfAppFile, uploadLocalApp } from '../utils/app-upload.js';
 import { refreshAuth, resolveAuth } from '../utils/auth.js';
@@ -713,6 +718,202 @@ const launchSub = defineCommand({
   },
 });
 
+/**
+ * Shared by the typed-action subcommands. It chose Maestro over the device's
+ * direct path when a device session had two engines. It has one now, so the
+ * flag is still taken, for scripts that pass it, and does nothing.
+ */
+const maestroArg = {
+  type: 'boolean',
+  default: false,
+  description: 'Deprecated: has no effect. Device sessions have a single engine',
+} as const;
+
+/** A percentage of the screen from a flag value, or a usage error. */
+function percentArg(value: unknown, flag: string): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (typeof value === 'boolean' || value === '' || !Number.isFinite(n) || n < 0 || n > 100) {
+    throw new CliError(`--${flag} must be a number from 0 to 100 (a percentage of the screen).`, 1);
+  }
+  return n;
+}
+
+/** "x,y" (percentages) from a flag value, or a usage error. */
+function pointArg(value: unknown, flag: string): DevicePoint {
+  const parts = typeof value === 'string' ? value.split(',') : [];
+  if (parts.length !== 2) {
+    throw new CliError(`--${flag} must be "x,y", percentages of the screen, e.g. --${flag} 50,80.`, 1);
+  }
+  return { x: percentArg(parts[0].trim(), flag), y: percentArg(parts[1].trim(), flag) };
+}
+
+/**
+ * Send one typed action and print its outcome, the way `launch` does: exit 2
+ * with the result when the device could not do it.
+ */
+async function performAction(
+  args: Record<string, unknown>,
+  id: string | undefined,
+  body: DeviceActionRequest,
+  labels: { done: string; failed: string },
+) {
+  const ctx = await context(args);
+  const sessionId = await resolveSessionId(ctx.apiUrl, ctx.auth, id);
+  const { result, session } = await DeviceGateway.action(ctx.apiUrl, ctx.auth, sessionId, body);
+  return {
+    session,
+    data: { result } as { result: DeviceCommandResult },
+    ...(!result.success && {
+      failure: { code: null, message: result.error || labels.failed },
+    }),
+    print() {
+      logger.log(result.success ? ui.success(labels.done) : `${ui.statusSymbol('FAILED')} ${labels.failed}`);
+      if (result.error) logger.log(colors.error(result.error));
+    },
+  };
+}
+
+const tapSub = defineCommand({
+  meta: { name: 'tap', description: 'Tap an element by text or id, or a point on the screen' },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    text: { type: 'string', description: 'The element\'s text, label or hint, matched whole, ignoring case' },
+    rid: { type: 'string', description: 'The element\'s resource id (rid in `dcd device inspect`)' },
+    x: { type: 'string', description: 'With --y: a point, as percentages of the screen (0-100)' },
+    y: { type: 'string', description: 'See --x' },
+    maestro: maestroArg,
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const targets = [
+        args.text !== undefined,
+        args.rid !== undefined,
+        args.x !== undefined || args.y !== undefined,
+      ].filter(Boolean).length;
+      if (targets !== 1) {
+        throw new CliError('tap takes exactly one target: --text, --rid, or --x and --y.', 1);
+      }
+      const body: DeviceActionRequest =
+        args.text !== undefined
+          ? { type: 'tap', text: String(args.text) }
+          : args.rid !== undefined
+            ? { type: 'tap', id: String(args.rid) }
+            : { type: 'tap', x: percentArg(args.x, 'x'), y: percentArg(args.y, 'y') };
+      const what =
+        args.text !== undefined
+          ? `"${String(args.text)}"`
+          : args.rid !== undefined
+            ? `id ${String(args.rid)}`
+            : `${String(args.x)}%,${String(args.y)}%`;
+      return performAction(args, args.id as string | undefined, body, {
+        done: `Tapped ${what}`,
+        failed: `Tap ${what} failed`,
+      });
+    });
+  },
+});
+
+const typeSub = defineCommand({
+  meta: { name: 'type', description: 'Type text into the focused field' },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    // Not `required`: citty would reject a missing value before runDeviceCommand,
+    // and --json would then print the top-level error instead of the envelope.
+    text: { type: 'string', description: 'What to type' },
+    sensitive: {
+      type: 'boolean',
+      default: false,
+      description: 'The text is a secret: stored encrypted, never shown, masked in the output',
+    },
+    maestro: maestroArg,
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      const text = String(args.text ?? '');
+      if (!text) throw new CliError('--text must not be empty.', 1);
+      const shown = args.sensitive ? `${text.length} character(s)` : `"${text}"`;
+      return performAction(
+        args,
+        args.id as string | undefined,
+        { type: 'type', text, ...(args.sensitive ? { sensitive: true } : {}) },
+        { done: `Typed ${shown}`, failed: `Typing ${shown} failed` },
+      );
+    });
+  },
+});
+
+const isDirection = (value: unknown): value is DeviceSwipeDirection =>
+  typeof value === 'string' && (SWIPE_DIRECTIONS as readonly string[]).includes(value);
+
+const swipeSub = defineCommand({
+  meta: { name: 'swipe', description: 'Swipe up, down, left or right, or from one point to another' },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    direction: {
+      type: 'positional',
+      required: false,
+      description: 'up, down, left or right (a swipe across most of the screen)',
+    },
+    from: { type: 'string', description: 'With --to: where the swipe starts, as "x,y" percentages' },
+    to: { type: 'string', description: 'Where it ends, as "x,y" percentages' },
+    maestro: maestroArg,
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      let id = args.id as string | undefined;
+      let direction = args.direction as string | undefined;
+      // `dcd device swipe up`: the one positional is the direction, not a session.
+      if (id && !direction && isDirection(id)) [id, direction] = [undefined, id];
+      const byPoints = args.from !== undefined || args.to !== undefined;
+      if ((direction === undefined) === !byPoints) {
+        throw new CliError('swipe takes a direction (up, down, left, right), or --from and --to.', 1);
+      }
+      let body: DeviceActionRequest;
+      let what: string;
+      if (direction !== undefined) {
+        if (!isDirection(direction)) {
+          throw new CliError(`direction must be one of ${SWIPE_DIRECTIONS.join(', ')}.`, 1);
+        }
+        body = { type: 'swipe', direction };
+        what = direction;
+      } else {
+        body = { type: 'swipe', from: pointArg(args.from, 'from'), to: pointArg(args.to, 'to') };
+        what = `${String(args.from)} to ${String(args.to)}`;
+      }
+      return performAction(args, id, body, { done: `Swiped ${what}`, failed: `Swipe ${what} failed` });
+    });
+  },
+});
+
+const pressKeySub = defineCommand({
+  meta: { name: 'press-key', description: `Press a key: ${DEVICE_KEYS.join(', ')}` },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    key: { type: 'positional', required: false, description: `One of ${DEVICE_KEYS.join(', ')}` },
+    maestro: maestroArg,
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      let id = args.id as string | undefined;
+      let key = args.key as string | undefined;
+      // `dcd device press-key back`: the one positional is the key, not a session.
+      if (id && !key && (DEVICE_KEYS as readonly string[]).includes(id)) [id, key] = [undefined, id];
+      if (!key || !(DEVICE_KEYS as readonly string[]).includes(key)) {
+        throw new CliError(`key must be one of ${DEVICE_KEYS.join(', ')}.`, 1);
+      }
+      return performAction(args, id, { type: 'press_key', key }, { done: `Pressed ${key}`, failed: `Press ${key} failed` });
+    });
+  },
+});
+
 const modelsSub = defineCommand({
   meta: { name: 'models', description: 'The devices a session can ask for' },
   args: {
@@ -887,7 +1088,12 @@ async function waitForCommand(ctx: Ctx, id: string, commandId: string): Promise<
 }
 
 const runSub = defineCommand({
-  meta: { name: 'run', description: 'Run a Maestro flow (or a directory of flows) on the device, and wait for the result' },
+  meta: {
+    name: 'run',
+    description:
+      'Run a Maestro flow (or a directory of flows) on the device, and wait for the result. ' +
+      'A device session runs the common Maestro commands and no flow scripts (runScript, evalScript)',
+  },
   args: {
     ...commonArgs,
     id: idArg,
@@ -1343,6 +1549,10 @@ export const deviceCommand = defineCommand({
     stop: stopSub,
     install: installSub,
     launch: launchSub,
+    tap: tapSub,
+    type: typeSub,
+    swipe: swipeSub,
+    'press-key': pressKeySub,
     models: modelsSub,
     inspect: inspectSub,
     screenshot: screenshotSub,

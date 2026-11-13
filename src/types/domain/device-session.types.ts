@@ -117,6 +117,45 @@ export interface DeviceFlowResult {
   success: boolean;
 }
 
+export type DeviceSwipeDirection = 'down' | 'left' | 'right' | 'up';
+export interface DevicePoint {
+  /** Percentages of the screen's width and height, 0 to 100. */
+  x: number;
+  y: number;
+}
+
+/**
+ * One typed action for POST /device/sessions/:id/actions. `mode` is
+ * deprecated: the API still accepts `'maestro'` and ignores it, and the CLI
+ * no longer sends it.
+ */
+export type DeviceActionRequest =
+  | { id?: string; mode?: 'maestro'; text?: string; type: 'tap'; x?: number; y?: number }
+  | { key: string; mode?: 'maestro'; type: 'press_key' }
+  | { mode?: 'maestro'; sensitive?: boolean; text: string; type: 'type' }
+  | {
+      direction?: DeviceSwipeDirection;
+      from?: DevicePoint;
+      mode?: 'maestro';
+      to?: DevicePoint;
+      type: 'swipe';
+    };
+
+/** The keys press_key takes, as the API names them. */
+export const DEVICE_KEYS = [
+  'back',
+  'home',
+  'enter',
+  'backspace',
+  'tab',
+  'volume_up',
+  'volume_down',
+  'lock',
+  'power',
+] as const;
+
+export const SWIPE_DIRECTIONS: readonly DeviceSwipeDirection[] = ['up', 'down', 'left', 'right'];
+
 /** The result of a typed action, a launch or a run. */
 export interface DeviceCommandResult {
   error?: string;

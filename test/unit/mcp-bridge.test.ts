@@ -28,12 +28,21 @@ function startHosted(): Promise<{
   calls: { args: unknown; auth?: string; name: string }[];
   failStart: boolean;
   http: HttpServer;
+  ignoreReadOnly: boolean;
   inits: number;
+  paths: string[];
   sessions: Record<string, unknown>[];
   url: string;
 }> {
   const calls: { args: unknown; auth?: string; name: string }[] = [];
-  const hosted = { calls, failStart: false, inits: 0, sessions: [] as Record<string, unknown>[] };
+  const hosted = {
+    calls,
+    failStart: false,
+    ignoreReadOnly: false,
+    inits: 0,
+    paths: [] as string[],
+    sessions: [] as Record<string, unknown>[],
+  };
   const http = createHttpServer(async (req, res) => {
     // The open sessions, as GET /device/sessions answers.
     if (req.method === 'GET' && req.url === '/device/sessions') {
@@ -47,6 +56,7 @@ function startHosted(): Promise<{
       return;
     }
 
+    hosted.paths.push(req.url ?? '');
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
@@ -62,37 +72,46 @@ function startHosted(): Promise<{
       calls.push({ name, args, auth });
       return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: name }) }] };
     };
-    server.registerTool(
-      'install_app',
-      {
-        description: 'Install an app.',
-        inputSchema: { session_id: z.string().optional(), app_binary_id: z.string().optional() },
-      },
-      record('install_app'),
-    );
-    server.registerTool(
-      'run',
-      { description: 'Run Maestro.', inputSchema: { yaml: z.string().optional(), flow_upload_id: z.string().optional() } },
-      record('run'),
-    );
-    server.registerTool(
-      'get_logs',
-      { description: 'Slow.', inputSchema: { ms: z.number() }, annotations: { readOnlyHint: true } },
-      async ({ ms }) => {
-        await new Promise((r) => setTimeout(r, ms));
-        return { content: [{ type: 'text' as const, text: 'late' }] };
-      },
-    );
-    server.registerTool(
-      'start_device',
-      { description: 'Start a device.', inputSchema: { platform: z.string() } },
-      record('start_device'),
-    );
-    server.registerTool(
-      'inspect_screen',
-      { description: 'Inspect.', inputSchema: {}, annotations: { readOnlyHint: true } },
-      record('inspect_screen'),
-    );
+    const registered = [
+      server.registerTool(
+        'install_app',
+        {
+          description: 'Install an app.',
+          inputSchema: { session_id: z.string().optional(), app_binary_id: z.string().optional() },
+        },
+        record('install_app'),
+      ),
+      server.registerTool(
+        'run',
+        { description: 'Run Maestro.', inputSchema: { yaml: z.string().optional(), flow_upload_id: z.string().optional() } },
+        record('run'),
+      ),
+      server.registerTool(
+        'get_logs',
+        { description: 'Slow.', inputSchema: { ms: z.number() }, annotations: { readOnlyHint: true } },
+        async ({ ms }) => {
+          await new Promise((r) => setTimeout(r, ms));
+          return { content: [{ type: 'text' as const, text: 'late' }] };
+        },
+      ),
+      server.registerTool(
+        'start_device',
+        { description: 'Start a device.', inputSchema: { platform: z.string() } },
+        record('start_device'),
+      ),
+      server.registerTool(
+        'inspect_screen',
+        { description: 'Inspect.', inputSchema: {}, annotations: { readOnlyHint: true } },
+        record('inspect_screen'),
+      ),
+    ];
+    // As the API does: /mcp?read_only=true serves only the tools that change
+    // nothing. ignoreReadOnly plays an older API, which lists every tool.
+    const readOnlyAsked = new URL(req.url ?? '/', 'http://hosted').searchParams.get('read_only') === 'true';
+    if (readOnlyAsked && !hosted.ignoreReadOnly) {
+      for (const tool of registered) if (tool.annotations?.readOnlyHint !== true) tool.remove();
+    }
+
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
     await transport.handleRequest(req, res, body);
@@ -155,6 +174,7 @@ describe('dcd mcp bridge', () => {
     const result = await client.callTool({ name: 'inspect_screen', arguments: {} });
     expect(result.isError).to.not.equal(true);
     expect(hosted.calls).to.deep.equal([{ name: 'inspect_screen', args: {}, auth: 'test-key' }]);
+    expect(new Set(hosted.paths)).to.deep.equal(new Set(['/mcp']));
     await client.close();
   });
 
@@ -243,10 +263,41 @@ describe('dcd mcp bridge', () => {
     // Hidden is not enough: a call made anyway is refused, never forwarded.
     const refused = await client.callTool({ name: 'run', arguments: { yaml: 'x' } });
     expect(refused.isError).to.equal(true);
-    expect(JSON.stringify(refused.content)).to.include('read-only mode');
+    expect(JSON.stringify(refused.content)).to.include('Unknown tool: run. In read-only mode');
     expect(hosted.calls).to.deep.equal([]);
     await client.callTool({ name: 'inspect_screen', arguments: {} });
     expect(hosted.calls.map((c) => c.name)).to.deep.equal(['inspect_screen']);
+    // The hosted server is asked for its read-only tools too.
+    expect(hosted.paths).to.not.be.empty;
+    expect(new Set(hosted.paths)).to.deep.equal(new Set(['/mcp?read_only=true']));
+    await client.close();
+  });
+
+  it("names only the dcd_* tools in its instructions, since the hosted ones depend on the account", async () => {
+    for (const readOnly of [false, true]) {
+      if (readOnly) process.env.DCD_MCP_READONLY = '1';
+      const client = await connect();
+      const instructions = client.getInstructions() ?? '';
+      expect(instructions).to.include('dcd_');
+      for (const hosted of ['start_device', 'inspect_screen', 'install_app', 'cheat_sheet', 'device session']) {
+        expect(instructions).to.not.include(hosted);
+      }
+      await client.close();
+    }
+  });
+
+  it('read-only mode still refuses on an API that lists every tool', async () => {
+    hosted.ignoreReadOnly = true;
+    process.env.DCD_MCP_READONLY = '1';
+    const client = await connect();
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).to.include('inspect_screen');
+    expect(names).to.not.include.members(['install_app', 'run', 'start_device']);
+
+    const refused = await client.callTool({ name: 'run', arguments: { yaml: 'x' } });
+    expect(refused.isError).to.equal(true);
+    expect(JSON.stringify(refused.content)).to.include('run is not available in read-only mode');
+    expect(hosted.calls).to.deep.equal([]);
     await client.close();
   });
 

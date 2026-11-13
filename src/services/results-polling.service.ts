@@ -1,10 +1,6 @@
 import * as path from 'node:path';
 
 import { ApiGateway, type ResultsPollCache } from '../gateways/api-gateway.js';
-import {
-  RealtimeResultsGateway,
-  type RealtimeResultsSubscription,
-} from '../gateways/realtime-gateway.js';
 import { formatDurationSeconds } from '../methods.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { paths } from '../types/generated/schema.types.js';
@@ -170,11 +166,9 @@ export class ResultsPollingService {
   // giving up. Losing a run to a brief hiccup is far more costly than waiting a
   // bit longer.
   private readonly MAX_SEQUENTIAL_FAILURES = 30;
-  // Backstop poll cadence. Logged-in (bearer) users also get realtime pushes
-  // (see RealtimeResultsGateway), so they only need an occasional reconciling
-  // poll; api-key users have no realtime and rely on the faster interval.
-  private readonly BEARER_POLL_INTERVAL_MS = 60_000;
-  private readonly APIKEY_POLL_INTERVAL_MS = 20_000;
+  // Poll cadence, the same for API-key and `dcd login` auth. A poll that finds
+  // nothing changed costs an empty 304 (see ResultsPollCache).
+  private readonly POLL_INTERVAL_MS = 20_000;
   // Base unit for the backoff applied between *failed* polls, and its cap.
   private readonly ERROR_BACKOFF_BASE_MS = 10_000;
   private readonly MAX_ERROR_BACKOFF_MS = 30_000;
@@ -219,48 +213,12 @@ export class ResultsPollingService {
     // gets an empty 304 instead of the whole set again.
     const resultsCache: ResultsPollCache = {};
 
-    const pollIntervalMs =
-      auth.mode === 'bearer'
-        ? this.BEARER_POLL_INTERVAL_MS
-        : this.APIKEY_POLL_INTERVAL_MS;
-
-    // "Poke" mechanism: a realtime change resolves the current inter-poll wait
-    // early. If a poke lands while we're mid-fetch (not waiting) it's latched
-    // and consumed by the next wait, so events are never silently dropped.
-    let resolveWake: (() => void) | null = null;
-    let pendingPoke = false;
-    const poke = () => {
-      if (resolveWake) {
-        const r = resolveWake;
-        resolveWake = null;
-        r();
-      } else {
-        pendingPoke = true;
-      }
-    };
-    const waitForNextPoll = (ms: number): Promise<void> => {
-      if (pendingPoke) {
-        pendingPoke = false;
-        return Promise.resolve();
-      }
-      return new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          resolveWake = null;
-          resolve();
-        }, ms);
-        resolveWake = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-      });
-    };
+    const pollIntervalMs = this.POLL_INTERVAL_MS;
 
     // Live display state, recomposed by renderStatus() so the footer (countdown
-    // to the next backstop poll + realtime connection state) stays current
-    // between polls without re-fetching. `nextPollAt` is an epoch-ms deadline
-    // while waiting, or null while a fetch is in flight.
-    let subscription: RealtimeResultsSubscription | undefined;
-    let realtimeEnabled = false;
+    // to the next poll) stays current between polls without re-fetching.
+    // `nextPollAt` is an epoch-ms deadline while waiting, or null while a
+    // fetch is in flight.
     let statusBody = '';
     let nextPollAt: null | number = null;
     // The animated footer/countdown only makes sense on a TTY. In CI/pipes it
@@ -273,38 +231,9 @@ export class ResultsPollingService {
         ux.action.status = statusBody;
         return;
       }
-      const footer = this.buildStatusFooter(
-        realtimeEnabled,
-        subscription?.isConnected() ?? false,
-        nextPollAt,
-        quiet,
-      );
+      const footer = this.buildStatusFooter(nextPollAt, quiet);
       ux.action.status = footer ? `${statusBody}\n${footer}` : statusBody;
     };
-
-    // Realtime is a latency optimisation over the backstop poll; only logged-in
-    // (bearer) users can authenticate the socket under RLS. Any failure inside
-    // the gateway degrades silently to pure polling.
-    if (auth.mode === 'bearer' && auth.accessToken && auth.orgId && auth.env) {
-      realtimeEnabled = true;
-      subscription = RealtimeResultsGateway.subscribe({
-        accessToken: auth.accessToken,
-        debug,
-        env: auth.env,
-        log: logger,
-        onChange: poke,
-        // Reflect connect/disconnect in the live footer immediately rather than
-        // waiting for the next ticker frame.
-        onConnectionChange: renderStatus,
-        orgId: auth.orgId,
-        uploadId,
-      });
-      if (debug && logger) {
-        logger(
-          `[DEBUG] Realtime enabled; backstop poll every ${pollIntervalMs / 1000}s`,
-        );
-      }
-    }
 
     if (debug && logger) {
       logger(`[DEBUG] Starting polling loop for results`);
@@ -327,7 +256,7 @@ export class ResultsPollingService {
           nextPollAt = null;
           renderStatus();
 
-          auth = await this.refreshPollingAuth(auth, uploadId, subscription, debug, logger);
+          auth = await this.refreshPollingAuth(auth, uploadId, debug, logger);
           const updatedResults = await this.fetchAndLogResults(
             apiUrl,
             auth,
@@ -360,11 +289,10 @@ export class ResultsPollingService {
           // Reset failure counter on successful poll
           sequentialPollFailures = 0;
 
-          // Wait for the next backstop poll, or a realtime poke, whichever comes
-          // first, while the footer counts down to the deadline.
+          // Wait for the next poll while the footer counts down to it.
           nextPollAt = Date.now() + pollIntervalMs;
           renderStatus();
-          await waitForNextPoll(pollIntervalMs);
+          await this.sleep(pollIntervalMs);
         } catch (error) {
           // Re-throw RunFailedError immediately (test failures, not polling
           // errors), and an expired login no retry can fix.
@@ -396,12 +324,6 @@ export class ResultsPollingService {
     } finally {
       if (ticker) {
         clearInterval(ticker);
-      }
-      if (subscription) {
-        if (debug && logger) {
-          logger('[DEBUG] Closing realtime subscription');
-        }
-        await subscription.unsubscribe();
       }
     }
   }
@@ -604,12 +526,11 @@ export class ResultsPollingService {
 
   /**
    * Swap in a fresh `dcd login` token when the current one is about to
-   * expire, and hand it to the realtime socket too; API-key auth comes back
-   * as-is. A transient refresh failure is thrown as-is, to be retried like
-   * any failed poll; one only `dcd login` can fix becomes a PollingAuthError.
+   * expire; API-key auth comes back as-is. A transient refresh failure is
+   * thrown as-is, to be retried like any failed poll; one only `dcd login`
+   * can fix becomes a PollingAuthError.
    * @param auth The credential the previous poll used
    * @param uploadId Upload being polled, for the reconnect hint
-   * @param subscription Realtime subscription to pass a new token to
    * @param debug Whether debug logging is enabled
    * @param logger Optional logger function
    * @returns The credential for the next poll
@@ -617,7 +538,6 @@ export class ResultsPollingService {
   private async refreshPollingAuth(
     auth: AuthContext,
     uploadId: string,
-    subscription: RealtimeResultsSubscription | undefined,
     debug: boolean,
     logger?: (message: string) => void,
   ): Promise<AuthContext> {
@@ -628,22 +548,17 @@ export class ResultsPollingService {
       if (isDefinitiveAuthFailure(error)) {
         const reason = error instanceof Error ? error.message : String(error);
         throw new PollingAuthError(
-          `Your dcd login session expired and could not be refreshed: ${reason}\n\n` +
-            `The test is still running in the cloud. Run \`dcd login\`, then reconnect with:\n  dcd status --upload-id ${uploadId}`,
+          // The reason already says to run `dcd login`, so don't repeat it.
+          `${reason}\n\n` +
+            `The test is still running in the cloud. Once you've signed in again, reconnect with:\n  dcd status --upload-id ${uploadId}`,
         );
       }
 
       throw error;
     }
 
-    if (next !== auth) {
-      if (debug && logger) {
-        logger('[DEBUG] Refreshed the dcd login session for polling');
-      }
-
-      if (next.accessToken && next.accessToken !== auth.accessToken) {
-        subscription?.updateAccessToken(next.accessToken);
-      }
+    if (next !== auth && debug && logger) {
+      logger('[DEBUG] Refreshed the dcd login session for polling');
     }
 
     return next;
@@ -850,7 +765,7 @@ export class ResultsPollingService {
 
   /**
    * Build the body of the live status display (the per-test table, or just the
-   * one-line summary in quiet mode). The footer (countdown + realtime state) is
+   * one-line summary in quiet mode). The footer (the countdown) is
    * appended separately by {@link buildStatusFooter} so it can re-render on a
    * timer without re-fetching.
    */
@@ -875,38 +790,20 @@ export class ResultsPollingService {
   }
 
   /**
-   * Build the live footer shown under the status display: whether realtime
-   * updates are connected (for logged-in users) and how long until the next
-   * backstop poll. While a fetch is in flight (`nextPollAt` is null) the
-   * countdown reads "refreshing…". In quiet mode the countdown is omitted.
+   * Build the live footer shown under the status display: how long until the
+   * next poll. While a fetch is in flight (`nextPollAt` is null) it reads
+   * "refreshing…". In quiet mode (geared at CI) the footer is omitted.
    */
-  private buildStatusFooter(
-    realtimeEnabled: boolean,
-    realtimeConnected: boolean,
-    nextPollAt: null | number,
-    quiet: boolean,
-  ): string {
-    const parts: string[] = [];
-
-    if (realtimeEnabled) {
-      parts.push(
-        realtimeConnected
-          ? colors.success('● realtime connected')
-          : colors.warning('○ realtime connecting…'),
-      );
+  private buildStatusFooter(nextPollAt: null | number, quiet: boolean): string {
+    if (quiet) {
+      return '';
     }
 
-    // The countdown to the next backstop poll is noise in quiet mode (geared at
-    // CI), so suppress it there while keeping the realtime indicator.
-    if (!quiet) {
-      if (nextPollAt === null) {
-        parts.push(colors.dim('refreshing…'));
-      } else {
-        const secondsLeft = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
-        parts.push(colors.dim(`next refresh in ${secondsLeft}s`));
-      }
+    if (nextPollAt === null) {
+      return colors.dim('refreshing…');
     }
 
-    return parts.join(colors.dim('  ·  '));
+    const secondsLeft = Math.max(0, Math.ceil((nextPollAt - Date.now()) / 1000));
+    return colors.dim(`next refresh in ${secondsLeft}s`);
   }
 }
