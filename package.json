@@ -68,7 +68,7 @@
     "test:unit": "node scripts/test-runner.mjs --unit",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
-  "version": "5.12.0",
+  "version": "5.12.1",
   "bugs": {
     "url": "https://discord.gg/gm3mJwcNw8"
   },
@@ -111,7 +111,7 @@
       "esbuild@<0.28.1": ">=0.28.1",
       "qs@<6.16.1": "6.16.1",
       "fast-uri@>=3.0.0 <3.1.9": "3.1.9",
-      "hono@>=4.0.0 <4.13.11": "4.13.11",
+      "hono@>=4.0.0 <4.13.16": "4.13.16",
       "source-map-js@<1.2.2": "1.2.2",
       "micromatch>picomatch": "^2.3.2",
       "tinyglobby>picomatch": "^4.0.4"

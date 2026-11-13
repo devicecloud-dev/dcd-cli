@@ -1,6 +1,6 @@
 <!--
   PR TITLE: must follow Conventional Commits — it becomes the squash-merge
-  commit and feeds release-please. e.g.  feat(cloud): add --json output
+  commit and feeds the release changelog. e.g.  feat(cloud): add --json output
   Allowed types: feat, fix, perf, deps, revert, refactor, docs, chore, test, ci, build, style
   See CONTRIBUTING.md for details.
 -->
@@ -27,7 +27,7 @@
 - [ ] `pnpm lint` passes
 - [ ] `pnpm typecheck` passes
 - [ ] `pnpm build` passes
-- [ ] I have **not** bumped the version or edited `CHANGELOG.md` (release-please handles this)
+- [ ] I have **not** bumped the version or edited `CHANGELOG.md` (the release workflow handles this)
 - [ ] I have signed the CLA (the bot will prompt on first contribution)
 - [ ] Docs / `README.md` / `STYLE_GUIDE.md` updated if behaviour or output changed
 

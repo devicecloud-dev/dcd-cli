@@ -1,0 +1,240 @@
+name: Promote to stable
+
+# Keeps a stable release PR open and current. It runs on every push to `dev`,
+# and by hand from the Actions tab or `gh workflow run promote.yml --ref dev`.
+#
+# It builds `promote/cli-next`: `dev`, with `production` merged in, plus one
+# commit that sets the version in package.json and server.json and adds the
+# CHANGELOG.md section. It opens that branch as a PR into `production`, or
+# updates the PR already open, so the release PR always carries everything on
+# `dev`. Nothing ships until someone merges it (with a merge commit, the only
+# method `production` allows). Merging is the release: release-please.yml tags
+# it, creates the GitHub Release, publishes npm `latest` and the binaries, and
+# opens the back-merge PR into `dev`.
+#
+# The version comes from the Conventional Commit PR titles since the last
+# stable release (feat -> minor, fix/perf/deps/revert/refactor -> patch). When
+# nothing since then is releasable, a push run does nothing. A major is never
+# derived: a breaking marker fails the run until someone runs this by hand with
+# the version, and later runs keep a version set by hand rather than go below
+# it. See scripts/stable-release.mjs.
+#
+# `production` is merged in because `dev` only allows squash merges, so the
+# back-merge after a release can never make `production` an ancestor of `dev`.
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable version, e.g. 6.0.0. Leave blank to derive it from the PR titles since the last release.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Work out the version and changelog and build the branch, but push nothing and open no PR.'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# One run at a time, and only the newest waiting run is kept: it rebuilds from
+# the latest `dev`, which covers every push before it.
+concurrency:
+  group: promote-to-stable
+  cancel-in-progress: false
+
+env:
+  BRANCH: promote/cli-next
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    env:
+      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+    steps:
+      # The App token is required, not preferred: a PR opened with GITHUB_TOKEN
+      # does not trigger the checks `production` requires, so it could never merge.
+      - name: Check how this was started
+        run: |
+          if [ "$GITHUB_REF_NAME" != "dev" ]; then
+            echo "::error::Run this workflow from dev, not $GITHUB_REF_NAME."
+            exit 1
+          fi
+          if [ -z "$BOT_APP_ID" ]; then
+            echo "::error::BOT_APP_ID is not set. The release PR has to be opened by the automation App so the required checks run on it."
+            exit 1
+          fi
+
+      - uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+          # Full history and tags: the version is derived from the commits since
+          # the last release and checked against every existing tag.
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.x'
+
+      # The release PR this run updates, if one is open. Any other open PR into
+      # production was made by hand; this leaves it alone rather than open a
+      # second release beside it.
+      - name: Find the open release PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          EVENT: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          prs=$(gh pr list --base production --state open --json number,headRefName,title)
+          other=$(jq -r --arg b "$BRANCH" '.[] | select(.headRefName != $b) | "#\(.number) (\(.headRefName))"' <<<"$prs" | paste -sd, -)
+          if [ -n "$other" ]; then
+            message="A PR into production that this workflow did not open is open: ${other}."
+            if [ "$EVENT" = "push" ]; then
+              echo "::warning::${message} Not updating the release PR until it is merged or closed."
+              echo "blocked=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "::warning::${message} A real run would stop here."
+            else
+              echo "::error::${message} Merge or close it first."
+              exit 1
+            fi
+          fi
+          number=$(jq -r --arg b "$BRANCH" '.[] | select(.headRefName == $b) | .number' <<<"$prs")
+          keep=$(jq -r --arg b "$BRANCH" '.[] | select(.headRefName == $b) | .title | capture("release (?<v>[0-9]+\\.[0-9]+\\.[0-9]+)$").v // empty' <<<"$prs")
+          echo "Open release PR: ${number:-none}${keep:+ (${keep})}"
+          { echo "blocked=false"; echo "number=${number}"; echo "keep=${keep}"; } >> "$GITHUB_OUTPUT"
+
+      - name: Work out the version and changelog
+        id: plan
+        if: steps.pr.outputs.blocked != 'true'
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          KEEP: ${{ steps.pr.outputs.keep }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          args=(--base origin/production --head origin/dev --notes-out "$RUNNER_TEMP/notes.md")
+          if [ -n "$INPUT_VERSION" ]; then args+=(--version "$INPUT_VERSION"); fi
+          if [ -n "$KEEP" ]; then args+=(--keep "$KEEP"); fi
+          # A push with nothing releasable (a docs change, the back-merge) is
+          # not an error; a run started by hand that finds nothing is.
+          if [ "$EVENT" = "push" ]; then args+=(--skip-if-nothing); fi
+          node scripts/stable-release.mjs plan "${args[@]}"
+
+      - name: Build the release branch
+        if: steps.plan.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Commit as the App's bot user, so the commits are attributed to it and
+          # the CLA check, which allowlists bots, passes.
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+
+          git checkout -B "$BRANCH" origin/dev
+
+          if git merge-base --is-ancestor origin/production HEAD; then
+            echo "dev already contains production."
+          elif ! git merge --no-ff -m "chore: merge production into the ${VERSION} release" origin/production; then
+            conflicts=$(git diff --name-only --diff-filter=U | paste -sd, -)
+            git merge --abort
+            echo "::error::Merging production into dev conflicts in ${conflicts}. Build this release by hand; see Releases in CLAUDE.md."
+            exit 1
+          fi
+
+          node scripts/stable-release.mjs apply --version "$VERSION" --notes "$RUNNER_TEMP/notes.md"
+          git add package.json server.json CHANGELOG.md
+          git commit -m "chore: release ${VERSION}"
+
+          # The same check CI runs on the PR, so a bad branch fails here instead.
+          node scripts/stable-release.mjs verify
+
+      - name: Write the PR body
+        if: steps.plan.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          PREVIOUS: ${{ steps.plan.outputs.previous }}
+          BUMP: ${{ steps.plan.outputs.bump }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          case "$BUMP" in
+            requested) how="version set by hand; previous release ${PREVIOUS}" ;;
+            kept) how="version kept from an earlier run; previous release ${PREVIOUS}" ;;
+            *) how="${BUMP} bump from ${PREVIOUS}, derived from the PR titles" ;;
+          esac
+          dev_sha=$(git rev-parse --short origin/dev)
+          {
+            echo "Releases **${VERSION}** to npm \`latest\` (${how})."
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "---"
+            echo
+            echo "Kept current by the [Promote to stable](${RUN_URL}) workflow, which rebuilds this branch on every push to \`dev\`: \`dev\` at ${dev_sha}, with \`production\` merged in, plus a commit that sets the version in package.json and server.json and adds the CHANGELOG.md section above."
+            echo
+            echo "- Merge with **Create a merge commit**, the only method \`production\` allows, when you want to release."
+            echo "- Merging is the release: the Release workflow tags \`v${VERSION}\`, creates the GitHub Release from the section above, publishes npm \`latest\` and the binaries, and opens the back-merge PR into \`dev\`."
+            echo "- Leave it open until then; closing it only means the next push to \`dev\` opens a new one."
+          } > "$RUNNER_TEMP/body.md"
+          {
+            if [ "$DRY_RUN" = "true" ]; then echo "### ${VERSION} (dry run: nothing pushed)"; else echo "### ${VERSION}"; fi
+            echo
+            cat "$RUNNER_TEMP/body.md"
+            echo
+            echo '```'
+            git log --oneline --graph -n 4
+            git diff --shortstat origin/production HEAD
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push the branch and open or update the release PR
+        if: steps.plan.outputs.release == 'true' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          # If production moved while this ran, a release just merged and this
+          # build is stale. Its back-merge into dev starts a fresh run.
+          if [ "$(git ls-remote origin refs/heads/production | cut -f1)" != "$(git rev-parse origin/production)" ]; then
+            echo "::notice::production moved during this run, so nothing was pushed. The next push to dev rebuilds the release PR."
+            exit 0
+          fi
+
+          # The branch belongs to this workflow, so it is force-pushed, but only
+          # over what this run saw: a concurrent change makes the push fail.
+          seen=$(git rev-parse -q --verify "refs/remotes/origin/${BRANCH}" || true)
+          if [ -n "$seen" ] && [ -n "$NUMBER" ] && git diff --quiet "$seen" HEAD; then
+            echo "The release PR #${NUMBER} already has this content; nothing to push."
+            exit 0
+          fi
+          git push --force-with-lease="refs/heads/${BRANCH}:${seen}" origin "HEAD:refs/heads/${BRANCH}"
+
+          title="chore: release ${VERSION}"
+          if [ -n "$NUMBER" ]; then
+            gh pr edit "$NUMBER" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            url=$(gh pr view "$NUMBER" --json url --jq .url)
+            echo "Updated ${url}"
+          else
+            url=$(gh pr create --base production --head "$BRANCH" --title "$title" --body-file "$RUNNER_TEMP/body.md")
+            echo "Opened ${url}"
+          fi
+          { echo; echo "Release PR: ${url}"; } >> "$GITHUB_STEP_SUMMARY"

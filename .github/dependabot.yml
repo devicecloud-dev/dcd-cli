@@ -16,7 +16,7 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       # Conventional Commit prefix so the squashed PR title matches our PR-title
-      # lint and release-please picks dependency bumps into the changelog.
+      # lint and the release changelog lists dependency bumps.
       prefix: deps
       prefix-development: chore
     groups:
