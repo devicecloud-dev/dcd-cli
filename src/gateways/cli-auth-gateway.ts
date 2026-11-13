@@ -1,20 +1,16 @@
 /**
- * Supabase session operations for the CLI: refresh an expired access token
- * and sign-out (best-effort revocation on the Supabase side).
+ * Refreshes a `dcd login` session through the dcd API's
+ * `POST /cli-login/refresh`, which calls Supabase Auth on the CLI's behalf.
+ * The CLI holds no Supabase key for this.
  *
- * Does not talk to the dcd API — the dcd-side session exchange lives in the
- * login command's PKCE rendezvous flow (see src/commands/login.ts).
+ * The login itself is the PKCE rendezvous in src/commands/login.ts.
  */
-import { createClient, isAuthApiError, isAuthSessionMissingError } from '@supabase/supabase-js';
-
-import type { DcdEnvName } from '../config/environments.js';
-import { getSupabaseKey } from '../config/supabase-key.js';
 import type { StoredSession } from '../utils/config-store.js';
 
 /**
- * Thrown when a session refresh fails. `definitive` distinguishes "Supabase
- * rejected this refresh token" (revoked, already used, malformed — re-login
- * is the only fix) from transient failures (network, GoTrue 5xx) where the
+ * Thrown when a session refresh fails. `definitive` distinguishes "this
+ * refresh token was rejected" (revoked, already used, expired — re-login is
+ * the only fix) from transient failures (network, 5xx, rate limit) where the
  * stored session may still be good on the next attempt.
  */
 export class SessionRefreshError extends Error {
@@ -53,63 +49,73 @@ export interface RefreshedSession {
   user_id: string;
 }
 
-function client(supabaseUrl: string, supabaseKey: string) {
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
+/** The API's error envelope: `{ statusCode, error, message }`. */
+interface ApiErrorBody {
+  error?: unknown;
+  message?: unknown;
 }
 
 export const CliAuthGateway = {
+  /**
+   * @param apiUrl The API the session was minted by (the stored `api_url`)
+   * @param session The stored session, whose refresh token is spent on success
+   * @param headers Extra headers, such as the CLI's identity headers
+   */
   async refresh(
-    supabaseUrl: string,
-    env: DcdEnvName,
+    apiUrl: string,
     session: StoredSession,
+    headers: Record<string, string> = {},
   ): Promise<RefreshedSession> {
-    let supabaseKey: string;
+    let res: Response;
     try {
-      supabaseKey = await getSupabaseKey(env);
+      res = await fetch(`${apiUrl.replace(/\/$/, '')}/cli-login/refresh`, {
+        body: JSON.stringify({ refresh_token: session.refresh_token }),
+        headers: { ...headers, 'content-type': 'application/json' },
+        method: 'POST',
+      });
     } catch (error) {
-      // Never definitive: the refresh token was not even tried, so the stored
-      // session must survive for the next attempt.
+      // Never definitive: the token was not even tried.
       throw new SessionRefreshError(
         `Failed to refresh session: ${(error as Error).message}`,
         false,
       );
     }
-    const sb = client(supabaseUrl, supabaseKey);
-    const { data, error } = await sb.auth.refreshSession({
-      refresh_token: session.refresh_token,
-    });
-    if (error || !data.session || !data.user) {
-      // 4xx from GoTrue means the token itself was rejected; anything else
-      // (fetch failure, 5xx) could succeed on retry with the same token.
-      // supabase-js turns GoTrue's `session_not_found` into an
-      // AuthSessionMissingError rather than an AuthApiError (it throws the same
-      // for an empty refresh token); only `dcd login` fixes either.
-      const apiError = error != null && isAuthApiError(error) ? error : undefined;
-      const sessionMissing = error != null && isAuthSessionMissingError(error);
-      const definitive =
-        sessionMissing ||
-        (apiError !== undefined && apiError.status >= 400 && apiError.status < 500);
-      const code = apiError?.code ?? (sessionMissing ? 'session_not_found' : undefined);
-      const known = definitive && code ? REFRESH_REFUSAL_MESSAGES.get(code) : undefined;
-      throw new SessionRefreshError(
-        known ??
-          `Failed to refresh session: ${error?.message ?? 'no session returned'}. ` +
-            `Run \`dcd login\` again.`,
-        definitive,
-        code,
-      );
+
+    if (res.ok) {
+      const s = (await res.json()) as Partial<RefreshedSession>;
+      if (!s.access_token || !s.refresh_token || !s.expires_at || !s.user_id) {
+        throw new SessionRefreshError('Failed to refresh session: incomplete response', false);
+      }
+      return {
+        access_token: s.access_token,
+        refresh_token: s.refresh_token,
+        expires_at: s.expires_at,
+        user_email: s.user_email || session.user_email,
+        user_id: s.user_id,
+      };
     }
-    const s = data.session;
-    const u = data.user;
-    if (!s.expires_at) throw new Error('Refreshed session is missing expires_at');
-    return {
-      access_token: s.access_token,
-      refresh_token: s.refresh_token,
-      expires_at: s.expires_at,
-      user_email: u.email ?? session.user_email,
-      user_id: u.id,
-    };
+
+    let body: ApiErrorBody = {};
+    try {
+      body = (await res.json()) as ApiErrorBody;
+    } catch {
+      // Not JSON (a proxy page, say). The status alone decides.
+    }
+    const code = typeof body.error === 'string' ? body.error : undefined;
+    const reason =
+      typeof body.message === 'string' && body.message ? body.message : `HTTP ${res.status}`;
+
+    // 401: Supabase Auth refused the token, and `error` is its code. 400: the
+    // API refused the request itself (an empty token). Only `dcd login` fixes
+    // either. Anything else (404 from an API without this route, 429, 5xx)
+    // may work later with the same token, so it must survive.
+    const definitive = res.status === 401 || res.status === 400;
+    const known = definitive && code ? REFRESH_REFUSAL_MESSAGES.get(code) : undefined;
+    throw new SessionRefreshError(
+      known ??
+        `Failed to refresh session: ${reason}.` + (definitive ? ' Run `dcd login` again.' : ''),
+      definitive,
+      definitive ? code : undefined,
+    );
   },
 };
