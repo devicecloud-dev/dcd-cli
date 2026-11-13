@@ -324,10 +324,11 @@ describe('dcd device', () => {
       expect(calls).to.have.length(0);
     });
 
-    it('--maestro asks for the Maestro path', async () => {
+    it('--maestro is still accepted and changes nothing: device sessions have one engine', async () => {
       const calls = stubFetch(ok);
-      await runJson('tap', { id: 'a-b-c', text: 'OK', maestro: true });
-      expect(calls[0].body).to.deep.equal({ type: 'tap', text: 'OK', mode: 'maestro' });
+      const { exit } = await runJson('tap', { id: 'a-b-c', text: 'OK', maestro: true });
+      expect(exit).to.equal(0);
+      expect(calls[0].body).to.deep.equal({ type: 'tap', text: 'OK' });
     });
 
     it('type sends the text, sensitive when asked, and keeps it out of the envelope', async () => {
