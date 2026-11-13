@@ -1,5 +1,17 @@
 # Changelog
 
+## [5.12.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.12.0...v5.12.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* treat dev-api.devicecloud.dev as the dev environment ([#314](https://github.com/devicecloud-dev/dcd-cli/issues/314)) ([d65131f](https://github.com/devicecloud-dev/dcd-cli/commit/d65131f8d11db684c3c66cfb46287b9b8dbda80b))
+
+
+### Dependencies
+
+* raise the hono override to 4.13.16 for new moderate advisories ([bcbcc2f](https://github.com/devicecloud-dev/dcd-cli/commit/bcbcc2ff6296b9e2bfe42acaf691b9ebf8efac47))
+
 ## [5.12.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.11.1...v5.12.0) (2026-11-06)
 
 
