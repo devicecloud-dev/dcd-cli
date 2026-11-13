@@ -1,6 +1,6 @@
 # Changelog
 
-## [5.13.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.12.0...v5.13.0) (2026-11-13)
+## [5.13.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.12.1...v5.13.0) (2026-11-13)
 
 
 ### Features
@@ -13,8 +13,8 @@
 
 ### Bug Fixes
 
-* treat dev-api.devicecloud.dev as the dev environment ([#314](https://github.com/devicecloud-dev/dcd-cli/issues/314)) ([25d09ca](https://github.com/devicecloud-dev/dcd-cli/commit/25d09cab0f255ebfeadd74793a7984534126dbeb))
 * **device:** keep a missing --text on `type` inside the --json envelope ([#311](https://github.com/devicecloud-dev/dcd-cli/issues/311)) ([9f16ca2](https://github.com/devicecloud-dev/dcd-cli/commit/9f16ca2dfc3159b827c1447c3e9287933eff2de8))
+* **device:** make --maestro a no-op now that device sessions have one engine ([#317](https://github.com/devicecloud-dev/dcd-cli/issues/317)) ([07df107](https://github.com/devicecloud-dev/dcd-cli/commit/07df10717c556b212caf7e233a0850142d20d92a))
 * **mcp:** find code and claude .cmd shims on Windows ([#286](https://github.com/devicecloud-dev/dcd-cli/issues/286)) ([18efa4f](https://github.com/devicecloud-dev/dcd-cli/commit/18efa4f3309d8a7d2719720c10e3195bc708ad2d))
 * **mcp:** say why a tool is missing in read-only mode ([#307](https://github.com/devicecloud-dev/dcd-cli/issues/307)) ([9a54e3a](https://github.com/devicecloud-dev/dcd-cli/commit/9a54e3a21b3175fd67158dc68be071099b7c8cb7))
 
@@ -27,6 +27,18 @@
 ### Code Refactoring
 
 * **auth:** stop calling Supabase directly for logout, login checks and live status ([#312](https://github.com/devicecloud-dev/dcd-cli/issues/312)) ([14ae83d](https://github.com/devicecloud-dev/dcd-cli/commit/14ae83dc50018ac70a1a5d7ed4c75fd854e3e0c6))
+
+## [5.12.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.12.0...v5.12.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* treat dev-api.devicecloud.dev as the dev environment ([#314](https://github.com/devicecloud-dev/dcd-cli/issues/314)) ([d65131f](https://github.com/devicecloud-dev/dcd-cli/commit/d65131f8d11db684c3c66cfb46287b9b8dbda80b))
+
+
+### Dependencies
+
+* raise the hono override to 4.13.16 for new moderate advisories ([bcbcc2f](https://github.com/devicecloud-dev/dcd-cli/commit/bcbcc2ff6296b9e2bfe42acaf691b9ebf8efac47))
 
 ## [5.12.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.11.1...v5.12.0) (2026-11-06)
 

@@ -125,8 +125,9 @@ export interface DevicePoint {
 }
 
 /**
- * One typed action for POST /device/sessions/:id/actions. `mode: 'maestro'`
- * runs it as a Maestro flow instead of on the device directly.
+ * One typed action for POST /device/sessions/:id/actions. `mode` is
+ * deprecated: the API still accepts `'maestro'` and ignores it, and the CLI
+ * no longer sends it.
  */
 export type DeviceActionRequest =
   | { id?: string; mode?: 'maestro'; text?: string; type: 'tap'; x?: number; y?: number }
