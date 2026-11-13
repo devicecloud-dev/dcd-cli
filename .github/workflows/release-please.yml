@@ -160,8 +160,18 @@ jobs:
               git merge --abort || true
               exit 1
             fi
-            echo "::notice::Took production's side of the version-file conflicts: $(paste -sd, - <<<"$conflicts")"
-            git checkout --theirs -- $conflicts
+            # Hunk by hunk, not `checkout --theirs`: that would take production's
+            # whole file and drop anything else dev changed in it, such as a
+            # dependency bump in package.json.
+            # merge-file needs real files; it can't read process substitutions.
+            tmp=$(mktemp -d)
+            for f in $conflicts; do
+              git show ":1:$f" > "$tmp/base"
+              git show ":2:$f" > "$tmp/ours"
+              git show ":3:$f" > "$tmp/theirs"
+              git merge-file -p --theirs "$tmp/ours" "$tmp/base" "$tmp/theirs" > "$f"
+            done
+            echo "::notice::Took production's side of the conflicting lines in: $(paste -sd, - <<<"$conflicts")"
             git add -- $conflicts
             git commit --no-edit
           fi
