@@ -146,10 +146,24 @@ jobs:
           git checkout -b "$BRANCH"
 
           # A merge, so the PR's diff is exactly what `production` changed.
+          #
+          # The version files can conflict: the last back-merge was squashed,
+          # so git still sees dev's and production's version lines as two
+          # separate edits (5.12.1 hit this). `production` holds what was just
+          # released, so its side is right for those three files. Any other
+          # conflict still stops the job for a human.
           if ! git merge --no-ff origin/production -m "chore: merge production into dev after ${VERSION}"; then
-            echo "Back-merge of production into dev conflicts — resolve it by hand." >&2
-            git merge --abort || true
-            exit 1
+            conflicts=$(git diff --name-only --diff-filter=U)
+            others=$(grep -vxE 'package\.json|server\.json|CHANGELOG\.md' <<<"$conflicts" || true)
+            if [ -n "$others" ]; then
+              echo "::error::Back-merge of production into dev conflicts in $(paste -sd, - <<<"$others"). Resolve it by hand."
+              git merge --abort || true
+              exit 1
+            fi
+            echo "::notice::Took production's side of the version-file conflicts: $(paste -sd, - <<<"$conflicts")"
+            git checkout --theirs -- $conflicts
+            git add -- $conflicts
+            git commit --no-edit
           fi
 
           if git diff --quiet "origin/dev..HEAD"; then
