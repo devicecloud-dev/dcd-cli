@@ -130,7 +130,16 @@ export interface DevicePoint {
  * no longer sends it.
  */
 export type DeviceActionRequest =
-  | { id?: string; mode?: 'maestro'; text?: string; type: 'tap'; x?: number; y?: number }
+  | {
+      id?: string;
+      mode?: 'maestro';
+      text?: string;
+      /** With `text` or `id`: seconds to wait for it to appear (0 to 60; 0 looks once). */
+      timeoutSeconds?: number;
+      type: 'tap';
+      x?: number;
+      y?: number;
+    }
   | { key: string; mode?: 'maestro'; type: 'press_key' }
   | { mode?: 'maestro'; sensitive?: boolean; text: string; type: 'type' }
   | {
@@ -139,7 +148,9 @@ export type DeviceActionRequest =
       mode?: 'maestro';
       to?: DevicePoint;
       type: 'swipe';
-    };
+    }
+  | { sensitive?: boolean; type: 'open_link'; url: string }
+  | { latitude: number; longitude: number; type: 'set_location' };
 
 /** The keys press_key takes, as the API names them. */
 export const DEVICE_KEYS = [

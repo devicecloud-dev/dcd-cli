@@ -151,6 +151,36 @@ async function runText(name: string, args: Record<string, unknown>): Promise<str
   return out;
 }
 
+/**
+ * Run `dcd device <rawArgs>` through citty's own parser with --json, capturing
+ * the envelope and the exit code: for what the parser does to a value before
+ * a subcommand sees it.
+ */
+async function runArgv(rawArgs: string[]): Promise<{ exit: number; out: Record<string, unknown> }> {
+  let out = '';
+  const write = process.stdout.write.bind(process.stdout);
+  const exit = process.exit;
+  process.stdout.write = ((chunk: string) => {
+    out += chunk;
+    return true;
+  }) as typeof process.stdout.write;
+  process.exit = ((code?: number) => {
+    throw new ExitError(code ?? 0);
+  }) as typeof process.exit;
+  let code = 0;
+  try {
+    await runCommand(deviceCommand, { rawArgs: [...rawArgs, '--json', '--api-url', API, '--api-key', 'k'] });
+  } catch (error) {
+    if (!(error instanceof ExitError)) throw error;
+    code = error.code;
+  } finally {
+    process.stdout.write = write;
+    process.exit = exit;
+  }
+
+  return { exit: code, out: JSON.parse(out) as Record<string, unknown> };
+}
+
 describe('dcd device', () => {
   const realFetch = globalThis.fetch;
   const ORIGINAL_ENV = { ...process.env };
@@ -382,6 +412,117 @@ describe('dcd device', () => {
       ]);
       const { exit } = await runJson('press-key', { id: 'a-b-c', key: 'menu' });
       expect(exit).to.equal(DEVICE_EXIT.usage);
+    });
+
+    it('tap --timeout rides on a tap by text or id, in seconds', async () => {
+      const calls = stubFetch(ok);
+      await runJson('tap', { id: 'a-b-c', rid: 'login_button', timeout: '2.5' });
+      await runJson('tap', { id: 'a-b-c', text: 'Log in', timeout: '0' });
+      expect(calls.map((c) => c.body)).to.deep.equal([
+        { type: 'tap', id: 'login_button', timeoutSeconds: 2.5 },
+        // 0 is a wait of its own: look once.
+        { type: 'tap', text: 'Log in', timeoutSeconds: 0 },
+      ]);
+    });
+
+    it('tap --timeout is refused with a point, out of range or not a number, without calling the API', async () => {
+      const calls = stubFetch(ok);
+      for (const args of [
+        { id: 'a-b-c', x: '50', y: '50', timeout: '2' },
+        { id: 'a-b-c', text: 'x', timeout: '61' },
+        { id: 'a-b-c', text: 'x', timeout: '-1' },
+        { id: 'a-b-c', text: 'x', timeout: 'soon' },
+        { id: 'a-b-c', text: 'x', timeout: '' },
+      ]) {
+        const { exit, out } = await runJson('tap', args);
+        expect(exit, JSON.stringify(args)).to.equal(DEVICE_EXIT.usage);
+        expect(out.ok).to.equal(false);
+      }
+      expect(calls).to.have.length(0);
+    });
+
+    it('open-link takes the link as its only positional when the session is implied', async () => {
+      const calls = stubFetch((call) =>
+        call.url.endsWith('/device/sessions') ? { body: { sessions: [session('a-b-c')] } } : ok(),
+      );
+      await runJson('open-link', { id: 'myapp://sign-in?user=a' });
+      await runJson('open-link', { id: 'a-b-c', url: 'https://example.com/page?a=1&b=2' });
+      await runJson('open-link', { id: 'a-b-c', url: 'myapp://sign-in?token=abc', sensitive: true });
+      const posts = calls.filter((c) => c.method === 'POST');
+      expect(posts.map((c) => [c.url, c.body])).to.deep.equal([
+        [`${API}/device/sessions/a-b-c/actions`, { type: 'open_link', url: 'myapp://sign-in?user=a' }],
+        [`${API}/device/sessions/a-b-c/actions`, { type: 'open_link', url: 'https://example.com/page?a=1&b=2' }],
+        [
+          `${API}/device/sessions/a-b-c/actions`,
+          { type: 'open_link', url: 'myapp://sign-in?token=abc', sensitive: true },
+        ],
+      ]);
+    });
+
+    it('open-link refuses no link, no scheme and a space, without calling the API', async () => {
+      const calls = stubFetch(ok);
+      for (const args of [
+        { id: 'a-b-c' },
+        { id: 'a-b-c', url: 'example.com/page' },
+        { id: 'a-b-c', url: 'myapp://a b' },
+        { id: 'a-b-c', url: ':nothing' },
+      ]) {
+        const { exit, out } = await runJson('open-link', args);
+        expect(exit, JSON.stringify(args)).to.equal(DEVICE_EXIT.usage);
+        expect(out.ok).to.equal(false);
+      }
+      expect(calls).to.have.length(0);
+    });
+
+    it('open-link --sensitive does not print the link', async () => {
+      stubFetch(ok);
+      const shown = await runText('open-link', { id: 'a-b-c', url: 'myapp://sign-in?user=a' });
+      expect(shown).to.contain('myapp://sign-in?user=a');
+      const hidden = await runText('open-link', {
+        id: 'a-b-c',
+        url: 'myapp://sign-in?token=hunter2',
+        sensitive: true,
+      });
+      expect(hidden).to.contain('Opened a link');
+      expect(hidden).to.not.contain('hunter2');
+    });
+
+    it('set-location sends decimal degrees, south and west as negative numbers', async () => {
+      const calls = stubFetch((call) =>
+        call.url.endsWith('/device/sessions') ? { body: { sessions: [session('a-b-c')] } } : ok(),
+      );
+      await runJson('set-location', { id: 'a-b-c', latitude: '51.5074', longitude: '-0.1278' });
+      // Through citty's own parser too: a value that starts with `-` must arrive as the number it is.
+      const south = await runArgv(['set-location', 'a-b-c', '--latitude', '-33.86882', '--longitude', '151.2093']);
+      expect(south.exit).to.equal(0);
+      const west = await runArgv(['set-location', '--latitude=40.7128', '--longitude', '-74.006']);
+      expect(west.exit).to.equal(0);
+      const nearZero = await runArgv(['set-location', '--latitude', '-0.5', '--longitude', '-0.1278']);
+      expect(nearZero.exit).to.equal(0);
+      const posts = calls.filter((c) => c.method === 'POST');
+      expect(posts.map((c) => [c.url, c.body])).to.deep.equal([
+        [`${API}/device/sessions/a-b-c/actions`, { type: 'set_location', latitude: 51.5074, longitude: -0.1278 }],
+        [`${API}/device/sessions/a-b-c/actions`, { type: 'set_location', latitude: -33.86882, longitude: 151.2093 }],
+        [`${API}/device/sessions/a-b-c/actions`, { type: 'set_location', latitude: 40.7128, longitude: -74.006 }],
+        [`${API}/device/sessions/a-b-c/actions`, { type: 'set_location', latitude: -0.5, longitude: -0.1278 }],
+      ]);
+    });
+
+    it('set-location refuses a missing, out-of-range or non-numeric coordinate, without calling the API', async () => {
+      const calls = stubFetch(ok);
+      for (const args of [
+        { id: 'a-b-c' },
+        { id: 'a-b-c', latitude: '51.5' },
+        { id: 'a-b-c', latitude: '90.1', longitude: '0' },
+        { id: 'a-b-c', latitude: '0', longitude: '-180.5' },
+        { id: 'a-b-c', latitude: 'north', longitude: '0' },
+        { id: 'a-b-c', latitude: '', longitude: '0' },
+      ]) {
+        const { exit, out } = await runJson('set-location', args);
+        expect(exit, JSON.stringify(args)).to.equal(DEVICE_EXIT.usage);
+        expect(out.ok).to.equal(false);
+      }
+      expect(calls).to.have.length(0);
     });
 
     it('exits 2 with the result when the device could not do the action', async () => {

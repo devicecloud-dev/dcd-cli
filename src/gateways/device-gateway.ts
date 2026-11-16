@@ -278,7 +278,7 @@ export const DeviceGateway = {
     return request(baseUrl, auth, 'POST', `${sessionPath(id)}/request-human`, { reason });
   },
 
-  /** One typed action: tap, type, swipe or press_key. Synchronous: answers with the outcome. */
+  /** One typed action: tap, type, swipe, press_key, open_link or set_location. Synchronous: answers with the outcome. */
   action(
     baseUrl: string,
     auth: AuthContext,
