@@ -117,6 +117,7 @@ It signs in the same way as the CLI: with your `dcd login` session, which it ren
 | `dcd_list_runs` | List recent test runs (filter by name/date, paginated) |
 | `dcd_get_status` | Get the status + per-test results of a run |
 | `dcd_download_artifacts` | Download a run's artifacts/report to disk |
+| `dcd_get_team_settings` | Read your team's settings: concurrency, test runtime, integrations and more |
 | `dcd_run_cloud_test` | Submit a flow to run on the cloud (**billable**) |
 
 By default `dcd_run_cloud_test` is async: it returns an `uploadId` immediately, which you poll with `dcd_get_status`. Pass `wait: true` (bounded by `waitTimeoutSeconds`) to block until completion, or `dryRun: true` to preview the flows without submitting.

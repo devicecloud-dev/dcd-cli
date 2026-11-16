@@ -12,6 +12,7 @@ import type {
   LiveSession,
   LiveSessionSummary,
 } from '../types/domain/live.types.js';
+import type { TeamSettings } from '../types/domain/team-settings.types.js';
 import { components, paths } from '../types/generated/schema.types.js';
 
 /**
@@ -610,6 +611,36 @@ export const ApiGateway = {
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/status?${queryParams}`);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * The team's settings (`GET /org/settings`). A 404 means the API predates
+   * the endpoint, so it gets a message that says so rather than "not found".
+   */
+  async getTeamSettings(baseUrl: string, auth: AuthContext): Promise<TeamSettings> {
+    const url = `${baseUrl}/org/settings`;
+    try {
+      const response = await fetch(url, { headers: { ...auth.headers } });
+
+      if (response.status === 404) {
+        throw new ApiError(
+          "This DeviceCloud API doesn't support reading team settings yet.",
+          404,
+        );
+      }
+
+      if (!response.ok) {
+        await this.handleApiError(response, 'Failed to get team settings');
+      }
+
+      return await parseJsonResponse<TeamSettings>(response, 'Failed to get team settings');
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, url);
       }
 
       throw error;
