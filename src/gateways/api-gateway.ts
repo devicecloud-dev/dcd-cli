@@ -4,6 +4,11 @@ import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import {
+  type BundleFallbackReason,
+  type BundleFallbackTelemetry,
+  telemetry,
+} from '../services/telemetry.service.js';
 import { TAppMetadata } from '../types.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type {
@@ -13,6 +18,39 @@ import type {
   LiveSessionSummary,
 } from '../types/domain/live.types.js';
 import { components, paths } from '../types/generated/schema.types.js';
+
+/** Expand a leading `~` to the home directory, as the download paths allow. */
+function expandHome(p: string): string {
+  return p.replace(/^~(?=$|\/|\\)/, homedir());
+}
+
+/** What went wrong in a bundle attempt, minus the route/timing added later. */
+type BundleFailure = Omit<
+  BundleFallbackTelemetry,
+  'duration_ms' | 'route' | 'upload_id'
+>;
+
+/** Name, message and low-level code (e.g. ECONNRESET) of a thrown error. */
+function errorDetail(error: unknown): Pick<
+  BundleFallbackTelemetry,
+  'error_code' | 'error_message' | 'error_name'
+> {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const cause = (err as { cause?: { code?: unknown } }).cause;
+  const code = cause?.code ?? (err as { code?: unknown }).code;
+  return {
+    error_code: typeof code === 'string' ? code : undefined,
+    error_message: err.message.slice(0, 300),
+    error_name: err.name,
+  };
+}
+
+function failure(
+  reason: BundleFallbackReason,
+  extra: Omit<BundleFailure, 'reason'> = {},
+): BundleFailure {
+  return { reason, ...extra };
+}
 
 /**
  * Error thrown for non-OK API responses, carrying the HTTP status so callers
@@ -180,7 +218,7 @@ export const ApiGateway = {
     }
 
     // Handle tilde expansion for home directory
-    const expandedPath = destinationPath.replace(/^~(?=$|\/|\\)/, homedir());
+    const expandedPath = expandHome(destinationPath);
 
     // Create directory structure if it doesn't exist
     const directory = path.dirname(expandedPath);
@@ -219,20 +257,57 @@ export const ApiGateway = {
     destinationPath: string,
     operation: string,
   ): Promise<boolean> {
+    const startedAt = Date.now();
+    const outcome = await this.attemptBundleDownload(
+      baseUrl,
+      auth,
+      manifestEndpoint,
+      destinationPath,
+      operation,
+    );
+    if (outcome === true) return true;
+
+    // The fallback is silent to the user (the inline download still delivers
+    // the file), so this event is the only record of why the bundle path was
+    // skipped.
+    const route = /\/results\/([^/?]+)\/([a-z-]+)/.exec(manifestEndpoint);
+    telemetry.recordBundleFallback({
+      ...outcome,
+      duration_ms: Date.now() - startedAt,
+      route: route?.[2] ?? manifestEndpoint.split('?')[0],
+      upload_id: route?.[1],
+    });
+    return false;
+  },
+
+  /**
+   * One bundle-download attempt. Resolves `true` once the ZIP is on disk, or
+   * with the reason it fell through, for {@link tryBundleDownload} to record.
+   */
+  async attemptBundleDownload(
+    baseUrl: string,
+    auth: AuthContext,
+    manifestEndpoint: string,
+    destinationPath: string,
+    operation: string,
+  ): Promise<BundleFailure | true> {
     let manifestRes: Response;
     try {
       manifestRes = await fetch(`${baseUrl}${manifestEndpoint}`, {
         headers: { ...auth.headers },
         method: 'GET',
       });
-    } catch {
-      return false;
+    } catch (error) {
+      return failure('manifest_request_failed', errorDetail(error));
     }
 
     // 501 => this deployment has no bundle delivery; any other non-OK => let
     // the inline path re-request and surface the real error.
     if (!manifestRes.ok) {
-      return false;
+      return failure(
+        manifestRes.status === 501 ? 'manifest_unavailable' : 'manifest_http_error',
+        { status: manifestRes.status },
+      );
     }
 
     let bundle: {
@@ -242,11 +317,11 @@ export const ApiGateway = {
     };
     try {
       bundle = (await manifestRes.json()) as typeof bundle;
-    } catch {
-      return false;
+    } catch (error) {
+      return failure('manifest_invalid_json', errorDetail(error));
     }
     if (!bundle?.bundleUrl || !bundle?.manifest || !bundle?.sig) {
-      return false;
+      return failure('manifest_incomplete');
     }
 
     let zipRes: Response;
@@ -257,21 +332,40 @@ export const ApiGateway = {
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       });
-    } catch {
-      return false;
+    } catch (error) {
+      return failure('bundle_request_failed', errorDetail(error));
     }
     if (!zipRes.ok) {
-      return false;
+      return failure('bundle_http_error', { status: zipRes.status });
     }
 
     // A mid-stream failure (dropped/truncated connection) or a null body on an
     // otherwise-OK response throws here — fall back to the inline path rather
     // than let it escape past the caller's fallback. The inline path re-opens
     // the destination with flags: 'w', truncating any partial file left behind.
+    // Count bytes as they arrive, so a broken stream records how far it got.
+    // (The file's size on disk understates it: the write stream is torn down
+    // with buffered bytes still unflushed.)
+    let bytesReceived = 0;
+    const counted = zipRes.body?.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          bytesReceived += chunk.byteLength;
+          controller.enqueue(chunk);
+        },
+      }),
+    );
     try {
-      await this.streamResponseToFile(zipRes, destinationPath, operation);
-    } catch {
-      return false;
+      await this.streamResponseToFile(
+        counted ? new Response(counted) : zipRes,
+        destinationPath,
+        operation,
+      );
+    } catch (error) {
+      return failure('bundle_stream_failed', {
+        ...errorDetail(error),
+        bytes_received: bytesReceived,
+      });
     }
     return true;
   },
