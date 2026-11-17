@@ -161,7 +161,8 @@ const startSub = defineCommand({
     },
     'device-locale': {
       type: 'string',
-      description: 'Device locale, ISO-639-1 + ISO-3166-1, e.g. "de_DE"',
+      description:
+        'Device locale: a 2-3 letter lowercase language code (ISO 639) and an uppercase ISO-3166-1 country code, e.g. "de_DE"',
     },
     'android-device': {
       type: 'string',

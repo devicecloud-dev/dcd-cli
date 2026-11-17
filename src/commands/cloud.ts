@@ -427,7 +427,7 @@ export const cloudCommand = defineCommand({
       if (runnerType === 'm4') {
         out(
           ui.info(
-            'runnerType m4 is experimental and currently supports iOS only, Android will revert to default.',
+            'runnerType m4 is experimental and currently supports iOS only. Android runs with m4 are rejected: use default or cpu1 for Android.',
           ),
         );
       }
@@ -435,7 +435,7 @@ export const cloudCommand = defineCommand({
       if (runnerType === 'm1') {
         out(
           ui.info(
-            'runnerType m1 is experimental and currently supports Android only (all devices, API level 34-36).',
+            'runnerType m1 is experimental and currently applies to Android only (API level 34-37, every device except generic-tablet). iOS runs on M1 by default.',
           ),
         );
       }

@@ -51,7 +51,7 @@
         },
         {
           "name": "DCD_ENCRYPT",
-          "description": "Uploads (app binary, flows, env vars) are encrypted on your machine by default. Set to 0 to upload them unencrypted; a run's encrypt input overrides this.",
+          "description": "Uploads (app binary, flows, env vars) are encrypted on your machine by default. Set to 0 to upload them without envelope encryption; a run's encrypt input overrides this.",
           "isRequired": false
         }
       ]
