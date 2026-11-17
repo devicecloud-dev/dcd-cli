@@ -221,11 +221,7 @@ async function refreshSessionWithLock(
     // forced a fresh login when an upgrade alone would have fixed it. The
     // error tells the user to log in again; only `dcd logout` (or the next
     // `dcd login`) replaces the stored session.
-    const refreshed = await CliAuthGateway.refresh(
-      current.supabase_url,
-      current.env,
-      session,
-    );
+    const refreshed = await CliAuthGateway.refresh(current.api_url, session, clientHeaders());
     // Re-read again and merge only `session` so a concurrent `switch-org`
     // write (org fields) isn't reverted by our pre-refresh snapshot.
     const merged: StoredConfig = { ...(readConfig() ?? current), session: refreshed };
