@@ -8,6 +8,10 @@ import {
   ReportDownloadService,
   reportFormatDeprecation,
 } from '../../src/services/report-download.service.js';
+import {
+  type BundleFallbackTelemetry,
+  telemetry,
+} from '../../src/services/telemetry.service.js';
 import type { AuthContext } from '../../src/types/domain/auth.types.js';
 
 const TEST_AUTH: AuthContext = {
@@ -360,9 +364,27 @@ describe('ReportDownloadService', () => {
      * flow (manifest GET, then bundle POST, no inline call) can be asserted.
      */
     function mockBundleFetch(
-      opts: { manifestStatus?: number; zipBody?: string } = {},
+      opts: {
+        manifestBody?: Record<string, unknown>;
+        manifestStatus?: number;
+        zipBody?: string;
+        zipBreaksAfter?: string;
+        zipStatus?: number;
+      } = {},
     ) {
-      const { manifestStatus = 200, zipBody = 'bundle-zip' } = opts;
+      const {
+        manifestBody = {
+          bundleUrl: 'https://cdn.example.com/bundle',
+          entryCount: 3,
+          filename: 'artifacts-all.zip',
+          manifest: '{"version":1}',
+          sig: 'SIG',
+        },
+        manifestStatus = 200,
+        zipBody = 'bundle-zip',
+        zipBreaksAfter,
+        zipStatus = 200,
+      } = opts;
       const encoder = new TextEncoder();
       const stream = (s: string) =>
         new ReadableStream({
@@ -387,15 +409,7 @@ describe('ReportDownloadService', () => {
 
         if (url.includes('artifacts-bundle') || url.includes('report-bundle')) {
           return new Response(
-            stream(
-              JSON.stringify({
-                bundleUrl: 'https://cdn.example.com/bundle',
-                entryCount: 3,
-                filename: 'artifacts-all.zip',
-                manifest: '{"version":1}',
-                sig: 'SIG',
-              }),
-            ),
+            stream(JSON.stringify(manifestBody)),
             {
               headers: { 'content-type': 'application/json' },
               status: manifestStatus,
@@ -403,15 +417,42 @@ describe('ReportDownloadService', () => {
           );
         }
         if (url === 'https://cdn.example.com/bundle') {
-          return new Response(stream(zipBody), { status: 200 });
+          if (zipBreaksAfter !== undefined) {
+            // Sends some bytes, then the connection drops.
+            const broken = new ReadableStream({
+              start(controller) {
+                controller.enqueue(encoder.encode(zipBreaksAfter));
+              },
+              pull(controller) {
+                controller.error(
+                  Object.assign(new TypeError('terminated'), {
+                    cause: { code: 'UND_ERR_SOCKET' },
+                  }),
+                );
+              },
+            });
+            return new Response(broken, { status: 200 });
+          }
+          return new Response(stream(zipBody), { status: zipStatus });
         }
         return new Response(stream('inline-zip'), { status: 200 });
       };
       globalThis.fetch = impl as typeof fetch;
     }
 
+    let fallbacks: BundleFallbackTelemetry[];
+    const realRecordBundleFallback = telemetry.recordBundleFallback;
+
     beforeEach(() => {
       calls = [];
+      fallbacks = [];
+      telemetry.recordBundleFallback = (detail) => {
+        fallbacks.push(detail);
+      };
+    });
+
+    afterEach(() => {
+      telemetry.recordBundleFallback = realRecordBundleFallback;
     });
 
     it('streams from the bundle URL and skips the inline endpoint', async () => {
@@ -469,6 +510,77 @@ describe('ReportDownloadService', () => {
         calls.some((c) => c.method === 'POST' && c.url.endsWith('/download')),
       ).to.be.true;
       expect(fs.readFileSync(outPath, 'utf8')).to.equal('inline-zip');
+    });
+
+    describe('records why it fell back', () => {
+      const download = (name: string) =>
+        service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: path.join(tempDir, name),
+          downloadType: 'ALL',
+        });
+
+      it('records nothing when the bundle download succeeds', async () => {
+        mockBundleFetch();
+        await download('ok.zip');
+        expect(fallbacks).to.deep.equal([]);
+      });
+
+      it('records a 501 as manifest_unavailable, with route and upload id', async () => {
+        mockBundleFetch({ manifestStatus: 501 });
+        await download('unavailable.zip');
+
+        expect(fallbacks).to.have.length(1);
+        expect(fallbacks[0]).to.include({
+          reason: 'manifest_unavailable',
+          route: 'artifacts-bundle',
+          status: 501,
+          upload_id: 'run-42',
+        });
+        expect(fallbacks[0].duration_ms).to.be.a('number');
+      });
+
+      it('records a manifest missing its fields as manifest_incomplete', async () => {
+        mockBundleFetch({ manifestBody: { bundleUrl: 'https://cdn.example.com/bundle' } });
+        await download('incomplete.zip');
+        expect(fallbacks[0]).to.include({ reason: 'manifest_incomplete' });
+      });
+
+      it('records a non-OK bundle response with its status', async () => {
+        mockBundleFetch({ zipStatus: 502 });
+        const outPath = path.join(tempDir, 'bundle-502.zip');
+        await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: outPath,
+          downloadType: 'ALL',
+        });
+
+        expect(fallbacks[0]).to.include({
+          reason: 'bundle_http_error',
+          status: 502,
+        });
+        expect(fs.readFileSync(outPath, 'utf8')).to.equal('inline-zip');
+      });
+
+      it('records a stream that breaks partway, with the error and bytes received', async () => {
+        mockBundleFetch({ zipBreaksAfter: 'partial' });
+        const outPath = path.join(tempDir, 'bundle-broken.zip');
+        await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: outPath,
+          downloadType: 'ALL',
+        });
+
+        expect(fallbacks[0]).to.include({
+          bytes_received: 'partial'.length,
+          error_code: 'UND_ERR_SOCKET',
+          error_message: 'terminated',
+          error_name: 'TypeError',
+          reason: 'bundle_stream_failed',
+        });
+        // The inline download still replaced the partial file.
+        expect(fs.readFileSync(outPath, 'utf8')).to.equal('inline-zip');
+      });
     });
 
     it('uses bundle delivery for the html report', async () => {

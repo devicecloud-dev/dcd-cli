@@ -1,5 +1,29 @@
 # Changelog
 
+## [5.14.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.13.0...v5.14.0) (2026-11-17)
+
+
+### Features
+
+* dcd settings command and dcd_get_team_settings MCP tool ([#325](https://github.com/devicecloud-dev/dcd-cli/issues/325)) ([61f4e91](https://github.com/devicecloud-dev/dcd-cli/commit/61f4e91e105afa7790495bc2cf7dc956adda3699))
+* open link command, device location and timeout options ([#327](https://github.com/devicecloud-dev/dcd-cli/issues/327)) ([7a20e48](https://github.com/devicecloud-dev/dcd-cli/commit/7a20e48611bd7caec1089d0d277279f8f8192cbc))
+
+
+### Bug Fixes
+
+* explain and stop retrying when an API key's access doesn't cover a call ([#326](https://github.com/devicecloud-dev/dcd-cli/issues/326)) ([b5d8305](https://github.com/devicecloud-dev/dcd-cli/commit/b5d83059936d007f62a8a0ad46e353c5665e8bcf))
+* **artifacts:** record why a bundle download falls back to the inline endpoint ([#324](https://github.com/devicecloud-dev/dcd-cli/issues/324)) ([e539bd7](https://github.com/devicecloud-dev/dcd-cli/commit/e539bd77cef42c132b50947f0eb6a5d13aff1ebc))
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 5 updates ([#322](https://github.com/devicecloud-dev/dcd-cli/issues/322)) ([4811f20](https://github.com/devicecloud-dev/dcd-cli/commit/4811f203e85d24d8e5ee159db7184b633233ff1e))
+
+
+### Code Refactoring
+
+* **auth:** refresh `dcd login` sessions through the API, not Supabase ([#313](https://github.com/devicecloud-dev/dcd-cli/issues/313)) ([ec778b2](https://github.com/devicecloud-dev/dcd-cli/commit/ec778b2de43b724ff5e8c323c67700ebfeea9cf1))
+
 ## [5.13.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.12.1...v5.13.0) (2026-11-13)
 
 

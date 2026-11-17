@@ -738,6 +738,38 @@ function percentArg(value: unknown, flag: string): number {
   return n;
 }
 
+/** The longest a tap may wait for its target, as the API allows. */
+const MAX_TAP_TIMEOUT_SECONDS = 60;
+
+/** Seconds from a flag value, from 0 to `max`, or a usage error. Undefined when the flag was not given. */
+function secondsArg(value: unknown, flag: string, max: number): number | undefined {
+  if (value === undefined) return undefined;
+  const n = typeof value === 'number' ? value : Number(value);
+  if (typeof value === 'boolean' || value === '' || !Number.isFinite(n) || n < 0 || n > max) {
+    throw new CliError(`--${flag} must be a number of seconds from 0 to ${max}.`, 1);
+  }
+  return n;
+}
+
+/** Decimal degrees from a flag value, within `limit` either way, or a usage error. */
+function degreesArg(value: unknown, flag: string, limit: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (
+    value === undefined ||
+    typeof value === 'boolean' ||
+    (typeof value === 'string' && value.trim() === '') ||
+    !Number.isFinite(n) ||
+    n < -limit ||
+    n > limit
+  ) {
+    throw new CliError(`--${flag} must be a number from -${limit} to ${limit} (decimal degrees).`, 1);
+  }
+  return n;
+}
+
+/** A link with a scheme and nothing a shell or a URL would split on. A session id has no colon. */
+const LINK = /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/;
+
 /** "x,y" (percentages) from a flag value, or a usage error. */
 function pointArg(value: unknown, flag: string): DevicePoint {
   const parts = typeof value === 'string' ? value.split(',') : [];
@@ -782,6 +814,10 @@ const tapSub = defineCommand({
     rid: { type: 'string', description: 'The element\'s resource id (rid in `dcd device inspect`)' },
     x: { type: 'string', description: 'With --y: a point, as percentages of the screen (0-100)' },
     y: { type: 'string', description: 'See --x' },
+    timeout: {
+      type: 'string',
+      description: `With --text or --rid: seconds to wait for it to appear before failing (0-${MAX_TAP_TIMEOUT_SECONDS}, default 17; 0 looks once)`,
+    },
     maestro: maestroArg,
   },
   async run({ args }) {
@@ -795,11 +831,16 @@ const tapSub = defineCommand({
       if (targets !== 1) {
         throw new CliError('tap takes exactly one target: --text, --rid, or --x and --y.', 1);
       }
+      const timeoutSeconds = secondsArg(args.timeout, 'timeout', MAX_TAP_TIMEOUT_SECONDS);
+      if (timeoutSeconds !== undefined && args.text === undefined && args.rid === undefined) {
+        throw new CliError('tap --timeout goes with --text or --rid: a point has nothing to wait for.', 1);
+      }
+      const wait = timeoutSeconds === undefined ? {} : { timeoutSeconds };
       const body: DeviceActionRequest =
         args.text !== undefined
-          ? { type: 'tap', text: String(args.text) }
+          ? { type: 'tap', text: String(args.text), ...wait }
           : args.rid !== undefined
-            ? { type: 'tap', id: String(args.rid) }
+            ? { type: 'tap', id: String(args.rid), ...wait }
             : { type: 'tap', x: percentArg(args.x, 'x'), y: percentArg(args.y, 'y') };
       const what =
         args.text !== undefined
@@ -910,6 +951,71 @@ const pressKeySub = defineCommand({
         throw new CliError(`key must be one of ${DEVICE_KEYS.join(', ')}.`, 1);
       }
       return performAction(args, id, { type: 'press_key', key }, { done: `Pressed ${key}`, failed: `Press ${key} failed` });
+    });
+  },
+});
+
+const openLinkSub = defineCommand({
+  meta: { name: 'open-link', description: 'Open a link on the device: a deep link into an app, or a web link' },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    // Not `required`, as with `type --text`: a missing link fails inside the envelope.
+    url: {
+      type: 'positional',
+      required: false,
+      description: 'The link with its scheme, e.g. myapp://path or https://example.com',
+    },
+    sensitive: {
+      type: 'boolean',
+      default: false,
+      description: 'The link is a secret (it carries a token): stored encrypted, never shown',
+    },
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      let id = args.id as string | undefined;
+      let url = args.url as string | undefined;
+      // `dcd device open-link myapp://path`: the one positional is the link, not a session.
+      if (id && !url && id.includes(':')) [id, url] = [undefined, id];
+      if (!url || !LINK.test(url)) {
+        throw new CliError(
+          'open-link takes a link with its scheme and no spaces, e.g. myapp://path or https://example.com.',
+          1,
+        );
+      }
+      const shown = args.sensitive ? 'a link' : url;
+      return performAction(
+        args,
+        id,
+        { type: 'open_link', url, ...(args.sensitive ? { sensitive: true } : {}) },
+        { done: `Opened ${shown}`, failed: `Opening ${shown} failed` },
+      );
+    });
+  },
+});
+
+const setLocationSub = defineCommand({
+  meta: { name: 'set-location', description: "Set the device's GPS position, in decimal degrees" },
+  args: {
+    ...commonArgs,
+    id: idArg,
+    latitude: { type: 'string', description: 'Decimal degrees, north positive (-90 to 90)' },
+    longitude: { type: 'string', description: 'Decimal degrees, east positive (-180 to 180)' },
+  },
+  async run({ args }) {
+    const json = Boolean(args.json);
+    await runDeviceCommand(json, async () => {
+      // South and west are negative. citty keeps a value that is a number, minus sign and all.
+      const latitude = degreesArg(args.latitude, 'latitude', 90);
+      const longitude = degreesArg(args.longitude, 'longitude', 180);
+      return performAction(
+        args,
+        args.id as string | undefined,
+        { type: 'set_location', latitude, longitude },
+        { done: `Location set to ${latitude}, ${longitude}`, failed: 'Setting the location failed' },
+      );
     });
   },
 });
@@ -1553,6 +1659,8 @@ export const deviceCommand = defineCommand({
     type: typeSub,
     swipe: swipeSub,
     'press-key': pressKeySub,
+    'open-link': openLinkSub,
+    'set-location': setLocationSub,
     models: modelsSub,
     inspect: inspectSub,
     screenshot: screenshotSub,

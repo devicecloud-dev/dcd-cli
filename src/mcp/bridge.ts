@@ -47,7 +47,7 @@ import { createServer } from './server.js';
  * themselves in their own descriptions.
  */
 const INSTRUCTIONS =
-  'DeviceCloud tools. dcd_* tools run Maestro test suites in the cloud: dcd_list_devices shows what you can test on, dcd_run_cloud_test submits flows (billable), and dcd_get_status follows a run. Any other tools describe their own use. Where a tool takes a path to a local file (an app build, a flow file or a directory), this server uploads it for you.';
+  'DeviceCloud tools. dcd_* tools run Maestro test suites in the cloud: dcd_list_devices shows what you can test on, dcd_run_cloud_test submits flows (billable), and dcd_get_status follows a run. dcd_get_team_settings reads the team settings and limits. Any other tools describe their own use. Where a tool takes a path to a local file (an app build, a flow file or a directory), this server uploads it for you.';
 
 /**
  * How long one forwarded call may take. Longer than dcd_run_cloud_test's
@@ -57,7 +57,7 @@ const INSTRUCTIONS =
 export const CALL_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 const READ_ONLY_INSTRUCTIONS =
-  'DeviceCloud tools, read-only: nothing here runs a test or changes anything. dcd_* tools read cloud test runs and their results. Any other tools describe their own use.';
+  'DeviceCloud tools, read-only: nothing here runs a test or changes anything. dcd_* tools read cloud test runs and their results, and the team settings. Any other tools describe their own use.';
 
 /** The inputs this bridge adds to hosted tools, and what they say. */
 const LOCAL_INPUTS: Record<string, { description: string; properties: Record<string, object> }> = {

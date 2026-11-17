@@ -4,6 +4,11 @@ import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
+import {
+  type BundleFallbackReason,
+  type BundleFallbackTelemetry,
+  telemetry,
+} from '../services/telemetry.service.js';
 import { TAppMetadata } from '../types.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type {
@@ -12,7 +17,41 @@ import type {
   LiveSession,
   LiveSessionSummary,
 } from '../types/domain/live.types.js';
+import type { TeamSettings } from '../types/domain/team-settings.types.js';
 import { components, paths } from '../types/generated/schema.types.js';
+
+/** Expand a leading `~` to the home directory, as the download paths allow. */
+function expandHome(p: string): string {
+  return p.replace(/^~(?=$|\/|\\)/, homedir());
+}
+
+/** What went wrong in a bundle attempt, minus the route/timing added later. */
+type BundleFailure = Omit<
+  BundleFallbackTelemetry,
+  'duration_ms' | 'route' | 'upload_id'
+>;
+
+/** Name, message and low-level code (e.g. ECONNRESET) of a thrown error. */
+function errorDetail(error: unknown): Pick<
+  BundleFallbackTelemetry,
+  'error_code' | 'error_message' | 'error_name'
+> {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const cause = (err as { cause?: { code?: unknown } }).cause;
+  const code = cause?.code ?? (err as { code?: unknown }).code;
+  return {
+    error_code: typeof code === 'string' ? code : undefined,
+    error_message: err.message.slice(0, 300),
+    error_name: err.name,
+  };
+}
+
+function failure(
+  reason: BundleFallbackReason,
+  extra: Omit<BundleFailure, 'reason'> = {},
+): BundleFailure {
+  return { reason, ...extra };
+}
 
 /**
  * Error thrown for non-OK API responses, carrying the HTTP status so callers
@@ -20,12 +59,27 @@ import { components, paths } from '../types/generated/schema.types.js';
  */
 export class ApiError extends Error {
   status: number;
+  /** The API's machine-readable error code, such as `API_KEY_SCOPE`, when it sent one. */
+  code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
+}
+
+/**
+ * API errors no retry can clear: an API key whose access doesn't cover the
+ * call (`API_KEY_SCOPE`), or an upload the key can't see (`UPLOAD_NOT_FOUND`).
+ * A key's access is fixed when it is created.
+ */
+export function isPermanentApiError(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    (error.code === 'API_KEY_SCOPE' || error.code === 'UPLOAD_NOT_FOUND')
+  );
 }
 
 /**
@@ -104,11 +158,17 @@ export const ApiGateway = {
   async handleApiError(res: Response, operation: string): Promise<never> {
     const errorText = await res.text();
     let userMessage: string;
+    let code: string | undefined;
 
     // Parse common API error formats
     try {
       const errorData = JSON.parse(errorText);
       userMessage = errorData.message || errorData.error || errorText;
+      // The API's own codes are UPPER_SNAKE_CASE. Its framework fills `error`
+      // with the HTTP reason ("Forbidden") otherwise, which is not a code.
+      if (typeof errorData.error === 'string' && /^[A-Z][A-Z0-9_]+$/.test(errorData.error)) {
+        code = errorData.error;
+      }
     } catch {
       userMessage = errorText;
     }
@@ -116,7 +176,7 @@ export const ApiGateway = {
     // Add context and improve readability
     switch (res.status) {
       case 400: {
-        throw new ApiError(`Invalid request: ${userMessage}`, 400);
+        throw new ApiError(`Invalid request: ${userMessage}`, 400, code);
       }
 
       case 401: {
@@ -129,10 +189,22 @@ export const ApiGateway = {
           message += `\nServer response: ${userMessage}`;
         }
 
-        throw new ApiError(message, 401);
+        throw new ApiError(message, 401, code);
       }
 
       case 403: {
+        // A valid key whose access is limited, such as a CI-only key. The
+        // revoked-key advice below would send the user looking in the wrong
+        // place, and the server's message already names what to use instead.
+        if (code === 'API_KEY_SCOPE') {
+          throw new ApiError(
+            `Access denied. ${userMessage}\n` +
+              `An API key's access is chosen when the key is created, under Settings → API keys in the console.`,
+            403,
+            code,
+          );
+        }
+
         // For 403, use the server's error message directly as it's now detailed
         // If the message suggests an API key issue, provide additional guidance
         if (userMessage.toLowerCase().includes('api key')) {
@@ -143,28 +215,29 @@ export const ApiGateway = {
               `  3. Ensure the API key hasn't been deleted or revoked\n` +
               `  4. Confirm you're connecting to the correct API URL`,
             403,
+            code,
           );
         }
 
-        throw new ApiError(`Access denied. ${userMessage}`, 403);
+        throw new ApiError(`Access denied. ${userMessage}`, 403, code);
       }
 
       case 404: {
-        throw new ApiError(`Resource not found. ${userMessage}`, 404);
+        throw new ApiError(`Resource not found. ${userMessage}`, 404, code);
       }
 
       case 429: {
-        throw new ApiError(`Rate limit exceeded. Please try again later. (${operation})`, 429);
+        throw new ApiError(`Rate limit exceeded. Please try again later. (${operation})`, 429, code);
       }
 
       case 500: {
-        throw new ApiError(`Server error occurred. Please try again or contact support. (${operation})`, 500);
+        throw new ApiError(`Server error occurred. Please try again or contact support. (${operation})`, 500, code);
       }
 
       default: {
         // `operation` is already phrased as "Failed to …", so don't append
         // another "failed" here (avoids "Failed to execute test failed: …").
-        throw new ApiError(`${operation}: ${userMessage} (HTTP ${res.status})`, res.status);
+        throw new ApiError(`${operation}: ${userMessage} (HTTP ${res.status})`, res.status, code);
       }
     }
   },
@@ -180,7 +253,7 @@ export const ApiGateway = {
     }
 
     // Handle tilde expansion for home directory
-    const expandedPath = destinationPath.replace(/^~(?=$|\/|\\)/, homedir());
+    const expandedPath = expandHome(destinationPath);
 
     // Create directory structure if it doesn't exist
     const directory = path.dirname(expandedPath);
@@ -219,20 +292,57 @@ export const ApiGateway = {
     destinationPath: string,
     operation: string,
   ): Promise<boolean> {
+    const startedAt = Date.now();
+    const outcome = await this.attemptBundleDownload(
+      baseUrl,
+      auth,
+      manifestEndpoint,
+      destinationPath,
+      operation,
+    );
+    if (outcome === true) return true;
+
+    // The fallback is silent to the user (the inline download still delivers
+    // the file), so this event is the only record of why the bundle path was
+    // skipped.
+    const route = /\/results\/([^/?]+)\/([a-z-]+)/.exec(manifestEndpoint);
+    telemetry.recordBundleFallback({
+      ...outcome,
+      duration_ms: Date.now() - startedAt,
+      route: route?.[2] ?? manifestEndpoint.split('?')[0],
+      upload_id: route?.[1],
+    });
+    return false;
+  },
+
+  /**
+   * One bundle-download attempt. Resolves `true` once the ZIP is on disk, or
+   * with the reason it fell through, for {@link tryBundleDownload} to record.
+   */
+  async attemptBundleDownload(
+    baseUrl: string,
+    auth: AuthContext,
+    manifestEndpoint: string,
+    destinationPath: string,
+    operation: string,
+  ): Promise<BundleFailure | true> {
     let manifestRes: Response;
     try {
       manifestRes = await fetch(`${baseUrl}${manifestEndpoint}`, {
         headers: { ...auth.headers },
         method: 'GET',
       });
-    } catch {
-      return false;
+    } catch (error) {
+      return failure('manifest_request_failed', errorDetail(error));
     }
 
     // 501 => this deployment has no bundle delivery; any other non-OK => let
     // the inline path re-request and surface the real error.
     if (!manifestRes.ok) {
-      return false;
+      return failure(
+        manifestRes.status === 501 ? 'manifest_unavailable' : 'manifest_http_error',
+        { status: manifestRes.status },
+      );
     }
 
     let bundle: {
@@ -242,11 +352,11 @@ export const ApiGateway = {
     };
     try {
       bundle = (await manifestRes.json()) as typeof bundle;
-    } catch {
-      return false;
+    } catch (error) {
+      return failure('manifest_invalid_json', errorDetail(error));
     }
     if (!bundle?.bundleUrl || !bundle?.manifest || !bundle?.sig) {
-      return false;
+      return failure('manifest_incomplete');
     }
 
     let zipRes: Response;
@@ -257,21 +367,40 @@ export const ApiGateway = {
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       });
-    } catch {
-      return false;
+    } catch (error) {
+      return failure('bundle_request_failed', errorDetail(error));
     }
     if (!zipRes.ok) {
-      return false;
+      return failure('bundle_http_error', { status: zipRes.status });
     }
 
     // A mid-stream failure (dropped/truncated connection) or a null body on an
     // otherwise-OK response throws here — fall back to the inline path rather
     // than let it escape past the caller's fallback. The inline path re-opens
     // the destination with flags: 'w', truncating any partial file left behind.
+    // Count bytes as they arrive, so a broken stream records how far it got.
+    // (The file's size on disk understates it: the write stream is torn down
+    // with buffered bytes still unflushed.)
+    let bytesReceived = 0;
+    const counted = zipRes.body?.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          bytesReceived += chunk.byteLength;
+          controller.enqueue(chunk);
+        },
+      }),
+    );
     try {
-      await this.streamResponseToFile(zipRes, destinationPath, operation);
-    } catch {
-      return false;
+      await this.streamResponseToFile(
+        counted ? new Response(counted) : zipRes,
+        destinationPath,
+        operation,
+      );
+    } catch (error) {
+      return failure('bundle_stream_failed', {
+        ...errorDetail(error),
+        bytes_received: bytesReceived,
+      });
     }
     return true;
   },
@@ -610,6 +739,36 @@ export const ApiGateway = {
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/status?${queryParams}`);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * The team's settings (`GET /org/settings`). A 404 means the API predates
+   * the endpoint, so it gets a message that says so rather than "not found".
+   */
+  async getTeamSettings(baseUrl: string, auth: AuthContext): Promise<TeamSettings> {
+    const url = `${baseUrl}/org/settings`;
+    try {
+      const response = await fetch(url, { headers: { ...auth.headers } });
+
+      if (response.status === 404) {
+        throw new ApiError(
+          "This DeviceCloud API doesn't support reading team settings yet.",
+          404,
+        );
+      }
+
+      if (!response.ok) {
+        await this.handleApiError(response, 'Failed to get team settings');
+      }
+
+      return await parseJsonResponse<TeamSettings>(response, 'Failed to get team settings');
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, url);
       }
 
       throw error;

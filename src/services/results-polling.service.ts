@@ -1,6 +1,10 @@
 import * as path from 'node:path';
 
-import { ApiGateway, type ResultsPollCache } from '../gateways/api-gateway.js';
+import {
+  ApiGateway,
+  isPermanentApiError,
+  type ResultsPollCache,
+} from '../gateways/api-gateway.js';
 import { formatDurationSeconds } from '../methods.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { paths } from '../types/generated/schema.types.js';
@@ -295,8 +299,13 @@ export class ResultsPollingService {
           await this.sleep(pollIntervalMs);
         } catch (error) {
           // Re-throw RunFailedError immediately (test failures, not polling
-          // errors), and an expired login no retry can fix.
-          if (error instanceof RunFailedError || error instanceof PollingAuthError) {
+          // errors), and an expired login or a key without access to this run,
+          // which no retry can fix.
+          if (
+            error instanceof RunFailedError ||
+            error instanceof PollingAuthError ||
+            isPermanentApiError(error)
+          ) {
             throw error;
           }
 

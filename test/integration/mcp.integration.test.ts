@@ -41,7 +41,7 @@ function parseResult(result: { content: Array<{ type: string; text?: string }>; 
 
 describe('MCP Server Integration Tests', () => {
   describe('tool discovery', () => {
-    it('lists all five tools by default', async () => {
+    it('lists all six tools by default', async () => {
       const { client, ready } = connect();
       await ready;
       try {
@@ -50,6 +50,7 @@ describe('MCP Server Integration Tests', () => {
         expect(names).to.deep.equal([
           'dcd_download_artifacts',
           'dcd_get_status',
+          'dcd_get_team_settings',
           'dcd_list_devices',
           'dcd_list_runs',
           'dcd_run_cloud_test',

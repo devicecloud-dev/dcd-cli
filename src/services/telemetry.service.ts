@@ -40,6 +40,37 @@ export interface EncryptionTelemetry {
   source: EncryptionSource;
 }
 
+/**
+ * Why a bundle download fell back to the inline endpoint. `manifest_unavailable`
+ * (a 501) is the expected answer from a deployment without bundle delivery;
+ * the rest are failures worth counting.
+ */
+export type BundleFallbackReason =
+  | 'bundle_http_error'
+  | 'bundle_request_failed'
+  | 'bundle_stream_failed'
+  | 'manifest_http_error'
+  | 'manifest_incomplete'
+  | 'manifest_invalid_json'
+  | 'manifest_request_failed'
+  | 'manifest_unavailable';
+
+export interface BundleFallbackTelemetry {
+  /** Bytes of the ZIP received before the stream failed. */
+  bytes_received?: number;
+  duration_ms: number;
+  /** Low-level error code from the cause, e.g. `ECONNRESET`. */
+  error_code?: string;
+  error_message?: string;
+  error_name?: string;
+  reason: BundleFallbackReason;
+  /** The manifest route, e.g. `artifacts-bundle`. */
+  route: string;
+  /** HTTP status, for the `*_http_error` / `manifest_unavailable` reasons. */
+  status?: number;
+  upload_id?: string;
+}
+
 interface TelemetryConfig {
   apiUrl: string;
   auth: AuthContext;
@@ -148,6 +179,20 @@ class Telemetry {
    */
   recordSubmitAttempts(attempts: number) {
     this.submitAttempts = attempts;
+  }
+
+  /**
+   * Record that a bundle download fell back to the inline endpoint, and why.
+   * The user never sees the fallback (the inline download still delivers the
+   * file), so without this the reason is lost.
+   */
+  recordBundleFallback(detail: BundleFallbackTelemetry) {
+    this.enqueue(
+      detail.reason === 'manifest_unavailable' ? 'info' : 'warn',
+      'cli.download',
+      'bundle download fell back',
+      { ...detail },
+    );
   }
 
   recordCommandSuccess() {
@@ -300,22 +345,55 @@ const SENSITIVE_FLAG_NAMES = new Set([
   '--env',
 ]);
 
-function scrubArgv(args: string[]): string[] {
+const REDACTED = '<redacted>';
+
+/**
+ * The argv a command was run with, as telemetry may keep it: without the
+ * values of the flags above, and without what two `dcd device` subcommands
+ * are given that no flag name marks as a secret.
+ *
+ * - `device open-link` takes its link as a positional. A sign-in link is a
+ *   credential, and `--sensitive` promises it is never shown, so everything
+ *   after `open-link` that is not a flag is taken for the link, and the value
+ *   of any flag but the API URL goes too. That costs the session id, and
+ *   keeps a link too malformed to send from being kept either.
+ * - `device type` takes `--text`, which is a password or a code as often as
+ *   not. `device tap` has a `--text` as well, an element's label, and keeps it.
+ *
+ * The subcommand is found by its name anywhere after `device`, not as the
+ * first positional: a flag's value in between must not hide it.
+ */
+export function scrubArgv(args: string[]): string[] {
+  const device = args.indexOf('device');
+  const subcommand = (name: string) => (device === -1 ? -1 : args.indexOf(name, device + 1));
+  const openLink = subcommand('open-link');
+  const type = subcommand('type');
+  const keeps = (flag: string) => API_URL_FLAGS.includes(flag);
+
   const scrubbed: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    const isFlag = arg.startsWith('-');
     const eqIndex = arg.indexOf('=');
     const flagName = eqIndex === -1 ? arg : arg.slice(0, eqIndex);
-    if (arg.startsWith('-') && SENSITIVE_FLAG_NAMES.has(flagName)) {
+    const afterOpenLink = openLink !== -1 && i > openLink;
+    const secretFlag =
+      SENSITIVE_FLAG_NAMES.has(flagName) ||
+      (type !== -1 && i > type && flagName === '--text') ||
+      // `--anything=value` after open-link: no flag of the command needs its value kept.
+      (afterOpenLink && eqIndex !== -1 && !keeps(flagName));
+    if (isFlag && secretFlag) {
       if (eqIndex === -1) {
         scrubbed.push(arg);
         if (i + 1 < args.length) {
-          scrubbed.push('<redacted>');
+          scrubbed.push(REDACTED);
           i++;
         }
       } else {
-        scrubbed.push(`${flagName}=<redacted>`);
+        scrubbed.push(`${flagName}=${REDACTED}`);
       }
+    } else if (afterOpenLink && !isFlag) {
+      scrubbed.push(keeps(args[i - 1]) ? arg : REDACTED);
     } else {
       scrubbed.push(arg);
     }
