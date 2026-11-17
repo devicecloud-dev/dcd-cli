@@ -146,6 +146,7 @@ describe('CliAuthGateway.refresh', () => {
     ['a 429', () => json({ statusCode: 429, message: 'ThrottlerException: Too Many Requests' }, 429)],
     ['a 404 from an API without the route', () => json({ statusCode: 404, message: 'Cannot POST' }, 404)],
     ['a page that is not JSON', () => new Response('<html>bad gateway</html>', { status: 502 })],
+    ['a 200 that is not JSON', () => new Response('<html>ok</html>', { status: 200 })],
   ] as Array<[string, () => Promise<Response> | Response]>) {
     it(`keeps the stored session after ${label}`, async () => {
       stubFetch(respond);

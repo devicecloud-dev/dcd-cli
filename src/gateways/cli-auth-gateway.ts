@@ -82,7 +82,14 @@ export const CliAuthGateway = {
     }
 
     if (res.ok) {
-      const s = (await res.json()) as Partial<RefreshedSession>;
+      let s: Partial<RefreshedSession>;
+      try {
+        s = (await res.json()) as Partial<RefreshedSession>;
+      } catch {
+        // A 200 that is not JSON (a proxy page, say). The token may not have
+        // been spent, so keep the session and try again next time.
+        throw new SessionRefreshError('Failed to refresh session: response was not JSON', false);
+      }
       if (!s.access_token || !s.refresh_token || !s.expires_at || !s.user_id) {
         throw new SessionRefreshError('Failed to refresh session: incomplete response', false);
       }
