@@ -11,6 +11,7 @@ import { liveCommand } from './commands/live.js';
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { mcpCommand } from './commands/mcp.js';
+import { settingsCommand } from './commands/settings.js';
 import { statusCommand } from './commands/status.js';
 import { switchOrgCommand } from './commands/switch-org.js';
 import { upgradeCommand } from './commands/upgrade.js';
@@ -36,6 +37,7 @@ const main = defineCommand({
     upload: uploadCommand,
     list: listCommand,
     status: statusCommand,
+    settings: settingsCommand,
     artifacts: artifactsCommand,
     device: deviceCommand,
     live: liveCommand,

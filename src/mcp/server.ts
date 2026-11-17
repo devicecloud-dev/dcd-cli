@@ -5,6 +5,7 @@ import { getCliVersion } from '../utils/cli.js';
 import { isReadOnly } from './context.js';
 import { registerDownloadArtifacts } from './tools/download-artifacts.js';
 import { registerGetStatus } from './tools/get-status.js';
+import { registerGetTeamSettings } from './tools/get-team-settings.js';
 import { registerListDevices } from './tools/list-devices.js';
 import { registerListRuns } from './tools/list-runs.js';
 import { registerRunCloudTest } from './tools/run-cloud-test.js';
@@ -24,6 +25,7 @@ export function createServer(): McpServer {
   registerListRuns(server);
   registerGetStatus(server);
   registerDownloadArtifacts(server);
+  registerGetTeamSettings(server);
 
   if (!isReadOnly()) {
     registerRunCloudTest(server);

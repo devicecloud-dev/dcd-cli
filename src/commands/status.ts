@@ -2,7 +2,7 @@ import { defineCommand } from 'citty';
 
 import { apiFlags } from '../config/flags/api.flags.js';
 import { resolveFrontendUrl } from '../config/environments.js';
-import { ApiGateway } from '../gateways/api-gateway.js';
+import { ApiError, ApiGateway } from '../gateways/api-gateway.js';
 import { formatDurationSeconds } from '../methods.js';
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger } from '../utils/cli.js';
@@ -42,6 +42,10 @@ type StatusResponse = {
 /** Errors the API gateway surfaces for 4xx-class failures — retrying is pointless. */
 function isClientApiError(error: Error | null): boolean {
   if (!error) return false;
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+    return true;
+  }
+
   return (
     error.message.includes('Invalid request:') ||
     error.message.includes('Resource not found') ||

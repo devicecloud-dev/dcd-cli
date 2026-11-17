@@ -40,6 +40,37 @@ export interface EncryptionTelemetry {
   source: EncryptionSource;
 }
 
+/**
+ * Why a bundle download fell back to the inline endpoint. `manifest_unavailable`
+ * (a 501) is the expected answer from a deployment without bundle delivery;
+ * the rest are failures worth counting.
+ */
+export type BundleFallbackReason =
+  | 'bundle_http_error'
+  | 'bundle_request_failed'
+  | 'bundle_stream_failed'
+  | 'manifest_http_error'
+  | 'manifest_incomplete'
+  | 'manifest_invalid_json'
+  | 'manifest_request_failed'
+  | 'manifest_unavailable';
+
+export interface BundleFallbackTelemetry {
+  /** Bytes of the ZIP received before the stream failed. */
+  bytes_received?: number;
+  duration_ms: number;
+  /** Low-level error code from the cause, e.g. `ECONNRESET`. */
+  error_code?: string;
+  error_message?: string;
+  error_name?: string;
+  reason: BundleFallbackReason;
+  /** The manifest route, e.g. `artifacts-bundle`. */
+  route: string;
+  /** HTTP status, for the `*_http_error` / `manifest_unavailable` reasons. */
+  status?: number;
+  upload_id?: string;
+}
+
 interface TelemetryConfig {
   apiUrl: string;
   auth: AuthContext;
@@ -148,6 +179,20 @@ class Telemetry {
    */
   recordSubmitAttempts(attempts: number) {
     this.submitAttempts = attempts;
+  }
+
+  /**
+   * Record that a bundle download fell back to the inline endpoint, and why.
+   * The user never sees the fallback (the inline download still delivers the
+   * file), so without this the reason is lost.
+   */
+  recordBundleFallback(detail: BundleFallbackTelemetry) {
+    this.enqueue(
+      detail.reason === 'manifest_unavailable' ? 'info' : 'warn',
+      'cli.download',
+      'bundle download fell back',
+      { ...detail },
+    );
   }
 
   recordCommandSuccess() {
