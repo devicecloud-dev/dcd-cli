@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "dev.devicecloud/dcd",
   "description": "Run Maestro mobile app tests on devicecloud.dev: submit flows, check status, download artifacts.",
-  "version": "5.14.0",
+  "version": "5.14.1",
   "repository": {
     "url": "https://github.com/devicecloud-dev/dcd-cli",
     "source": "github"
@@ -11,7 +11,7 @@
     {
       "registryType": "npm",
       "identifier": "@devicecloud.dev/dcd",
-      "version": "5.14.0",
+      "version": "5.14.1",
       "runtimeHint": "npx",
       "runtimeArguments": [
         {
@@ -51,7 +51,7 @@
         },
         {
           "name": "DCD_ENCRYPT",
-          "description": "Uploads (app binary, flows, env vars) are encrypted on your machine by default. Set to 0 to upload them unencrypted; a run's encrypt input overrides this.",
+          "description": "Uploads (app binary, flows, env vars) are encrypted on your machine by default. Set to 0 to upload them without envelope encryption; a run's encrypt input overrides this.",
           "isRequired": false
         }
       ]

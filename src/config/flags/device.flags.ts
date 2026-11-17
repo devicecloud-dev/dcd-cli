@@ -32,7 +32,7 @@ export const deviceFlags = {
   'device-locale': {
     type: 'string',
     description:
-      'Locale that will be set to a device, ISO-639-1 code and uppercase ISO-3166-1 code e.g. "de_DE" for Germany',
+      'Locale that will be set to a device: a 2-3 letter lowercase language code (ISO 639) and an uppercase ISO-3166-1 country code, e.g. "de_DE" for Germany',
   },
   'google-play': {
     type: 'boolean',

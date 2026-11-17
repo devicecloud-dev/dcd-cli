@@ -66,7 +66,7 @@
     "test:unit": "node scripts/test-runner.mjs --unit",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
-  "version": "5.14.0",
+  "version": "5.14.1",
   "bugs": {
     "url": "https://discord.gg/gm3mJwcNw8"
   },
@@ -88,7 +88,8 @@
     "auditConfig": {
       "ignoreGhsas": [
         "GHSA-frvp-7c67-39w9",
-        "GHSA-vfj7-8cjw-p6xm"
+        "GHSA-vfj7-8cjw-p6xm",
+        "GHSA-fc5q-39xc-vjpf"
       ]
     }
   }
