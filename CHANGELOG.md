@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.14.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.14.0...v5.14.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* device locales take a 2-3 letter code; correct m4 & m1 runner type notes; explain encryption flag ([#333](https://github.com/devicecloud-dev/dcd-cli/issues/333)) ([191eda2](https://github.com/devicecloud-dev/dcd-cli/commit/191eda2b241e91b64b52bf92383f69b649f5493f))
+
 ## [5.14.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.13.0...v5.14.0) (2026-11-17)
 
 
