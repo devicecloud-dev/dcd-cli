@@ -59,12 +59,27 @@ function failure(
  */
 export class ApiError extends Error {
   status: number;
+  /** The API's machine-readable error code, such as `API_KEY_SCOPE`, when it sent one. */
+  code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
+}
+
+/**
+ * API errors no retry can clear: an API key whose access doesn't cover the
+ * call (`API_KEY_SCOPE`), or an upload the key can't see (`UPLOAD_NOT_FOUND`).
+ * A key's access is fixed when it is created.
+ */
+export function isPermanentApiError(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    (error.code === 'API_KEY_SCOPE' || error.code === 'UPLOAD_NOT_FOUND')
+  );
 }
 
 /**
@@ -143,11 +158,17 @@ export const ApiGateway = {
   async handleApiError(res: Response, operation: string): Promise<never> {
     const errorText = await res.text();
     let userMessage: string;
+    let code: string | undefined;
 
     // Parse common API error formats
     try {
       const errorData = JSON.parse(errorText);
       userMessage = errorData.message || errorData.error || errorText;
+      // The API's own codes are UPPER_SNAKE_CASE. Its framework fills `error`
+      // with the HTTP reason ("Forbidden") otherwise, which is not a code.
+      if (typeof errorData.error === 'string' && /^[A-Z][A-Z0-9_]+$/.test(errorData.error)) {
+        code = errorData.error;
+      }
     } catch {
       userMessage = errorText;
     }
@@ -155,7 +176,7 @@ export const ApiGateway = {
     // Add context and improve readability
     switch (res.status) {
       case 400: {
-        throw new ApiError(`Invalid request: ${userMessage}`, 400);
+        throw new ApiError(`Invalid request: ${userMessage}`, 400, code);
       }
 
       case 401: {
@@ -168,10 +189,22 @@ export const ApiGateway = {
           message += `\nServer response: ${userMessage}`;
         }
 
-        throw new ApiError(message, 401);
+        throw new ApiError(message, 401, code);
       }
 
       case 403: {
+        // A valid key whose access is limited, such as a CI-only key. The
+        // revoked-key advice below would send the user looking in the wrong
+        // place, and the server's message already names what to use instead.
+        if (code === 'API_KEY_SCOPE') {
+          throw new ApiError(
+            `Access denied. ${userMessage}\n` +
+              `An API key's access is chosen when the key is created, under Settings → API keys in the console.`,
+            403,
+            code,
+          );
+        }
+
         // For 403, use the server's error message directly as it's now detailed
         // If the message suggests an API key issue, provide additional guidance
         if (userMessage.toLowerCase().includes('api key')) {
@@ -182,28 +215,29 @@ export const ApiGateway = {
               `  3. Ensure the API key hasn't been deleted or revoked\n` +
               `  4. Confirm you're connecting to the correct API URL`,
             403,
+            code,
           );
         }
 
-        throw new ApiError(`Access denied. ${userMessage}`, 403);
+        throw new ApiError(`Access denied. ${userMessage}`, 403, code);
       }
 
       case 404: {
-        throw new ApiError(`Resource not found. ${userMessage}`, 404);
+        throw new ApiError(`Resource not found. ${userMessage}`, 404, code);
       }
 
       case 429: {
-        throw new ApiError(`Rate limit exceeded. Please try again later. (${operation})`, 429);
+        throw new ApiError(`Rate limit exceeded. Please try again later. (${operation})`, 429, code);
       }
 
       case 500: {
-        throw new ApiError(`Server error occurred. Please try again or contact support. (${operation})`, 500);
+        throw new ApiError(`Server error occurred. Please try again or contact support. (${operation})`, 500, code);
       }
 
       default: {
         // `operation` is already phrased as "Failed to …", so don't append
         // another "failed" here (avoids "Failed to execute test failed: …").
-        throw new ApiError(`${operation}: ${userMessage} (HTTP ${res.status})`, res.status);
+        throw new ApiError(`${operation}: ${userMessage} (HTTP ${res.status})`, res.status, code);
       }
     }
   },

@@ -1,3 +1,4 @@
+import { ApiGateway } from '../gateways/api-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type { Notice } from '../services/notices.service.js';
 
@@ -43,7 +44,9 @@ export async function fetchCompatibilityData(
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // Says why, such as a key whose access doesn't cover running tests,
+      // rather than only the status code.
+      await ApiGateway.handleApiError(response, 'Failed to fetch compatibility data');
     }
 
     const result = await response.json() as { data?: CompatibilityData; message?: string; statusCode: number };
