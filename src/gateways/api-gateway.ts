@@ -27,6 +27,17 @@ function expandHome(p: string): string {
   return p.replace(/^~(?=$|\/|\\)/, homedir());
 }
 
+/** Extra checks a bundle download makes before it trusts the manifest. */
+interface BundleDownloadOptions {
+  /**
+   * The manifest's `filename` must start with this, or the download throws
+   * `unsupportedMessage` instead of falling back: how a filtered request
+   * tells an API that applied the filter from an older one that ignored it.
+   */
+  requiredFilenamePrefix?: string;
+  unsupportedMessage?: string;
+}
+
 /** What went wrong in a bundle attempt, minus the route/timing added later. */
 type BundleFailure = Omit<
   BundleFallbackTelemetry,
@@ -293,6 +304,7 @@ export const ApiGateway = {
     manifestEndpoint: string,
     destinationPath: string,
     operation: string,
+    options: BundleDownloadOptions = {},
   ): Promise<boolean> {
     const startedAt = Date.now();
     const outcome = await this.attemptBundleDownload(
@@ -301,6 +313,7 @@ export const ApiGateway = {
       manifestEndpoint,
       destinationPath,
       operation,
+      options,
     );
     if (outcome === true) return true;
 
@@ -327,6 +340,7 @@ export const ApiGateway = {
     manifestEndpoint: string,
     destinationPath: string,
     operation: string,
+    options: BundleDownloadOptions = {},
   ): Promise<BundleFailure | true> {
     let manifestRes: Response;
     try {
@@ -349,6 +363,7 @@ export const ApiGateway = {
 
     let bundle: {
       bundleUrl?: string;
+      filename?: string;
       manifest?: string;
       sig?: string;
     };
@@ -359,6 +374,14 @@ export const ApiGateway = {
     }
     if (!bundle?.bundleUrl || !bundle?.manifest || !bundle?.sig) {
       return failure('manifest_incomplete');
+    }
+
+    // An API that predates a filter ignores it and bundles the whole upload,
+    // named as such. Thrown, not a fallback: the inline route would ignore the
+    // filter just the same and save the wrong ZIP.
+    const prefix = options.requiredFilenamePrefix;
+    if (prefix !== undefined && !bundle.filename?.startsWith(prefix)) {
+      throw new Error(options.unsupportedMessage ?? `${operation}: the API ignored the request filter`);
     }
 
     let zipRes: Response;
@@ -503,21 +526,37 @@ export const ApiGateway = {
   },
 
 
+  /**
+   * Download an upload's artifacts ZIP. With `resultId`, only the attempts of
+   * the flow run that result belongs to; the parameter is sent only when set,
+   * so an unfiltered request is exactly what it always was.
+   */
   async downloadArtifactsZip(
     baseUrl: string,
     auth: AuthContext,
     uploadId: string,
     results: 'ALL' | 'FAILED',
     artifactsPath: string = './artifacts.zip',
+    resultId?: number,
   ) {
+    const filtered = resultId !== undefined;
     // Prefer bundle delivery; fall back to the inline download below.
     if (
       await this.tryBundleDownload(
         baseUrl,
         auth,
-        `/results/${uploadId}/artifacts-bundle?results=${results}`,
+        `/results/${uploadId}/artifacts-bundle?results=${results}` +
+          (filtered ? `&resultId=${resultId}` : ''),
         artifactsPath,
         'Failed to download artifacts',
+        filtered
+          ? {
+              // What the API names a bundle it narrowed to one result.
+              requiredFilenamePrefix: 'artifacts-result-',
+              unsupportedMessage:
+                'Failed to download artifacts: this API does not support downloading one result yet. Download without --result-id or --flow.',
+            }
+          : {},
       )
     ) {
       return;
@@ -525,7 +564,7 @@ export const ApiGateway = {
 
     try {
       const res = await fetch(`${baseUrl}/results/${uploadId}/download`, {
-        body: JSON.stringify({ results }),
+        body: JSON.stringify(filtered ? { results, resultId } : { results }),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,

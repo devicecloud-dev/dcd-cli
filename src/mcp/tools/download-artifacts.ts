@@ -34,6 +34,21 @@ export function registerDownloadArtifacts(server: McpServer): void {
           .string()
           .optional()
           .describe('Local path to write the artifacts zip (default ./artifacts.zip)'),
+        resultId: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Only this result's artifacts: its flow's attempts on that one device. Leave unset with flow.",
+          ),
+        flow: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Only the artifacts of the flow with this file path or name (e.g. flows/login.yaml or login). A name matching several results (one per device) gives a warning listing their ids; pass one as resultId.',
+          ),
         report: z
           .enum(['junit', 'allure', 'html'])
           .optional()
@@ -51,6 +66,10 @@ export function registerDownloadArtifacts(server: McpServer): void {
     },
     async (args) =>
       runTool('dcd_download_artifacts', async () => {
+        if (args.resultId !== undefined && args.flow !== undefined) {
+          throw new Error('Pass resultId or flow, not both');
+        }
+
         const { apiUrl, auth } = await getContext();
         const service = new ReportDownloadService();
         const warnings: string[] = [];
@@ -66,6 +85,8 @@ export function registerDownloadArtifacts(server: McpServer): void {
           uploadId: args.uploadId,
           downloadType: args.type ?? 'ALL',
           artifactsPath,
+          flow: args.flow,
+          resultId: args.resultId,
           logger: logStderr,
           warnLogger,
         });
