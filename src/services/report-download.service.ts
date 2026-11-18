@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { ApiGateway } from '../gateways/api-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { refreshAuth } from '../utils/auth.js';
+import { deviceFromResultRow } from './results-polling.service.js';
 
 export interface DownloadOptions {
   auth: AuthContext;
@@ -16,6 +17,60 @@ export interface DownloadOptions {
 export interface ArtifactsDownloadOptions extends DownloadOptions {
   artifactsPath?: string;
   downloadType: 'ALL' | 'FAILED';
+  /**
+   * Only this flow's artifacts, by its file path or name: resolved to one
+   * result with {@link matchFlowResult}. Leave unset with `resultId`.
+   */
+  flow?: string;
+  /**
+   * Only the artifacts of the flow run this result belongs to: its first
+   * attempt and every retry, on that one device.
+   */
+  resultId?: number;
+}
+
+/** A result row as the flow lookup needs it. */
+export interface FlowResultRow {
+  config?: unknown;
+  id: number;
+  retry_of?: null | number;
+  simulator_name?: null | string;
+  test_file_name: string;
+}
+
+/** `./flows/login.yaml` -> `flows/login.yaml`, so the forms compare equal. */
+const normaliseFlowPath = (p: string) => p.trim().replace(/^(\.\/)+/, '');
+
+/**
+ * The one run in an upload whose flow file matches `flow`: its full path as
+ * submitted (`flows/login.yaml`, with or without `./`), its file name
+ * (`login.yaml`) or its name without the extension (`login`). Only first
+ * attempts are candidates; the API adds the retries. Throws when nothing
+ * matches, or when several runs do (a device matrix runs one flow per
+ * device), listing the result ids to pick from with --result-id.
+ */
+export function matchFlowResult(rows: FlowResultRow[], flow: string): number {
+  const wanted = normaliseFlowPath(flow);
+  const roots = rows.filter((r) => r.retry_of === null || r.retry_of === undefined);
+  const matches = roots.filter((r) => {
+    const file = normaliseFlowPath(r.test_file_name);
+    const base = file.split('/').pop() ?? file;
+    return file === wanted || base === wanted || base.replace(/\.ya?ml$/i, '') === wanted;
+  });
+
+  if (matches.length === 1) return matches[0].id;
+  if (matches.length === 0) {
+    throw new Error(`No flow matching '${flow}' in this upload`);
+  }
+
+  const candidates = matches.map((r) => {
+    const device = deviceFromResultRow(r);
+    const label = [device?.name, device?.osVersion].filter(Boolean).join(' ');
+    return `${r.id} (${r.test_file_name}${label ? `, ${label}` : ''})`;
+  });
+  throw new Error(
+    `'${flow}' matches ${matches.length} results in this upload; pick one with --result-id: ${candidates.join(', ')}`,
+  );
 }
 
 export interface ReportDownloadOptions extends DownloadOptions {
@@ -84,6 +139,7 @@ export class ReportDownloadService {
       downloadType,
       artifactsPath = './artifacts.zip',
       debug = false,
+      flow,
       logger,
       warnLogger,
     } = options;
@@ -95,12 +151,30 @@ export class ReportDownloadService {
 
       // `dcd cloud` downloads after polling, which can outlast a `dcd login`
       // token; a failed refresh lands in the warning below like any failure.
+      const freshAuth = await refreshAuth(auth);
+
+      // A flow name becomes the result id the API filters on. A name that
+      // matches nothing, or several runs, lands in the warning below.
+      let { resultId } = options;
+      if (flow !== undefined) {
+        const { results } = (await ApiGateway.getResultsForUpload(
+          apiUrl,
+          freshAuth,
+          uploadId,
+        )) as { results?: FlowResultRow[] };
+        resultId = matchFlowResult(results ?? [], flow);
+        if (debug && logger) {
+          logger(`[DEBUG] Flow '${flow}' is result ${resultId}`);
+        }
+      }
+
       await ApiGateway.downloadArtifactsZip(
         apiUrl,
-        await refreshAuth(auth),
+        freshAuth,
         uploadId,
         downloadType,
         artifactsPath,
+        resultId,
       );
 
       if (logger) {

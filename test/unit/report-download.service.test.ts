@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { ApiGateway } from '../../src/gateways/api-gateway.js';
 import {
   downloadsSucceeded,
+  matchFlowResult,
   ReportDownloadService,
   reportFormatDeprecation,
 } from '../../src/services/report-download.service.js';
@@ -463,6 +464,8 @@ describe('ReportDownloadService', () => {
       opts: {
         manifestBody?: Record<string, unknown>;
         manifestStatus?: number;
+        /** Rows for `GET /results/{id}?view=summary`, the --flow lookup. */
+        results?: Array<Record<string, unknown>>;
         zipBody?: Buffer | string;
         zipBreaksAfter?: string;
         zipStatus?: number;
@@ -477,6 +480,7 @@ describe('ReportDownloadService', () => {
           sig: 'SIG',
         },
         manifestStatus = 200,
+        results = [],
         zipBody = BUNDLE_ZIP,
         zipBreaksAfter,
         zipStatus = 200,
@@ -505,6 +509,12 @@ describe('ReportDownloadService', () => {
           url,
         });
 
+        if (url.includes('?view=summary')) {
+          return new Response(
+            stream(JSON.stringify({ results, statusCode: 200 })),
+            { headers: { 'content-type': 'application/json' }, status: 200 },
+          );
+        }
         if (url.includes('artifacts-bundle') || url.includes('report-bundle')) {
           return new Response(
             stream(JSON.stringify(manifestBody)),
@@ -725,6 +735,157 @@ describe('ReportDownloadService', () => {
         url: 'https://cdn.example.com/bundle',
       });
     });
+
+    describe('one result (--result-id / --flow)', () => {
+      const filteredManifest = {
+        bundleUrl: 'https://cdn.example.com/bundle',
+        entryCount: 3,
+        filename: 'artifacts-result-41-all.zip',
+        manifest: '{"version":1}',
+        sig: 'SIG',
+      };
+
+      it('asks the bundle route for the result, and takes the narrowed bundle', async () => {
+        mockBundleFetch({ manifestBody: filteredManifest });
+        const outPath = path.join(tempDir, 'one-result.zip');
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: outPath,
+          downloadType: 'ALL',
+          resultId: 42,
+        });
+
+        expect(result.ok).to.equal(true);
+        expect(calls[0].url).to.equal(
+          'https://api.example.com/results/run-42/artifacts-bundle?results=ALL&resultId=42',
+        );
+        expect(fs.readFileSync(outPath).equals(BUNDLE_ZIP)).to.be.true;
+      });
+
+      it('sends resultId in the inline body only when set', async () => {
+        mockBundleFetch({ manifestBody: filteredManifest, manifestStatus: 501 });
+        let inlineBody: string | undefined;
+        const routed = globalThis.fetch;
+        globalThis.fetch = (async (input: URL | string, init?: RequestInit) => {
+          if (input.toString().endsWith('/download')) inlineBody = String(init?.body);
+          return routed(input, init);
+        }) as typeof fetch;
+
+        await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: path.join(tempDir, 'one-result-inline.zip'),
+          downloadType: 'FAILED',
+          resultId: 42,
+        });
+
+        expect(JSON.parse(inlineBody!)).to.deep.equal({ results: 'FAILED', resultId: 42 });
+      });
+
+      it('refuses a whole-upload bundle from an API that ignored the filter', async () => {
+        // An older API: no resultId support, so the usual bundle name.
+        mockBundleFetch();
+        const outPath = path.join(tempDir, 'old-api.zip');
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: outPath,
+          downloadType: 'ALL',
+          resultId: 42,
+        });
+
+        expect(result.ok).to.equal(false);
+        expect(result.error).to.include('does not support downloading one result');
+        // Neither the bundle nor the inline route was downloaded.
+        expect(calls.map((c) => c.url)).to.deep.equal([
+          'https://api.example.com/results/run-42/artifacts-bundle?results=ALL&resultId=42',
+        ]);
+        expect(fs.existsSync(outPath)).to.be.false;
+      });
+
+      it('resolves --flow to its result id', async () => {
+        mockBundleFetch({
+          manifestBody: filteredManifest,
+          results: [
+            { id: 41, retry_of: null, test_file_name: './flows/login.yaml' },
+            { id: 43, retry_of: 41, test_file_name: './flows/login.yaml' },
+            { id: 44, retry_of: null, test_file_name: './flows/checkout.yaml' },
+          ],
+        });
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: path.join(tempDir, 'one-flow.zip'),
+          downloadType: 'ALL',
+          flow: 'login',
+        });
+
+        expect(result.ok).to.equal(true);
+        expect(calls[0].url).to.equal(
+          'https://api.example.com/results/run-42?view=summary',
+        );
+        expect(calls[1].url).to.equal(
+          'https://api.example.com/results/run-42/artifacts-bundle?results=ALL&resultId=41',
+        );
+      });
+
+      it('warns, listing the ids, when --flow matches several results', async () => {
+        mockBundleFetch({
+          results: [
+            { config: { deviceName: 'Pixel 8', osVersion: '15' }, id: 41, retry_of: null, test_file_name: 'login.yaml' },
+            { config: { deviceName: 'iPhone 16', osVersion: '18' }, id: 42, retry_of: null, test_file_name: 'login.yaml' },
+          ],
+        });
+        const warnings: string[] = [];
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: path.join(tempDir, 'ambiguous.zip'),
+          downloadType: 'ALL',
+          flow: 'login',
+          warnLogger: (m) => warnings.push(m),
+        });
+
+        expect(result.ok).to.equal(false);
+        expect(warnings[0]).to.include('matches 2 results');
+        expect(warnings[0]).to.include('41 (login.yaml, Pixel 8 15)');
+        expect(warnings[0]).to.include('42 (login.yaml, iPhone 16 18)');
+        expect(calls.some((c) => c.url.includes('artifacts-bundle'))).to.be.false;
+      });
+    });
+  });
+});
+
+describe('matchFlowResult', () => {
+  const rows = [
+    { id: 1, retry_of: null, test_file_name: './flows/auth/login.yaml' },
+    { id: 2, retry_of: 1, test_file_name: './flows/auth/login.yaml' },
+    { id: 3, retry_of: null, test_file_name: './flows/checkout.yml' },
+  ];
+
+  for (const flow of [
+    './flows/auth/login.yaml',
+    'flows/auth/login.yaml',
+    'login.yaml',
+    'login',
+  ]) {
+    it(`matches '${flow}' to the first attempt`, () => {
+      expect(matchFlowResult(rows, flow)).to.equal(1);
+    });
+  }
+
+  it('matches a .yml flow by its name', () => {
+    expect(matchFlowResult(rows, 'checkout')).to.equal(3);
+  });
+
+  it('fails when nothing matches', () => {
+    expect(() => matchFlowResult(rows, 'signup')).to.throw(
+      "No flow matching 'signup' in this upload",
+    );
+  });
+
+  it('never matches a part of a name', () => {
+    expect(() => matchFlowResult(rows, 'log')).to.throw(/No flow matching/);
   });
 });
 
