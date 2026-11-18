@@ -69,7 +69,18 @@ const commonArgs = { ...apiFlags, json: jsonFlag } as const;
 const idArg = {
   type: 'positional',
   required: false,
-  description: 'Session id, e.g. brave-teal-otter. Optional when exactly one session is open.',
+  description: 'Session id, e.g. brave-teal-otter. Optional when you have exactly one open session.',
+} as const;
+
+/**
+ * For the commands that change a session: one someone else started (another
+ * person or another API key) is refused with LIVE_NOT_YOURS unless this is
+ * given. A teammate's agent may be using it.
+ */
+const forceArg = {
+  type: 'boolean',
+  default: false,
+  description: 'Change a session someone else started (another person or API key)',
 } as const;
 
 interface Ctx {
@@ -538,11 +549,12 @@ const statusSub = defineCommand({
 });
 
 const stopSub = defineCommand({
-  meta: { name: 'stop', description: 'Stop a session, or every open one with --all' },
+  meta: { name: 'stop', description: 'Stop a session, or every open one of yours with --all' },
   args: {
     ...commonArgs,
     id: idArg,
-    all: { type: 'boolean', default: false, description: "Stop every open session in your org" },
+    all: { type: 'boolean', default: false, description: 'Stop every open session of yours (with --force, everyone\'s)' },
+    force: forceArg,
   },
   async run({ args }) {
     const json = Boolean(args.json);
@@ -551,26 +563,38 @@ const stopSub = defineCommand({
       if (args.all) {
         if (args.id) throw new CliError('Pass a session id or --all, not both.');
         const { sessions } = await DeviceGateway.list(ctx.apiUrl, ctx.auth);
+        // Yours, or every one with --force: another's may be a teammate's
+        // agent at work. An API that does not say whose is read as before.
+        const force = Boolean(args.force);
+        const mine = sessions.filter((s) => force || !s.started_by || s.started_by.you);
+        const others = sessions.filter((s) => !mine.includes(s));
         const stopped: DeviceSession[] = [];
-        for (const s of sessions) {
-          stopped.push((await DeviceGateway.stop(ctx.apiUrl, ctx.auth, s.id)).session);
+        for (const s of mine) {
+          stopped.push((await DeviceGateway.stop(ctx.apiUrl, ctx.auth, s.id, force)).session);
         }
 
         return {
           session: undefined,
-          data: { stopped },
+          data: { left: others.map((s) => s.id), stopped },
           print() {
             logger.log(
               stopped.length === 0
-                ? ui.info('No open device sessions to stop.')
+                ? ui.info('No open device sessions of yours to stop.')
                 : ui.success(`Stopped ${stopped.map((s) => s.id).join(', ')}`),
             );
+            if (others.length > 0) {
+              logger.log(
+                ui.info(
+                  `Left ${others.map((s) => s.id).join(', ')}, started by someone else. Add --force to stop those too.`,
+                ),
+              );
+            }
           },
         };
       }
 
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
-      const { session } = await DeviceGateway.stop(ctx.apiUrl, ctx.auth, id);
+      const { session } = await DeviceGateway.stop(ctx.apiUrl, ctx.auth, id, Boolean(args.force));
       return {
         session,
         data: null,
@@ -595,6 +619,7 @@ const installSub = defineCommand({
   meta: { name: 'install', description: 'Install a build: a local file (uploaded first) or an https URL' },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     app: {
       type: 'positional',
@@ -623,7 +648,7 @@ const installSub = defineCommand({
       id = await resolveSessionId(ctx.apiUrl, ctx.auth, id);
       const body = binaryId ? { binaryUploadId: binaryId } : await resolveApp(ctx, app!);
       ctx.progress(ui.running(`Installing on ${colors.highlight(id)}…`));
-      const installed = await DeviceGateway.install(ctx.apiUrl, ctx.auth, id, body);
+      const installed = await DeviceGateway.install(ctx.apiUrl, ctx.auth, id, body, Boolean(args.force));
       let { session } = installed;
       if (args.wait) {
         ctx.progress(ui.running('Waiting for the device…'));
@@ -674,6 +699,7 @@ const launchSub = defineCommand({
   meta: { name: 'launch', description: 'Launch an app: the installed one, or a bundle id / package name' },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     appId: {
       type: 'positional',
@@ -695,10 +721,16 @@ const launchSub = defineCommand({
 
       const ctx = await context(args);
       id = await resolveSessionId(ctx.apiUrl, ctx.auth, id);
-      const { result, session } = await DeviceGateway.launch(ctx.apiUrl, ctx.auth, id, {
-        ...(appId && { appId }),
-        ...(args['clear-state'] ? { clearState: true } : {}),
-      });
+      const { result, session } = await DeviceGateway.launch(
+        ctx.apiUrl,
+        ctx.auth,
+        id,
+        {
+          ...(appId && { appId }),
+          ...(args['clear-state'] ? { clearState: true } : {}),
+        },
+        Boolean(args.force),
+      );
       return {
         session,
         data: { result } as { result: DeviceCommandResult },
@@ -791,7 +823,13 @@ async function performAction(
 ) {
   const ctx = await context(args);
   const sessionId = await resolveSessionId(ctx.apiUrl, ctx.auth, id);
-  const { result, session } = await DeviceGateway.action(ctx.apiUrl, ctx.auth, sessionId, body);
+  const { result, session } = await DeviceGateway.action(
+    ctx.apiUrl,
+    ctx.auth,
+    sessionId,
+    body,
+    Boolean(args.force),
+  );
   return {
     session,
     data: { result } as { result: DeviceCommandResult },
@@ -809,6 +847,7 @@ const tapSub = defineCommand({
   meta: { name: 'tap', description: 'Tap an element by text or id, or a point on the screen' },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     text: { type: 'string', description: 'The element\'s text, label or hint, matched whole, ignoring case' },
     rid: { type: 'string', description: 'The element\'s resource id (rid in `dcd device inspect`)' },
@@ -860,6 +899,7 @@ const typeSub = defineCommand({
   meta: { name: 'type', description: 'Type text into the focused field' },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     // Not `required`: citty would reject a missing value before runDeviceCommand,
     // and --json would then print the top-level error instead of the envelope.
@@ -894,6 +934,7 @@ const swipeSub = defineCommand({
   meta: { name: 'swipe', description: 'Swipe up, down, left or right, or from one point to another' },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     direction: {
       type: 'positional',
@@ -936,6 +977,7 @@ const pressKeySub = defineCommand({
   meta: { name: 'press-key', description: `Press a key: ${DEVICE_KEYS.join(', ')}` },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     key: { type: 'positional', required: false, description: `One of ${DEVICE_KEYS.join(', ')}` },
     maestro: maestroArg,
@@ -959,6 +1001,7 @@ const openLinkSub = defineCommand({
   meta: { name: 'open-link', description: 'Open a link on the device: a deep link into an app, or a web link' },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     // Not `required`, as with `type --text`: a missing link fails inside the envelope.
     url: {
@@ -1000,6 +1043,7 @@ const setLocationSub = defineCommand({
   meta: { name: 'set-location', description: "Set the device's GPS position, in decimal degrees" },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     latitude: { type: 'string', description: 'Decimal degrees, north positive (-90 to 90)' },
     longitude: { type: 'string', description: 'Decimal degrees, east positive (-180 to 180)' },
@@ -1202,6 +1246,7 @@ const runSub = defineCommand({
   },
   args: {
     ...commonArgs,
+    force: forceArg,
     id: idArg,
     flow: {
       type: 'positional',
@@ -1274,7 +1319,7 @@ const runSub = defineCommand({
       }
 
       ctx.progress(ui.running(`Running ${entry ?? flow ?? 'the flow'} on ${colors.highlight(id)}…`));
-      let response = await DeviceGateway.run(ctx.apiUrl, ctx.auth, id, body);
+      let response = await DeviceGateway.run(ctx.apiUrl, ctx.auth, id, body, Boolean(args.force));
       if (response.status === 'running') response = await waitForCommand(ctx, id, response.command_id);
 
       const result = response.result ?? { success: false };
@@ -1496,6 +1541,7 @@ const requestHumanSub = defineCommand({
   },
   args: {
     ...commonArgs,
+    force: forceArg,
     reason: {
       type: 'positional',
       // Checked in run, so a missing reason still fails with the --json envelope.
@@ -1513,7 +1559,7 @@ const requestHumanSub = defineCommand({
       if (reason.length > 500) throw new CliError('The reason is too long: keep it to 500 characters.');
       const ctx = await context(args);
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
-      let response = await DeviceGateway.requestHuman(ctx.apiUrl, ctx.auth, id, reason);
+      let response = await DeviceGateway.requestHuman(ctx.apiUrl, ctx.auth, id, reason, Boolean(args.force));
       ctx.progress(ui.success(`Asked for a person on ${id}`));
       if (args.wait) response = await waitForHandBack(ctx, id, response);
       const { human, session } = response;

@@ -12,6 +12,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 
 import {
+  BRIDGE_INSTANCE,
   createBridgeServer,
   explainFailedStart,
   flowFileBundle,
@@ -30,6 +31,8 @@ function startHosted(): Promise<{
   http: HttpServer;
   ignoreReadOnly: boolean;
   inits: number;
+  /** The connection name each request carried. */
+  instances: (string | undefined)[];
   paths: string[];
   sessions: Record<string, unknown>[];
   url: string;
@@ -40,6 +43,7 @@ function startHosted(): Promise<{
     failStart: false,
     ignoreReadOnly: false,
     inits: 0,
+    instances: [] as (string | undefined)[],
     paths: [] as string[],
     sessions: [] as Record<string, unknown>[],
   };
@@ -57,6 +61,7 @@ function startHosted(): Promise<{
     }
 
     hosted.paths.push(req.url ?? '');
+    hosted.instances.push(req.headers['x-dcd-client-instance'] as string | undefined);
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
     const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
@@ -175,6 +180,16 @@ describe('dcd mcp bridge', () => {
     expect(result.isError).to.not.equal(true);
     expect(hosted.calls).to.deep.equal([{ name: 'inspect_screen', args: {}, auth: 'test-key' }]);
     expect(new Set(hosted.paths)).to.deep.equal(new Set(['/mcp']));
+    await client.close();
+  });
+
+  it('names this process on every request, so the sessions it starts are its own', async () => {
+    const client = await connect();
+    await client.listTools();
+    await client.callTool({ name: 'inspect_screen', arguments: {} });
+    expect(hosted.instances.length).to.be.greaterThan(1);
+    expect(new Set(hosted.instances)).to.deep.equal(new Set([BRIDGE_INSTANCE]));
+    expect(BRIDGE_INSTANCE).to.match(/^dcd-mcp-[0-9a-f]{16}$/);
     await client.close();
   });
 

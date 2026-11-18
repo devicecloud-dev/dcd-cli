@@ -15,6 +15,7 @@
  *
  * stdout is the JSON-RPC channel: everything else goes to stderr.
  */
+import { randomBytes } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -48,6 +49,16 @@ import { createServer } from './server.js';
  */
 const INSTRUCTIONS =
   'DeviceCloud tools. dcd_* tools run Maestro test suites in the cloud: dcd_list_devices shows what you can test on, dcd_run_cloud_test submits flows (billable), and dcd_get_status follows a run. dcd_get_team_settings reads the team settings and limits. Any other tools describe their own use. Where a tool takes a path to a local file (an app build, a flow file or a directory), this server uploads it for you.';
+
+/** The header the API reads a connection's name from. */
+export const CLIENT_INSTANCE_HEADER = 'x-dcd-client-instance';
+
+/**
+ * This process's name for its connection to the hosted tools, the same for
+ * as long as it runs: one `dcd mcp` is one agent's connection, and a
+ * reconnect must not make its sessions someone else's.
+ */
+export const BRIDGE_INSTANCE = `dcd-mcp-${randomBytes(8).toString('hex')}`;
 
 /**
  * How long one forwarded call may take. Longer than dcd_run_cloud_test's
@@ -237,6 +248,10 @@ class RemoteDevices {
           const { auth } = await getContext();
           const headers = new Headers(init?.headers);
           for (const [key, value] of Object.entries(auth.headers)) headers.set(key, value);
+          // This process, by name: the sessions it starts are its own
+          // (started_by.this_client), and a call that names no session takes
+          // one of them, never a session another process started.
+          headers.set(CLIENT_INSTANCE_HEADER, BRIDGE_INSTANCE);
           return fetch(url, { ...init, headers });
         },
       }),

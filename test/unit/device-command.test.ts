@@ -215,6 +215,8 @@ describe('dcd device', () => {
       expect(deviceExitCode(apiError(401, null))).to.equal(DEVICE_EXIT.usage);
       expect(deviceExitCode(new CliError('bad flag'))).to.equal(DEVICE_EXIT.usage);
       expect(deviceExitCode(apiError(409, 'LIVE_HUMAN_IN_CONTROL'))).to.equal(DEVICE_EXIT.failed);
+      // Another's session: as a person in control, it could not be done.
+      expect(deviceExitCode(apiError(409, 'LIVE_NOT_YOURS'))).to.equal(DEVICE_EXIT.failed);
       expect(deviceExitCode(apiError(503, null))).to.equal(DEVICE_EXIT.failed);
       expect(deviceExitCode(new Error('network'))).to.equal(DEVICE_EXIT.failed);
     });
@@ -241,6 +243,27 @@ describe('dcd device', () => {
         expect(error).to.be.instanceOf(CliError);
         expect((error as CliError).exitCode).to.equal(DEVICE_EXIT.usage);
         expect((error as Error).message).to.include('a-b-c').and.include('d-e-f');
+      }
+    });
+
+    it("takes your only session, never someone else's", async () => {
+      stubFetch(() => ({
+        body: { sessions: [session('theirs', { started_by: { api_key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } }), session('yours', { started_by: { api_key_name: null, client_label: null, email: null, this_client: false, you: true } })] },
+      }));
+      expect(await resolveSessionId(API, auth, undefined)).to.equal('yours');
+    });
+
+    it('is a usage error, naming who started each, when none of the open sessions is yours', async () => {
+      stubFetch(() => ({ body: { sessions: [session('theirs', { started_by: { api_key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } })] } }));
+      try {
+        await resolveSessionId(API, auth, undefined);
+        expect.fail('should have thrown');
+      } catch (error) {
+        expect((error as CliError).exitCode).to.equal(DEVICE_EXIT.usage);
+        expect((error as Error).message)
+          .to.include('None of the open device sessions is yours')
+          .and.include('started by ann@example.com')
+          .and.include('--force');
       }
     });
 
@@ -753,6 +776,41 @@ describe('dcd device', () => {
       await runJson('launch', { id: 'com.example.app', 'clear-state': true });
       expect(calls[1].url).to.equal(`${API}/device/sessions/a-b-c/launch`);
       expect(calls[1].body).to.deep.equal({ appId: 'com.example.app', clearState: true });
+    });
+
+    it("stop --all stops your sessions and leaves others' unless --force", async () => {
+      const calls = stubFetch((call) =>
+        call.method === 'GET'
+          ? { body: { sessions: [session('mine-1', { started_by: { api_key_name: null, client_label: null, email: null, this_client: false, you: true } }), session('theirs', { started_by: { api_key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } })] } }
+          : { body: { session: session(call.url.split('/').pop()!.split('?')[0], { state: 'released' }) } },
+      );
+      const { out } = await runJson('stop', { all: true });
+      expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).to.deep.equal([
+        `${API}/device/sessions/mine-1`,
+      ]);
+      expect((out.data as { left: string[] }).left).to.deep.equal(['theirs']);
+
+      calls.length = 0;
+      await runJson('stop', { all: true, force: true });
+      expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url)).to.deep.equal([
+        `${API}/device/sessions/mine-1?force=true`,
+        `${API}/device/sessions/theirs?force=true`,
+      ]);
+    });
+
+    it('--force asks the API to change a session someone else started', async () => {
+      const calls = stubFetch((call) =>
+        call.method === 'DELETE'
+          ? { body: { session: session('theirs', { state: 'released' }) } }
+          : { body: { result: { success: true }, session: session('theirs') } },
+      );
+      await runJson('stop', { id: 'theirs', force: true });
+      expect(calls[0].url).to.equal(`${API}/device/sessions/theirs?force=true`);
+      await runJson('press-key', { id: 'theirs', key: 'back', force: true });
+      expect(calls[1].body).to.deep.equal({ force: true, key: 'back', type: 'press_key' });
+      // Without it, nothing extra is sent: an older API sees what it always did.
+      await runJson('press-key', { id: 'theirs', key: 'back' });
+      expect(calls[2].body).to.deep.equal({ key: 'back', type: 'press_key' });
     });
 
     it('stop --all stops every open session', async () => {
