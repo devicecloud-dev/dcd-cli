@@ -1334,7 +1334,7 @@ const screenshotSub = defineCommand({
     full: {
       type: 'boolean',
       description:
-        "A PNG at the device's own resolution, instead of the smaller JPEG frame (for baseline images). Takes a few seconds; a device running a flow takes it when the flow ends",
+        "A PNG at the device's own resolution, instead of the smaller JPEG frame (for baseline images). Takes a few seconds. A device busy running a flow can't take it: after 30 seconds the request fails, so take it once the flow has finished",
     },
   },
   async run({ args }) {

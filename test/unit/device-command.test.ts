@@ -233,6 +233,8 @@ describe('dcd device', () => {
 
     it('maps limits to 3 and ended or missing sessions to 4', () => {
       expect(deviceExitCode(apiError(429, 'LIVE_SPEND_CAP'))).to.equal(DEVICE_EXIT.limit);
+      // A start refused by the team's overage cap or a usage alert's hard stop.
+      expect(deviceExitCode(apiError(402, 'USAGE_LIMIT_EXCEEDED'))).to.equal(DEVICE_EXIT.limit);
       expect(deviceExitCode(apiError(409, 'LIVE_CONCURRENCY_LIMIT'))).to.equal(DEVICE_EXIT.limit);
       expect(deviceExitCode(apiError(429, null))).to.equal(DEVICE_EXIT.limit);
       expect(deviceExitCode(apiError(404, 'LIVE_NOT_FOUND'))).to.equal(DEVICE_EXIT.gone);
