@@ -1,4 +1,5 @@
 import { createWriteStream, mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
@@ -19,6 +20,7 @@ import type {
 } from '../types/domain/live.types.js';
 import type { TeamSettings } from '../types/domain/team-settings.types.js';
 import { components, paths } from '../types/generated/schema.types.js';
+import { assertCompleteZip, IncompleteZipError } from '../utils/zip-integrity.js';
 
 /** Expand a leading `~` to the home directory, as the download paths allow. */
 function expandHome(p: string): string {
@@ -402,7 +404,50 @@ export const ApiGateway = {
         bytes_received: bytesReceived,
       });
     }
+
+    // A bundle that fails after its 200 headers still ends cleanly, so the
+    // stream above succeeds and leaves a ZIP with no central directory. Check
+    // before calling it done; the inline path then overwrites the file.
+    try {
+      await assertCompleteZip(expandHome(destinationPath));
+    } catch (error) {
+      return failure('bundle_truncated', {
+        ...errorDetail(error),
+        bytes_received: bytesReceived,
+      });
+    }
+
     return true;
+  },
+
+  /**
+   * Fail an inline ZIP download that ended before its central directory: the
+   * API streams the ZIP as it builds it, so a failure after the headers can
+   * still close the response cleanly. Deletes the partial file, so nothing
+   * downstream (a CI artifact upload, say) picks up a corrupt ZIP.
+   */
+  async assertInlineZipComplete(
+    destinationPath: string,
+    operation: string,
+    route: string,
+    uploadId: string,
+  ) {
+    const file = expandHome(destinationPath);
+    try {
+      await assertCompleteZip(file);
+    } catch (error) {
+      if (!(error instanceof IncompleteZipError)) throw error;
+      await rm(file, { force: true }).catch(() => {});
+      telemetry.recordDownloadIncomplete({
+        bytes: error.bytes,
+        route,
+        upload_id: uploadId,
+      });
+      throw new Error(
+        `${operation}: the download ended early and ${error.message}. Please retry.`,
+        { cause: error },
+      );
+    }
   },
 
   /**
@@ -492,6 +537,12 @@ export const ApiGateway = {
       }
 
       await this.streamResponseToFile(res, artifactsPath, 'Failed to download artifacts');
+      await this.assertInlineZipComplete(
+        artifactsPath,
+        'Failed to download artifacts',
+        'download',
+        uploadId,
+      );
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/results/${uploadId}/download`);
@@ -1089,6 +1140,15 @@ export const ApiGateway = {
       }
 
       await this.streamResponseToFile(res, finalReportPath, errorPrefix);
+      // Only the HTML report is a ZIP; junit is XML and allure is one HTML file.
+      if (reportType === 'html') {
+        await this.assertInlineZipComplete(
+          finalReportPath,
+          errorPrefix,
+          'html-report',
+          uploadId,
+        );
+      }
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, url);

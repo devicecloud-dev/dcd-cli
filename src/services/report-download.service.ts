@@ -58,6 +58,14 @@ export interface DownloadResult {
 }
 
 /**
+ * Whether every requested download succeeded. `dcd artifacts` exits 1 when
+ * not; `dcd cloud` only warns, so a download never changes a test-run exit.
+ */
+export function downloadsSucceeded(downloads: DownloadResult[]): boolean {
+  return downloads.length > 0 && downloads.every((d) => d.ok);
+}
+
+/**
  * Service for downloading test artifacts and reports
  */
 export class ReportDownloadService {
