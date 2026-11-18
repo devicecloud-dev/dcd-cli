@@ -49,6 +49,8 @@ export type BundleFallbackReason =
   | 'bundle_http_error'
   | 'bundle_request_failed'
   | 'bundle_stream_failed'
+  /** The stream ended cleanly but the ZIP has no complete central directory. */
+  | 'bundle_truncated'
   | 'manifest_http_error'
   | 'manifest_incomplete'
   | 'manifest_invalid_json'
@@ -193,6 +195,19 @@ class Telemetry {
       'bundle download fell back',
       { ...detail },
     );
+  }
+
+  /**
+   * Record an inline ZIP download that ended before its central directory.
+   * The user sees the failure; this keeps a count of how often it happens.
+   */
+  recordDownloadIncomplete(detail: {
+    bytes: number;
+    /** The inline route, e.g. `download` or `html-report`. */
+    route: string;
+    upload_id?: string;
+  }) {
+    this.enqueue('warn', 'cli.download', 'download incomplete', { ...detail });
   }
 
   recordCommandSuccess() {

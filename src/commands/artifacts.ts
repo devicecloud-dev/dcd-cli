@@ -4,6 +4,7 @@ import { apiFlags } from '../config/flags/api.flags.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
 import {
   type DownloadResult,
+  downloadsSucceeded,
   ReportDownloadService,
   reportFormatDeprecation,
 } from '../services/report-download.service.js';
@@ -140,12 +141,15 @@ export const artifactsCommand = defineCommand({
       if (result) downloads.push(result);
     }
 
+    // Downloading is this command's only job, so a failed or incomplete
+    // download exits 1, with or without --json. Its warning is already
+    // printed, and fail() prints nothing more (no second JSON object).
+    const ok = downloadsSucceeded(downloads);
     if (json) {
-      const ok = downloads.some((d) => d.ok);
       logger.json({ status: ok ? 'SUCCESS' : 'FAILED', uploadId, downloads });
-      // Same exit code a thrown error would give, without a second JSON object.
-      if (!ok) logger.fail('Every download failed', 1);
     }
+
+    if (!ok) logger.fail('Download failed', 1);
   },
 });
 

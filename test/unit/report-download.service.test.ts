@@ -5,6 +5,7 @@ import * as path from 'node:path';
 
 import { ApiGateway } from '../../src/gateways/api-gateway.js';
 import {
+  downloadsSucceeded,
   ReportDownloadService,
   reportFormatDeprecation,
 } from '../../src/services/report-download.service.js';
@@ -13,6 +14,7 @@ import {
   telemetry,
 } from '../../src/services/telemetry.service.js';
 import type { AuthContext } from '../../src/types/domain/auth.types.js';
+import { zipBuffer } from '../helpers/zip-fixture.js';
 
 const TEST_AUTH: AuthContext = {
   mode: 'apiKey',
@@ -31,6 +33,20 @@ type CapturedRequest = {
 };
 
 let captured: CapturedRequest | null = null;
+
+// Artifact and HTML report downloads are checked for a complete ZIP, so they
+// are served real ones. Two, with different contents, so a test can tell which
+// path wrote the file.
+let INLINE_ZIP: Buffer;
+let BUNDLE_ZIP: Buffer;
+
+before(async () => {
+  INLINE_ZIP = await zipBuffer(20, 4096, 1);
+  BUNDLE_ZIP = await zipBuffer(20, 4096, 2);
+});
+
+/** `zip` cut off before its central directory, as a dropped stream leaves it. */
+const truncated = (zip: Buffer) => zip.subarray(0, Math.floor(zip.length / 2));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const originalFetch = (global as any).fetch;
 
@@ -42,8 +58,10 @@ const originalFetch = (global as any).fetch;
  * @param responseBody Response body string
  * @returns void
  */
-function mockFetch(status: number, responseBody = 'fake-zip-content') {
+function mockFetch(status: number, responseBody?: Buffer | string) {
   const encoder = new TextEncoder();
+  // Default: a complete ZIP, the body a successful artifacts download has.
+  const body = responseBody ?? INLINE_ZIP;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (global as any).fetch = async (
     input: URL | string,
@@ -60,7 +78,9 @@ function mockFetch(status: number, responseBody = 'fake-zip-content') {
 
     const stream = new ReadableStream({
       start(controller) {
-        controller.enqueue(encoder.encode(responseBody));
+        controller.enqueue(
+          typeof body === 'string' ? encoder.encode(body) : new Uint8Array(body),
+        );
         controller.close();
       },
     });
@@ -150,7 +170,7 @@ describe('ReportDownloadService', () => {
 
     it('writes the response body to the specified file path', async () => {
       const outPath = path.join(tempDir, 'written.zip');
-      mockFetch(200, 'zip-file-contents');
+      mockFetch(200, INLINE_ZIP);
 
       await service.downloadArtifacts({
         ...BASE,
@@ -159,12 +179,12 @@ describe('ReportDownloadService', () => {
       });
 
       expect(fs.existsSync(outPath)).to.be.true;
-      expect(fs.readFileSync(outPath, 'utf8')).to.equal('zip-file-contents');
+      expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
     });
 
     it('creates intermediate directories if they do not exist', async () => {
       const outPath = path.join(tempDir, 'nested', 'dir', 'artifacts.zip');
-      mockFetch(200, 'content');
+      mockFetch(200);
 
       await service.downloadArtifacts({
         ...BASE,
@@ -195,7 +215,7 @@ describe('ReportDownloadService', () => {
 
     it('calls logger with success message when download succeeds', async () => {
       const outPath = path.join(tempDir, 'logged.zip');
-      mockFetch(200, 'data');
+      mockFetch(200);
 
       const logs: string[] = [];
 
@@ -212,7 +232,7 @@ describe('ReportDownloadService', () => {
     // `dcd artifacts --json` reports these, since failures only warn.
     it('returns ok: true with the path when the download succeeds', async () => {
       const outPath = path.join(tempDir, 'result-ok.zip');
-      mockFetch(200, 'data');
+      mockFetch(200);
 
       const result = await service.downloadArtifacts({
         ...BASE,
@@ -236,6 +256,82 @@ describe('ReportDownloadService', () => {
       expect(result.ok).to.equal(false);
       expect(result.type).to.equal('artifacts');
       expect(result.error).to.be.a('string').and.not.be.empty;
+    });
+
+    describe('an inline download that ends early', () => {
+      let incomplete: Array<{ bytes: number; route: string; upload_id?: string }>;
+      const realRecordDownloadIncomplete = telemetry.recordDownloadIncomplete;
+
+      beforeEach(() => {
+        incomplete = [];
+        telemetry.recordDownloadIncomplete = (detail) => {
+          incomplete.push(detail);
+        };
+      });
+
+      afterEach(() => {
+        telemetry.recordDownloadIncomplete = realRecordDownloadIncomplete;
+      });
+
+      it('fails, deletes the partial ZIP and records it', async () => {
+        const outPath = path.join(tempDir, 'cut-inline.zip');
+        const cut = truncated(INLINE_ZIP);
+        mockFetch(200, cut);
+        const warnings: string[] = [];
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: outPath,
+          downloadType: 'ALL',
+          warnLogger: (msg) => warnings.push(msg),
+        });
+
+        expect(result.ok).to.equal(false);
+        expect(result.error).to.include('the download ended early');
+        expect(result.error).to.include(`${cut.length} bytes`);
+        expect(warnings.join(' ')).to.match(/failed to download artifacts/i);
+        expect(fs.existsSync(outPath)).to.be.false;
+        expect(incomplete).to.deep.equal([
+          { bytes: cut.length, route: 'download', upload_id: 'upload-abc-123' },
+        ]);
+      });
+
+      it('fails an HTML report ZIP that ends early', async () => {
+        const outPath = path.join(tempDir, 'cut-report.zip');
+        mockFetch(200, truncated(INLINE_ZIP));
+
+        const result = await service.downloadReports({
+          ...BASE,
+          htmlPath: outPath,
+          reportType: 'html',
+        });
+
+        expect(result?.ok).to.equal(false);
+        expect(fs.existsSync(outPath)).to.be.false;
+        expect(incomplete[0]).to.include({ route: 'html-report' });
+      });
+
+      it('never checks a JUnit or Allure report, which are not ZIPs', async () => {
+        for (const [reportType, file, body] of [
+          ['junit', 'not-zip.xml', '<xml/>'],
+          ['allure', 'not-zip.html', '<html/>'],
+        ] as const) {
+          const outPath = path.join(tempDir, file);
+          mockFetch(200, body);
+
+          const result = await service.downloadReports({
+            ...BASE,
+            allurePath: outPath,
+            junitPath: outPath,
+            reportType,
+          });
+
+          expect(result?.ok, reportType).to.equal(true);
+          expect(fs.readFileSync(outPath, 'utf8')).to.equal(body);
+        }
+
+        expect(incomplete).to.deep.equal([]);
+      });
     });
   });
 
@@ -285,7 +381,7 @@ describe('ReportDownloadService', () => {
 
     it('uses GET /results/{uploadId}/html-report for html', async () => {
       const outPath = path.join(tempDir, 'html.html');
-      mockFetch(200, '<html2/>');
+      mockFetch(200, INLINE_ZIP);
 
       await service.downloadReports({
         ...BASE,
@@ -367,7 +463,7 @@ describe('ReportDownloadService', () => {
       opts: {
         manifestBody?: Record<string, unknown>;
         manifestStatus?: number;
-        zipBody?: string;
+        zipBody?: Buffer | string;
         zipBreaksAfter?: string;
         zipStatus?: number;
       } = {},
@@ -381,15 +477,17 @@ describe('ReportDownloadService', () => {
           sig: 'SIG',
         },
         manifestStatus = 200,
-        zipBody = 'bundle-zip',
+        zipBody = BUNDLE_ZIP,
         zipBreaksAfter,
         zipStatus = 200,
       } = opts;
       const encoder = new TextEncoder();
-      const stream = (s: string) =>
+      const stream = (s: Buffer | string) =>
         new ReadableStream({
           start(controller) {
-            controller.enqueue(encoder.encode(s));
+            controller.enqueue(
+              typeof s === 'string' ? encoder.encode(s) : new Uint8Array(s),
+            );
             controller.close();
           },
         });
@@ -435,7 +533,7 @@ describe('ReportDownloadService', () => {
           }
           return new Response(stream(zipBody), { status: zipStatus });
         }
-        return new Response(stream('inline-zip'), { status: 200 });
+        return new Response(stream(INLINE_ZIP), { status: 200 });
       };
       globalThis.fetch = impl as typeof fetch;
     }
@@ -474,7 +572,7 @@ describe('ReportDownloadService', () => {
         url: 'https://cdn.example.com/bundle',
       });
       expect(calls.some((c) => c.url.endsWith('/download'))).to.be.false;
-      expect(fs.readFileSync(outPath, 'utf8')).to.equal('bundle-zip');
+      expect(fs.readFileSync(outPath).equals(BUNDLE_ZIP)).to.be.true;
     });
 
     it('does not send the auth header to the (pre-signed) bundle URL', async () => {
@@ -509,7 +607,7 @@ describe('ReportDownloadService', () => {
       expect(
         calls.some((c) => c.method === 'POST' && c.url.endsWith('/download')),
       ).to.be.true;
-      expect(fs.readFileSync(outPath, 'utf8')).to.equal('inline-zip');
+      expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
     });
 
     describe('records why it fell back', () => {
@@ -559,7 +657,7 @@ describe('ReportDownloadService', () => {
           reason: 'bundle_http_error',
           status: 502,
         });
-        expect(fs.readFileSync(outPath, 'utf8')).to.equal('inline-zip');
+        expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
       });
 
       it('records a stream that breaks partway, with the error and bytes received', async () => {
@@ -579,7 +677,34 @@ describe('ReportDownloadService', () => {
           reason: 'bundle_stream_failed',
         });
         // The inline download still replaced the partial file.
-        expect(fs.readFileSync(outPath, 'utf8')).to.equal('inline-zip');
+        expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
+      });
+
+      it('falls back when a bundle ends cleanly but its ZIP is incomplete', async () => {
+        // What a bundle that fails after its 200 headers delivers: a clean
+        // end of stream, and a ZIP with no central directory.
+        const cut = truncated(BUNDLE_ZIP);
+        mockBundleFetch({ zipBody: cut });
+        const outPath = path.join(tempDir, 'bundle-truncated.zip');
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: outPath,
+          downloadType: 'ALL',
+        });
+
+        expect(result.ok).to.equal(true);
+        expect(fallbacks).to.have.length(1);
+        expect(fallbacks[0]).to.include({
+          bytes_received: cut.length,
+          error_name: 'IncompleteZipError',
+          reason: 'bundle_truncated',
+          route: 'artifacts-bundle',
+        });
+        expect(
+          calls.some((c) => c.method === 'POST' && c.url.endsWith('/download')),
+        ).to.be.true;
+        expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
       });
     });
 
@@ -685,5 +810,20 @@ describe('reportFormatDeprecation', () => {
     for (const report of ['junit', 'html', undefined]) {
       expect(reportFormatDeprecation(report)).to.equal(undefined);
     }
+  });
+});
+
+describe('downloadsSucceeded', () => {
+  const ok = { ok: true, path: 'a.zip', type: 'artifacts' } as const;
+  const failed = { error: 'boom', ok: false, path: 'a.zip', type: 'artifacts' } as const;
+
+  it('is true only when every download succeeded', () => {
+    expect(downloadsSucceeded([ok])).to.equal(true);
+    expect(downloadsSucceeded([failed])).to.equal(false);
+    expect(downloadsSucceeded([ok, failed])).to.equal(false);
+  });
+
+  it('is false when nothing was downloaded', () => {
+    expect(downloadsSucceeded([])).to.equal(false);
   });
 });
