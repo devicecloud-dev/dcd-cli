@@ -107,7 +107,9 @@ $ codex mcp add devicecloud -- dcd mcp
 
 If you use the npm package instead of the standalone binary, the command is `npx` with `"args": ["-y", "@devicecloud.dev/dcd", "mcp"]`. That needs Node 22 or newer on the app's PATH, and it checks npm each time it starts.
 
-It signs in the same way as the CLI: with your `dcd login` session, which it renews as it runs, or with `DEVICE_CLOUD_API_KEY`. Point it at a non-prod environment with `DCD_API_URL`.
+It signs in the same way as the CLI: with your `dcd login` session, which it renews as it runs, or with `DEVICE_CLOUD_API_KEY`. Point it at a non-prod environment with `DCD_API_URL` (https, or plain http to `localhost` only).
+
+The tools that take a local path read and write only inside the folder the server was started in, so start it from your project: a flow given to `run` (with the files it uses), and the files `dcd_download_artifacts` writes, which never replace a file the server did not write.
 
 ### Tools
 
@@ -116,7 +118,7 @@ It signs in the same way as the CLI: with your `dcd login` session, which it ren
 | `dcd_list_devices` | Discover available devices, OS versions, and Maestro versions |
 | `dcd_list_runs` | List recent test runs (filter by name/date, paginated) |
 | `dcd_get_status` | Get the status + per-test results of a run |
-| `dcd_download_artifacts` | Download a run's artifacts/report to disk |
+| `dcd_download_artifacts` | Download a run's artifacts/report to disk, inside the working directory |
 | `dcd_get_team_settings` | Read your team's settings: concurrency, test runtime, integrations and more |
 | `dcd_run_cloud_test` | Submit a flow to run on the cloud (**billable**) |
 
