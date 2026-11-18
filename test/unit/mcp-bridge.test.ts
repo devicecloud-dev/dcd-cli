@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import {
@@ -16,6 +17,7 @@ import {
   createBridgeServer,
   explainFailedStart,
   flowFileBundle,
+  LOAD_DEVICE_TOOLS,
   resolveLocalInputs,
   withLocalInputs,
 } from '../../src/mcp/bridge.js';
@@ -31,6 +33,8 @@ function startHosted(): Promise<{
   http: HttpServer;
   ignoreReadOnly: boolean;
   inits: number;
+  /** Serve no tools, as for an organization without device sessions. */
+  noTools: boolean;
   /** The connection name each request carried. */
   instances: (string | undefined)[];
   paths: string[];
@@ -43,6 +47,7 @@ function startHosted(): Promise<{
     failStart: false,
     ignoreReadOnly: false,
     inits: 0,
+    noTools: false,
     instances: [] as (string | undefined)[],
     paths: [] as string[],
     sessions: [] as Record<string, unknown>[],
@@ -117,6 +122,8 @@ function startHosted(): Promise<{
       for (const tool of registered) if (tool.annotations?.readOnlyHint !== true) tool.remove();
     }
 
+    if (hosted.noTools) for (const tool of registered) tool.remove();
+
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
     await transport.handleRequest(req, res, body);
@@ -132,11 +139,14 @@ function startHosted(): Promise<{
 describe('dcd mcp bridge', () => {
   const ORIGINAL_ENV = { ...process.env };
   const ORIGINAL_ARGV = [...process.argv];
+  const ORIGINAL_CWD = process.cwd();
   let hosted: Awaited<ReturnType<typeof startHosted>>;
   let tempDir: string;
 
   beforeEach(async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-bridge-test-'));
+    // The bridge reads local files only inside its working directory.
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-bridge-test-')));
+    process.chdir(tempDir);
     process.env.DCD_CONFIG_DIR = tempDir;
     process.env.DCD_TELEMETRY_DISABLED = '1';
     process.env.DEVICE_CLOUD_API_KEY = 'test-key';
@@ -147,6 +157,7 @@ describe('dcd mcp bridge', () => {
   });
 
   afterEach(async () => {
+    process.chdir(ORIGINAL_CWD);
     process.env = { ...ORIGINAL_ENV };
     process.argv = [...ORIGINAL_ARGV];
     clearContextCache();
@@ -328,6 +339,137 @@ describe('dcd mcp bridge', () => {
     await client.close();
   });
 
+  describe('when the device tools are missing', () => {
+    it('lists load_device_tools, saying why, and loads them once the account has them', async () => {
+      hosted.noTools = true;
+      const client = await connect();
+      const first = (await client.listTools()).tools;
+      expect(first.map((t) => t.name)).to.include(LOAD_DEVICE_TOOLS).and.not.include('run');
+      expect(first.find((t) => t.name === LOAD_DEVICE_TOOLS)!.description).to.include('may not be enabled');
+
+      // A device tool called anyway says why it can't run.
+      const refused = await client.callTool({ name: 'run', arguments: { yaml: 'x' } });
+      expect(refused.isError).to.equal(true);
+      expect(JSON.stringify(refused.content)).to.include('could not be loaded');
+
+      let changed = 0;
+      client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+        changed++;
+      });
+      hosted.noTools = false;
+      const loaded = await client.callTool({ name: LOAD_DEVICE_TOOLS, arguments: {} });
+      expect(loaded.isError).to.not.equal(true);
+      expect(JSON.stringify(loaded.content)).to.include('run');
+      await new Promise((r) => setTimeout(r, 20));
+      expect(changed).to.equal(1);
+      expect((await client.listTools()).tools.map((t) => t.name)).to.include('run').and.not.include(LOAD_DEVICE_TOOLS);
+      await client.close();
+    });
+  });
+
+  describe('local files', () => {
+    const ctx = () => ({ apiUrl: 'https://api.example.test', auth: { headers: {}, mode: 'apiKey' as const } });
+
+    it('refuses a flow outside the working directory, or a file that is not a flow', async () => {
+      const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-bridge-elsewhere-'));
+      try {
+        fs.writeFileSync(path.join(elsewhere, 'flow.yaml'), 'appId: x\n---\n- launchApp\n');
+        for (const given of [path.join(elsewhere, 'flow.yaml'), path.join('..', path.basename(elsewhere), 'flow.yaml')]) {
+          try {
+            await resolveLocalInputs('run', { path: given }, ctx());
+            expect.fail('should have thrown');
+          } catch (error) {
+            expect((error as Error).message).to.include('outside the working directory');
+          }
+        }
+
+        // A link inside that leads out is the same thing.
+        fs.symlinkSync(path.join(elsewhere, 'flow.yaml'), path.join(tempDir, 'linked.yaml'));
+        try {
+          await resolveLocalInputs('run', { path: 'linked.yaml' }, ctx());
+          expect.fail('should have thrown');
+        } catch (error) {
+          expect((error as Error).message).to.include('outside the working directory');
+        }
+      } finally {
+        fs.rmSync(elsewhere, { force: true, recursive: true });
+      }
+
+      fs.writeFileSync(path.join(tempDir, 'notes.txt'), 'secret');
+      try {
+        await resolveLocalInputs('run', { path: 'notes.txt' }, ctx());
+        expect.fail('should have thrown');
+      } catch (error) {
+        expect((error as Error).message).to.include('is not a flow file');
+      }
+    });
+
+    it('refuses a flow inside whose files reach outside the working directory', async () => {
+      const work = path.join(tempDir, 'work');
+      fs.mkdirSync(path.join(tempDir, 'shared'));
+      fs.mkdirSync(work);
+      fs.writeFileSync(path.join(tempDir, 'shared', 'login.yaml'), 'appId: x\n---\n- tapOn: Log in\n');
+      fs.writeFileSync(path.join(work, 'main.yaml'), 'appId: x\n---\n- runFlow: ../shared/login.yaml\n');
+      try {
+        await resolveLocalInputs('run', { path: 'main.yaml' }, ctx(), work);
+        expect.fail('should have thrown');
+      } catch (error) {
+        expect((error as Error).message).to.include('uses files outside the working directory');
+      }
+    });
+
+    it('sends the entry of a directory with forward slashes, as the API takes it', async () => {
+      fs.mkdirSync(path.join(tempDir, 'flows', 'sub'), { recursive: true });
+      fs.writeFileSync(path.join(tempDir, 'flows', 'sub', 'login.yaml'), 'appId: x\n---\n- launchApp\n');
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: unknown) => {
+        const url = String(input);
+        if (url.endsWith('/device/bundles/upload-url')) {
+          return new Response(JSON.stringify({ id: 'b-1', upload: { path: 'p', signedUrl: 'https://sb.example/put' }, mirror: null }));
+        }
+
+        if (url === 'https://sb.example/put') return new Response(null, { status: 200 });
+        if (url.endsWith('/device/bundles')) {
+          return new Response(JSON.stringify({ bundle: { id: 'b-1', sha: 's', bytes: 1, encrypted: false, created_at: 'now' } }));
+        }
+
+        return new Response('{}', { status: 404 });
+      }) as typeof fetch;
+      try {
+        const args = await resolveLocalInputs('run', { path: 'flows', flow: 'sub\\login.yaml' }, ctx());
+        expect(args).to.deep.equal({ flow: 'sub/login.yaml', flow_upload_id: 'b-1' });
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
+    it('start_device takes app_path, and refuses it with app_binary_id', async () => {
+      const start = withLocalInputs({
+        name: 'start_device',
+        description: 'Start.',
+        inputSchema: { type: 'object' as const, properties: { platform: {} } },
+      });
+      expect(start.inputSchema.properties).to.have.keys('platform', 'app_path');
+      expect(start.description).to.include('uploaded before the session starts');
+      try {
+        await resolveLocalInputs('start_device', { platform: 'ios', app_path: 'a.zip', app_binary_id: 'b1' }, ctx());
+        expect.fail('should have thrown');
+      } catch (error) {
+        expect((error as Error).message).to.include('not both');
+      }
+    });
+
+    it('start_device uploads a local build before the session starts', async () => {
+      const client = await connect();
+      await client.listTools();
+      const result = await client.callTool({ name: 'start_device', arguments: { platform: 'ios', app_path: 'missing.zip' } });
+      // The upload failed on the missing file, so no session was started.
+      expect(result.isError).to.equal(true);
+      expect(hosted.calls).to.deep.equal([]);
+      await client.close();
+    });
+  });
+
   describe('helpers', () => {
     it('explainFailedStart says it is safe to retry when no session started', async () => {
       hosted.sessions = [];
@@ -382,7 +524,7 @@ describe('dcd mcp bridge', () => {
     });
 
     it('resolveLocalInputs leaves calls without local inputs alone, and refuses a missing path', async () => {
-      const ctx = { apiUrl: 'http://x', auth: { headers: {}, mode: 'apiKey' as const } };
+      const ctx = { apiUrl: 'http://localhost:9', auth: { headers: {}, mode: 'apiKey' as const } };
       expect(await resolveLocalInputs('run', { yaml: 'y' }, ctx)).to.deep.equal({ yaml: 'y' });
       try {
         await resolveLocalInputs('run', { path: path.join(tempDir, 'nope') }, ctx);
