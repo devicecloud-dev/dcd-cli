@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import StreamZip from 'node-stream-zip';
 
 import { clearCompatibilityCache } from '../../src/utils/compatibility.js';
-import { bundleFiles, uploadFlowBundle } from '../../src/utils/device-bundle.js';
+import { bundleFiles, flowFileBundle, uploadFlowBundle } from '../../src/utils/device-bundle.js';
 
 const API = 'https://api.devicecloud.dev';
 const auth = { headers: {}, mode: 'apiKey' as const };
@@ -137,6 +137,50 @@ describe('dcd device run <dir>: flow bundles', () => {
 
     it('refuses an entry that is not in the directory', () => {
       expect(() => bundleFiles(dir, 'flows/nope.yaml')).to.throw('No flow flows/nope.yaml');
+      expect(() => bundleFiles(dir, '../outside.yaml')).to.throw('No flow ../outside.yaml');
+    });
+
+    it('with an entry, sends only what that flow reaches, and the config', () => {
+      write('flows/other.yaml', 'appId: x\n---\n- back\n');
+      expect(bundleFiles(dir, 'flows/checkout.yaml')).to.deep.equal(
+        ['config.yaml', 'flows/checkout.yaml', 'media/card.png', 'scripts/seed.js', 'subflows/pay.yaml'].map((f) =>
+          path.normalize(f),
+        ),
+      );
+    });
+
+    it('confined to a folder, refuses a file that is a link out of it', () => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-bundle-outside-'));
+      try {
+        fs.writeFileSync(path.join(outside, 'id_rsa'), 'secret');
+        fs.unlinkSync(path.join(dir, 'media', 'card.png'));
+        fs.symlinkSync(path.join(outside, 'id_rsa'), path.join(dir, 'media', 'card.png'));
+        expect(() => bundleFiles(dir, 'flows/checkout.yaml', () => {}, dir)).to.throw(/card\.png is a link to a file outside/);
+        // From the command line the link is the user's own, and is followed.
+        expect(bundleFiles(dir, 'flows/checkout.yaml')).to.include(path.normalize('media/card.png'));
+      } finally {
+        fs.rmSync(outside, { force: true, recursive: true });
+      }
+    });
+
+    it("walks .maestro, Maestro's own folder, but no other dot-folder", () => {
+      write('.maestro/login.yaml', 'appId: x\n---\n- launchApp\n');
+      write('.github/workflows/ci.yml', 'on: push\n');
+      const all = bundleFiles(dir);
+      expect(all).to.include(path.normalize('.maestro/login.yaml'));
+      expect(all.some((f) => f.startsWith('.github'))).to.equal(false);
+      expect(bundleFiles(dir, '.maestro/login.yaml')).to.deep.equal([path.normalize('.maestro/login.yaml'), 'config.yaml']);
+    });
+
+    it("flowFileBundle takes the folder that holds every file the flow reaches, through its subflows' own files", () => {
+      write('app/e2e/main.yaml', 'appId: x\n---\n- runFlow: ../steps/login.yaml\n');
+      write('app/steps/login.yaml', 'appId: x\n---\n- runScript: ../../shared/seed.js\n');
+      write('shared/seed.js', 'output.ok = true');
+      expect(flowFileBundle(path.join(dir, 'app', 'e2e', 'main.yaml'))).to.deep.equal({
+        dir,
+        entry: path.join('app', 'e2e', 'main.yaml'),
+      });
+      expect(flowFileBundle(path.join(dir, 'flows', 'login.yaml'))).to.equal(null);
     });
 
     it('refuses a flow that uses a file outside the directory', () => {

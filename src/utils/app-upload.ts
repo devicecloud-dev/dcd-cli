@@ -17,6 +17,24 @@ export function platformOfAppFile(filePath: string): 'android' | 'ios' | undefin
   return undefined;
 }
 
+/**
+ * The platform a build at a URL is for, from the file name in its path:
+ * install from a URL takes an Android .apk or a zipped iOS simulator .app.
+ * Undefined when the path names neither (a signed link with no file name).
+ */
+export function platformOfAppUrl(url: string): 'android' | 'ios' | undefined {
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(new URL(url).pathname).toLowerCase();
+  } catch {
+    return undefined;
+  }
+
+  if (pathname.endsWith('.apk')) return 'android';
+  if (pathname.endsWith('.zip')) return 'ios';
+  return undefined;
+}
+
 export interface UploadLocalAppOptions {
   apiUrl: string;
   auth: AuthContext;

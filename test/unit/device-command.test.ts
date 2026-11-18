@@ -6,24 +6,34 @@ import { stripVTControlCharacters } from 'node:util';
 
 import { runCommand } from 'citty';
 
+import { Readable } from 'node:stream';
+
 import {
   collectFlagValues,
   decodeDataUrl,
   deviceCommand,
+  deviceTiming,
   formatElement,
   newLogLines,
+  parseEnvFile,
   parseEnvFlags,
+  readStdinText,
   startNextSteps,
+  unknownSubcommandError,
 } from '../../src/commands/device.js';
-import { DeviceApiError } from '../../src/gateways/device-gateway.js';
+import { DeviceApiError, plainErrorText } from '../../src/gateways/device-gateway.js';
 import type { DeviceSession } from '../../src/types/domain/device-session.types.js';
-import { platformOfAppFile } from '../../src/utils/app-upload.js';
+import { platformOfAppFile, platformOfAppUrl } from '../../src/utils/app-upload.js';
 import { CliError } from '../../src/utils/cli.js';
+import { editDistance, unknownFlags, unknownFlagsError } from '../../src/utils/device-flags.js';
 import {
+  checkSessionId,
   DEVICE_EXIT,
   deviceExitCode,
+  formatCost,
   formatWhen,
   humanFields,
+  printable,
   resolveSessionId,
 } from '../../src/utils/device-output.js';
 
@@ -180,6 +190,25 @@ async function runArgv(rawArgs: string[]): Promise<{ exit: number; out: Record<s
 
   return { exit: code, out: JSON.parse(out) as Record<string, unknown> };
 }
+
+/** Run `fn`, capturing what it writes to stderr. */
+async function captureStderr<T>(fn: () => Promise<T>): Promise<{ result: T; stderr: string }> {
+  let stderr = '';
+  const write = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string) => {
+    stderr += chunk;
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    return { result: await fn(), stderr };
+  } finally {
+    process.stderr.write = write;
+  }
+}
+
+const ESC = String.fromCharCode(27);
+const BEL = String.fromCharCode(7);
+const CR = String.fromCharCode(13);
 
 describe('dcd device', () => {
   const realFetch = globalThis.fetch;
@@ -804,12 +833,12 @@ describe('dcd device', () => {
           ? { body: { session: session('theirs', { state: 'released' }) } }
           : { body: { result: { success: true }, session: session('theirs') } },
       );
-      await runJson('stop', { id: 'theirs', force: true });
-      expect(calls[0].url).to.equal(`${API}/device/sessions/theirs?force=true`);
-      await runJson('press-key', { id: 'theirs', key: 'back', force: true });
+      await runJson('stop', { id: 'their-red-fox', force: true });
+      expect(calls[0].url).to.equal(`${API}/device/sessions/their-red-fox?force=true`);
+      await runJson('press-key', { id: 'their-red-fox', key: 'back', force: true });
       expect(calls[1].body).to.deep.equal({ force: true, key: 'back', type: 'press_key' });
       // Without it, nothing extra is sent: an older API sees what it always did.
-      await runJson('press-key', { id: 'theirs', key: 'back' });
+      await runJson('press-key', { id: 'their-red-fox', key: 'back' });
       expect(calls[2].body).to.deep.equal({ key: 'back', type: 'press_key' });
     });
 
@@ -1223,6 +1252,433 @@ describe('dcd device', () => {
       expect(platformOfAppFile('my.zip')).to.equal('ios');
       expect(platformOfAppFile('expo.tar.gz')).to.equal('ios');
       expect(platformOfAppFile('notes.txt')).to.equal(undefined);
+    });
+  });
+
+  describe('flags and ids a command does not take', () => {
+    it('refuses an unknown flag, says which was meant, and sends nothing', async () => {
+      const calls = stubFetch(() => ({ body: {} }));
+      const { exit, out } = await runArgv(['type', 'a-b-c', '--text', 'hunter2', '--sensetive']);
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+      const { message } = out.error as { message: string };
+      expect(message).to.include('Unknown flag --sensetive.').and.include('Did you mean --sensitive?');
+      expect(calls).to.have.length(0);
+    });
+
+    it('catches a swapped pair of letters, a misspelt negation, and the session given as a flag', async () => {
+      stubFetch(() => ({ body: {} }));
+      const wait = await runArgv(['start', '--platform', 'ios', '--wiat']);
+      expect((wait.out.error as { message: string }).message).to.include('Did you mean --wait?');
+      const record = await runArgv(['start', '--platform', 'ios', '--no-recrod']);
+      expect((record.out.error as { message: string }).message).to.include('Did you mean --no-record?');
+      const session = await runArgv(['tap', '--session', 'a-b-c', '--text', 'OK']);
+      expect((session.out.error as { message: string }).message).to.include('The session id is an argument');
+      const secret = await runArgv(['type', 'a-b-c', '--text', 'x', '--secret']);
+      expect((secret.out.error as { message: string }).message).to.include('Did you mean --sensitive?');
+    });
+
+    it("reads a flag's value as a value, even one that starts with a dash", () => {
+      const args = {
+        id: { type: 'positional' as const },
+        json: { type: 'boolean' as const },
+        output: { type: 'string' as const, alias: ['o'] },
+        record: { type: 'boolean' as const, default: true },
+        'clear-state': { type: 'boolean' as const },
+        yaml: { type: 'string' as const },
+      };
+      expect(unknownFlags(['a-b-c', '--yaml', '- launchApp', '-o', 'shot.jpg', '--no-record', '--json'], args)).to.deep.equal([]);
+      expect(unknownFlags(['--clearState', '--yaml=-x', '--', '--anything'], args)).to.deep.equal([]);
+      expect(unknownFlags(['-x', '--nope=1', '--yaml'], args)).to.deep.equal(['-x', '--nope']);
+      expect(unknownFlagsError(['--clear-sate'], args)!.message).to.include('Did you mean --clear-state?');
+      // Nothing close: no guess.
+      expect(unknownFlagsError(['--banana'], args)!.message).not.to.include('Did you mean');
+      expect(editDistance('wiat', 'wait')).to.equal(1);
+      expect(editDistance('sensetive', 'sensitive')).to.equal(1);
+    });
+
+    it('refuses an unknown command with the envelope, and names the one meant', async () => {
+      const calls = stubFetch(() => ({ body: {} }));
+      const { exit, out } = await runArgv(['press_key', 'back']);
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+      expect(out.ok).to.equal(false);
+      expect((out.error as { message: string }).message).to.include('Did you mean `dcd device press-key`?');
+      expect(calls).to.have.length(0);
+      expect(unknownSubcommandError('tap_on').message).to.include('`dcd device tap`');
+      expect(unknownSubcommandError('frobnicate').message).not.to.include('Did you mean');
+    });
+
+    it("refuses an id that can't be a session, such as a variable that was not set", async () => {
+      const calls = stubFetch(() => ({ body: {} }));
+      for (const id of ['undefined', 'null', 'None', '[object Object]']) {
+        const { exit, out } = await runJson('launch', { id });
+        expect(exit).to.equal(DEVICE_EXIT.usage);
+        expect((out.error as { message: string }).message).to.include('was not set');
+      }
+
+      expect((await runJson('inspect', { id: 'Brave Teal Otter' })).exit).to.equal(DEVICE_EXIT.usage);
+      expect(calls).to.have.length(0);
+      expect(checkSessionId(' brave-teal-otter ')).to.equal('brave-teal-otter');
+      expect(checkSessionId('brave-teal-otter-0042')).to.equal('brave-teal-otter-0042');
+      expect(checkSessionId('teal-otter-42')).to.equal('teal-otter-42');
+      expect(checkSessionId('1234')).to.equal('1234');
+      expect(checkSessionId('   ')).to.equal(undefined);
+    });
+
+    it("passes on what the API said a script can act on: retry_after_s, limit, phase", async () => {
+      stubFetch(() => ({
+        status: 429,
+        body: { statusCode: 429, message: 'Too many commands', error: 'LIVE_RATE_LIMITED', limit: 60, retry_after_s: 12 },
+      }));
+      const limited = await runJson('tap', { id: 'a-b-c', text: 'OK' });
+      expect(limited.exit).to.equal(DEVICE_EXIT.limit);
+      expect(limited.out.error).to.deep.equal({
+        code: 'LIVE_RATE_LIMITED',
+        message: 'Too many commands',
+        limit: 60,
+        retry_after_s: 12,
+      });
+      stubFetch(() => ({
+        status: 409,
+        body: { statusCode: 409, message: 'The app is still installing', error: 'LIVE_NOT_READY', phase: 'installing_app' },
+      }));
+      expect((await runJson('tap', { id: 'a-b-c', text: 'OK' })).out.error).to.include({ phase: 'installing_app' });
+    });
+
+    it('shortens an HTML error page to its title', () => {
+      const page = '<!DOCTYPE html><html><head><title>502 Bad Gateway</title></head><body>' + 'x'.repeat(5000) + '</body></html>';
+      expect(plainErrorText(page, 502)).to.equal("HTTP 502: 502 Bad Gateway (an HTML page, not the API's answer)");
+      expect(plainErrorText('', 503)).to.equal('HTTP 503');
+      expect(plainErrorText('y'.repeat(1000), 500)).to.have.length(301);
+    });
+  });
+
+  describe('waiting', () => {
+    const saved = { ...deviceTiming };
+    beforeEach(() => Object.assign(deviceTiming, { pollMs: 5, retryBaseMs: 5, runGraceMs: 60_000 }));
+    afterEach(() => Object.assign(deviceTiming, saved));
+
+    const running = (extra: Partial<DeviceSession> = {}) => ({
+      body: { command_id: 'c1', status: 'running', result: null, session: session('a-b-c', extra) },
+    });
+
+    it('run stops waiting when the session ends under the flow: exit 4, with the command id', async () => {
+      stubFetch((call) => (call.method === 'POST' ? running() : running({ state: 'released', release_reason: 'idle_timeout' })));
+      const { exit, out } = await runJson('run', { id: 'a-b-c', yaml: '- launchApp' });
+      expect(exit).to.equal(DEVICE_EXIT.gone);
+      expect(out.error).to.include({ code: 'LIVE_SESSION_ENDED', command_id: 'c1' });
+      expect((out.error as { message: string }).message).to.include('ended before the flow finished');
+    });
+
+    it("run gives up once the session's time is over, with the command id", async () => {
+      deviceTiming.runGraceMs = 0;
+      stubFetch(() => running({ time_remaining_s: 0 }));
+      const { exit, out } = await runJson('run', { id: 'a-b-c', yaml: '- launchApp' });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      expect(out.error).to.include({ command_id: 'c1' });
+      expect((out.error as { message: string }).message).to.include('maximum duration');
+    });
+
+    it('run asks again when a poll fails on the way, and keeps waiting', async () => {
+      let polls = 0;
+      stubFetch((call) => {
+        if (call.method === 'POST') return running();
+        polls += 1;
+        // A proxy's answer, not the API's: nothing was decided.
+        if (polls === 1) return { status: 502, body: { message: 'Application failed to respond' } };
+        return { body: { command_id: 'c1', status: 'passed', result: { success: true }, session: session('a-b-c') } };
+      });
+      const { exit } = await runJson('run', { id: 'a-b-c', yaml: '- launchApp' });
+      expect(exit).to.equal(0);
+      expect(polls).to.equal(2);
+    });
+
+    it('run keeps the command id when it has to give up asking', async () => {
+      deviceTiming.retryMs = 0;
+      stubFetch((call) => (call.method === 'POST' ? running() : { status: 502, body: { message: 'Application failed to respond' } }));
+      const { exit, out } = await runJson('run', { id: 'a-b-c', yaml: '- launchApp' });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      expect(out.error).to.include({ command_id: 'c1' });
+      expect((out.error as { message: string }).message).to.include('may still be running on a-b-c: its command id is c1');
+    });
+
+    it('start --wait --json names the session on stderr as soon as it exists', async () => {
+      let polls = 0;
+      stubFetch((call) => {
+        if (call.method === 'POST') return { body: { session: session('a-b-c', { state: 'queued' }) } };
+        polls += 1;
+        return { body: { session: session('a-b-c', { state: polls < 2 ? 'provisioning' : 'ready' }) } };
+      });
+      const { result, stderr } = await captureStderr(() => runJson('start', { platform: 'ios', wait: true }));
+      expect(result.exit).to.equal(0);
+      expect(stderr).to.include('Session a-b-c started');
+      expect(stderr).to.include('dcd device stop a-b-c');
+    });
+
+    it('status --wait waits for the device and its app, and exits 4 when the session ends instead', async () => {
+      let polls = 0;
+      stubFetch((call) => {
+        if (call.url.endsWith('/human')) return { status: 404, body: { statusCode: 404, message: 'Not Found' } };
+        polls += 1;
+        const install = { binary_upload_id: 'b1', error: null, status: polls < 3 ? ('installing' as const) : ('installed' as const) };
+        return { body: { session: session('a-b-c', { state: polls < 2 ? 'provisioning' : 'ready', install }) } };
+      });
+      const ready = await runJson('status', { id: 'a-b-c', wait: true });
+      expect(ready.exit).to.equal(0);
+      expect((ready.out.session as DeviceSession).install!.status).to.equal('installed');
+
+      stubFetch(() => ({ body: { session: session('a-b-c', { state: 'expired', release_reason: 'max_duration' }) } }));
+      const ended = await runJson('status', { id: 'a-b-c', wait: true });
+      expect(ended.exit).to.equal(DEVICE_EXIT.gone);
+    });
+  });
+
+  describe('flows that use other files', () => {
+    it('run <file> uploads the flow with the files it uses, and runs it by its path inside', async () => {
+      const flows = path.join(tempDir, 'flows');
+      fs.mkdirSync(path.join(flows, 'sub'), { recursive: true });
+      fs.writeFileSync(path.join(flows, 'sub', 'login.yaml'), 'appId: x\n---\n- launchApp\n');
+      fs.writeFileSync(path.join(flows, 'main.yaml'), 'appId: x\n---\n- runFlow: sub/login.yaml\n');
+      fs.writeFileSync(path.join(flows, 'other.yaml'), 'appId: x\n---\n- back\n');
+      const calls = stubFetch((call) => {
+        if (call.url.endsWith('/upload-url')) {
+          return { body: { id: 'b-1', upload: { path: 'p', signedUrl: 'https://sb/put' }, mirror: null } };
+        }
+
+        if (call.url === 'https://sb/put') return { body: {} };
+        if (call.url.endsWith('/device/bundles')) {
+          return { body: { bundle: { id: 'b-1', sha: 's', bytes: 1, encrypted: false, created_at: 'now' } } };
+        }
+
+        if (call.url.endsWith('/run')) {
+          return { body: { command_id: 'c1', status: 'passed', result: { success: true }, session: session('a-b-c') } };
+        }
+
+        return { status: 404, body: {} };
+      });
+      const { exit } = await runJson('run', { id: 'a-b-c', flow: path.join(flows, 'main.yaml'), env: ['A=1'] });
+      expect(exit).to.equal(0);
+      expect(calls.find((c) => c.url.endsWith('/run'))!.body).to.deep.equal({
+        flowUploadId: 'b-1',
+        flow: 'main.yaml',
+        env: { A: '1' },
+      });
+    });
+
+    it('run --env-file reads KEY=VALUE lines, and --env wins for the same name', async () => {
+      const envFile = path.join(tempDir, '.env');
+      fs.writeFileSync(envFile, '# test account\nexport USER=me\nPASS="p a s s"\n\nSAME=file\n');
+      const calls = stubFetch(() => ({
+        body: { command_id: 'c1', status: 'passed', result: { success: true }, session: session('a-b-c') },
+      }));
+      await runJson('run', { id: 'a-b-c', yaml: '- launchApp', 'env-file': envFile, env: ['SAME=flag'] });
+      expect((calls[0].body as { env: Record<string, string> }).env).to.deep.equal({
+        USER: 'me',
+        PASS: 'p a s s',
+        SAME: 'flag',
+      });
+    });
+
+    it('parseEnvFile names a bad line by number only, since it may hold a secret', () => {
+      const envFile = path.join(tempDir, 'bad.env');
+      fs.writeFileSync(envFile, 'GOOD=1\nhunter2\n');
+      expect(() => parseEnvFile(envFile)).to.throw(/line 2: expected KEY=VALUE/);
+      expect(() => parseEnvFile(envFile)).not.to.throw(/hunter2/);
+      expect(() => parseEnvFile(path.join(tempDir, 'missing.env'))).to.throw(/Could not read --env-file/);
+    });
+  });
+
+  describe('what a person reads', () => {
+    it('an action prints the session warnings after its result', async () => {
+      stubFetch(() => ({
+        body: {
+          result: { success: true },
+          session: session('a-b-c', { warnings: ['Idle timeout in 40s. Send a command to keep the session, or stop it if you are done.'] }),
+        },
+      }));
+      const out = await runText('tap', { id: 'a-b-c', text: 'OK' });
+      expect(out).to.include('Tapped "OK"');
+      expect(out).to.include('Idle timeout in 40s');
+    });
+
+    it("a failed action's message never carries the typed text", async () => {
+      stubFetch(() => ({ body: { result: { success: false }, session: session('a-b-c') } }));
+      const { exit, out } = await runJson('type', { id: 'a-b-c', text: 'hunter2' });
+      expect(exit).to.equal(DEVICE_EXIT.failed);
+      expect(out.error).to.deep.equal({ code: null, message: 'Typing failed.' });
+    });
+
+    it('strips escape sequences and control characters from device text', () => {
+      const hostile = `${ESC}]0;pwned${BEL}Hello${ESC}[2K${CR}World ${String.fromCharCode(0x202e)}gnp.exe`;
+      expect(printable(hostile)).to.equal('HelloWorld gnp.exe');
+      expect(printable('a\nb\tc', { oneLine: true })).to.equal('a b c');
+      const element = formatElement({ b: '[0,0][1,1]', txt: `${ESC}[31mRed${ESC}[0m`, hint: `x${CR}y` });
+      // Only the CLI's own styling is left.
+      expect(element).not.to.include(`${ESC}[31m`);
+      expect(element).not.to.include(CR);
+      expect(stripVTControlCharacters(element)).to.include('"Red"');
+    });
+
+    it('logs strips escapes from each line, and says when the size cap cut the answer', async () => {
+      stubFetch(() => ({
+        body: {
+          logs: { lines: [`${ESC}]0;title${BEL}E crash here`], source: 'logcat', app_id: 'com.x', truncated: true },
+          session: session('a-b-c'),
+        },
+      }));
+      const out = await runText('logs', { id: 'a-b-c', lines: '200' });
+      expect(out).not.to.include(ESC);
+      expect(out).to.include('E crash here');
+      expect(out).to.include('Only the newest lines that fit in 24 KB are shown');
+    });
+
+    it('logs passes on --level and --grep, and refuses a level it does not know', async () => {
+      const calls = stubFetch(() => ({
+        body: { logs: { lines: [], source: 'logcat', app_id: 'com.x' }, session: session('a-b-c') },
+      }));
+      await runJson('logs', { id: 'a-b-c', lines: '50', level: 'error', grep: ' NullPointer ' });
+      expect(calls[0].url).to.equal(`${API}/device/sessions/a-b-c/logs?lines=50&level=error&grep=NullPointer`);
+      const { exit } = await runJson('logs', { id: 'a-b-c', level: 'debug' });
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+    });
+
+    it('status says a person has control once, as the API now words it', async () => {
+      const warning = 'A person has control: a@b.c took control. The session ends in 900s unless they hand it back.';
+      stubFetch((call) =>
+        call.url.endsWith('/human')
+          ? {
+              body: {
+                human: {
+                  waiting: true,
+                  reason: 'a@b.c took control',
+                  since: null,
+                  expires_at: null,
+                  handed_back: false,
+                  note: null,
+                  handed_back_at: null,
+                  human_in_control: true,
+                  controller_user_id: 'u1',
+                },
+                session: session('a-b-c', { state: 'needs_human' }),
+              },
+            }
+          : { body: { session: session('a-b-c', { state: 'needs_human', warnings: [warning] }) } },
+      );
+      const out = await runText('status', { id: 'a-b-c' });
+      expect(out.split('A person has control')).to.have.length(2);
+    });
+
+    it('formatCost shows the half cent a 30-second unit leaves', () => {
+      expect(formatCost(0.015)).to.equal('$0.015');
+      expect(formatCost(0.045)).to.equal('$0.045');
+      expect(formatCost(0.42)).to.equal('$0.42');
+      expect(formatCost(1.8)).to.equal('$1.80');
+      expect(formatCost(0)).to.equal('$0.00');
+    });
+  });
+
+  describe('smaller things', () => {
+    it('start refuses an empty --app (an unset variable), without starting a session', async () => {
+      const calls = stubFetch(() => ({ body: {} }));
+      for (const args of [{ app: '' }, { app: '  ' }, { 'app-binary-id': '' }]) {
+        const { exit, out } = await runJson('start', { platform: 'ios', ...args });
+        expect(exit).to.equal(DEVICE_EXIT.usage);
+        expect((out.error as { message: string }).message).to.include('is empty');
+      }
+
+      expect(calls).to.have.length(0);
+    });
+
+    it('start --app <url> takes the platform from the file name in the link', async () => {
+      const calls = stubFetch((call) =>
+        call.url.endsWith('/install')
+          ? { body: { app: { app_id: 'com.x', binary_upload_id: 'b1', reused: false }, session: session('a-b-c') } }
+          : { body: { session: session('a-b-c', { state: 'queued' }) } },
+      );
+      const { exit } = await runJson('start', { app: 'https://ci.example.com/builds/app-release.apk?token=x' });
+      expect(exit).to.equal(0);
+      expect((calls[0].body as { platform: string }).platform).to.equal('android');
+      expect(platformOfAppUrl('https://x.example/My%20App.zip')).to.equal('ios');
+      expect(platformOfAppUrl('https://x.example/download?id=1')).to.equal(undefined);
+    });
+
+    it('swipe and tap take points written with a percent sign', async () => {
+      const calls = stubFetch(() => ({ body: { result: { success: true }, session: session('a-b-c') } }));
+      await runJson('swipe', { id: 'a-b-c', from: '50%,80%', to: '50%, 20%' });
+      expect(calls[0].body).to.deep.equal({ type: 'swipe', from: { x: 50, y: 80 }, to: { x: 50, y: 20 } });
+      await runJson('tap', { id: 'a-b-c', x: '10%', y: '90' });
+      expect(calls[1].body).to.deep.equal({ type: 'tap', x: 10, y: 90 });
+    });
+
+    it('request-human takes --reason, so the session id may come first', async () => {
+      const calls = stubFetch(() => ({
+        body: {
+          human: {
+            waiting: true,
+            reason: 'Enter the code',
+            since: null,
+            expires_at: null,
+            handed_back: false,
+            note: null,
+            handed_back_at: null,
+            human_in_control: false,
+            controller_user_id: null,
+          },
+          session: session('a-b-c', { state: 'needs_human' }),
+        },
+      }));
+      const { exit } = await runArgv(['request-human', 'a-b-c', '--reason', 'Enter the code']);
+      expect(exit).to.equal(0);
+      expect(calls).to.have.length(1);
+      expect(calls[0].url).to.equal(`${API}/device/sessions/a-b-c/request-human`);
+      expect(calls[0].body).to.deep.equal({ reason: 'Enter the code' });
+    });
+
+    it("request-human refuses a lone argument that is an open session's id", async () => {
+      const calls = stubFetch(() => ({ body: { sessions: [session('a-b-c')] } }));
+      const { exit, out } = await runArgv(['request-human', 'a-b-c']);
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+      expect((out.error as { message: string }).message).to.include('is a session id, not what the person should do');
+      expect(calls.map((c) => c.method)).to.deep.equal(['GET']);
+    });
+
+    it('artifacts with no id takes your newest session, even one that has ended', async () => {
+      const mine = (id: string, created: string) =>
+        session(id, {
+          state: 'released',
+          created_at: created,
+          started_by: { api_key_name: null, client_label: null, email: null, this_client: false, you: true },
+        });
+      const theirs = session('their-new-one', {
+        created_at: '2026-10-19T12:00:00Z',
+        started_by: { api_key_name: null, client_label: null, email: 'ann@example.com', this_client: false, you: false },
+      });
+      const calls = stubFetch((call) =>
+        call.url.includes('/artifacts')
+          ? { body: { actions: [], logs: null, recording: null, next_before: null, session: session('my-newer-one') } }
+          : { body: { sessions: [theirs, mine('my-old-one', '2026-10-19T09:00:00Z'), mine('my-newer-one', '2026-10-19T11:00:00Z')] } },
+      );
+      const { exit } = await runJson('artifacts', { links: true });
+      expect(exit).to.equal(0);
+      expect(calls[0].url).to.equal(`${API}/device/sessions?all=true`);
+      expect(calls[1].url).to.include('/device/sessions/my-newer-one/artifacts');
+    });
+
+    it('readStdinText reads piped text without its last line break, and refuses a terminal', async () => {
+      expect(await readStdinText(Readable.from([Buffer.from('s3cret\n')]))).to.equal('s3cret');
+      const terminal = Object.assign(Readable.from([]), { isTTY: true });
+      try {
+        await readStdinText(terminal);
+        expect.fail('should have thrown');
+      } catch (error) {
+        expect((error as Error).message).to.include('pipe it in');
+      }
+    });
+
+    it('type refuses --text with --text-stdin', async () => {
+      const calls = stubFetch(() => ({ body: {} }));
+      const { exit } = await runJson('type', { id: 'a-b-c', text: 'x', 'text-stdin': true });
+      expect(exit).to.equal(DEVICE_EXIT.usage);
+      expect(calls).to.have.length(0);
     });
   });
 });
