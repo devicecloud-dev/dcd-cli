@@ -35,10 +35,11 @@ import { DeviceGateway, START_RECOVERY_WINDOW_MS } from '../gateways/device-gate
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { uploadLocalApp } from '../utils/app-upload.js';
 import { getCliVersion } from '../utils/cli.js';
+import { downloadFile } from '../utils/device-artifacts.js';
 import { bundlePath, flowFileBundle, uploadFlowBundle } from '../utils/device-bundle.js';
 import { getContext, isReadOnly, logStderr } from './context.js';
 import { errorResult, runTool } from './helpers.js';
-import { isInside, localInput, workingDirectory } from './local-files.js';
+import { isInside, localInput, localOutput, markWritten, workingDirectory } from './local-files.js';
 import { createServer } from './server.js';
 
 // Moved to utils/device-bundle.ts, where `dcd device run` uses it too.
@@ -92,6 +93,17 @@ const LOCAL_INPUTS: Record<string, { description: string; properties: Record<str
       app_path: {
         type: 'string',
         description: 'A build on this machine to upload and install. Pass this, app_binary_id or app_url.',
+      },
+    },
+  },
+  take_screenshot: {
+    description:
+      ' With full_size, also pass path to save the PNG on this machine, inside the working directory this server runs in.',
+    properties: {
+      path: {
+        type: 'string',
+        description:
+          'Where to save the full-size PNG, relative to the working directory or inside it. Only with full_size: true. Not over a file this server did not write.',
       },
     },
   },
@@ -151,6 +163,13 @@ export async function resolveLocalInputs(
     return { ...rest, app_binary_id: binaryId };
   }
 
+  if (name === 'take_screenshot' && args.path !== undefined) {
+    // The hosted tool takes no path: the bridge saves the file
+    // (saveFullScreenshot) once the link comes back.
+    const { path: _saveTo, ...rest } = args;
+    return rest;
+  }
+
   if (name === 'run' && typeof args.path === 'string') {
     const { path: given, ...rest } = args;
     // Only inside the working directory: an agent's call is not the user
@@ -187,6 +206,61 @@ export async function resolveLocalInputs(
   }
 
   return args;
+}
+
+/**
+ * Where a take_screenshot call asks for the full-size PNG to be saved, checked
+ * before the call is made: inside the working directory, not over a file this
+ * server did not write. Null when it asks for no file.
+ */
+export function screenshotTarget(args: Record<string, unknown>, root: string = workingDirectory()): null | string {
+  if (args.path === undefined) return null;
+  if (typeof args.path !== 'string' || args.path.trim() === '') {
+    throw new Error('path is where to save the full-size PNG, a file name inside the working directory.');
+  }
+
+  if (args.full_size !== true) {
+    throw new Error('path saves a full-size screenshot: pass full_size: true with it.');
+  }
+
+  return localOutput(args.path, root);
+}
+
+/**
+ * Save the full-size PNG a take_screenshot call linked to, and say so in its
+ * result. The link stays in the result whatever happens here: a download
+ * that fails says why, and the agent can still use the link.
+ */
+export async function saveFullScreenshot(
+  result: CallToolResult,
+  target: string,
+  download: (url: string, file: string) => Promise<void> = downloadFile,
+): Promise<CallToolResult> {
+  if (result.isError) return result;
+  const note = (text: string): CallToolResult => ({ ...result, content: [...result.content, { type: 'text', text }] });
+  const first = result.content.find((c) => c.type === 'text');
+  let url: unknown;
+  try {
+    url = (JSON.parse(first && first.type === 'text' ? first.text : '{}') as { full_size?: { url?: unknown } })
+      .full_size?.url;
+  } catch {
+    url = undefined;
+  }
+
+  if (typeof url !== 'string' || !/^https?:\/\//.test(url)) {
+    return note('Not saved: the answer had no link to a full-size screenshot.');
+  }
+
+  try {
+    await download(url, target);
+  } catch (error) {
+    return note(
+      `Not saved to ${target}: ${error instanceof Error ? error.message : String(error)}. The link above still works for an hour.`,
+    );
+  }
+
+  markWritten(target);
+  return note(`Saved to ${target}.`);
 }
 
 /**
@@ -420,9 +494,12 @@ export async function createBridgeServer(
       }
       const client = await remote.connect();
       const ctx = await getContext();
+      // Checked before the device is asked: a bad path is refused at once.
+      const saveTo = name === 'take_screenshot' ? screenshotTarget(args) : null;
       const remoteArgs = await resolveLocalInputs(name, args, ctx);
       try {
-        return (await client.callTool({ name, arguments: remoteArgs }, undefined, options)) as CallToolResult;
+        const result = (await client.callTool({ name, arguments: remoteArgs }, undefined, options)) as CallToolResult;
+        return saveTo ? await saveFullScreenshot(result, saveTo) : result;
       } catch (error) {
         // A tool's own refusal comes back as a result. A throw means no answer
         // arrived, so for a start the session's fate is unknown.

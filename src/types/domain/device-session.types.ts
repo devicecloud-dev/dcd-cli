@@ -267,6 +267,20 @@ export interface DeviceScreenshot {
   fresh: boolean;
 }
 
+/** GET .../screenshot?full=true: a PNG at the device's own resolution, as a link. */
+export interface DeviceFullScreenshot {
+  bytes: null | number;
+  captured_at: string;
+  content_type: string;
+  /** How long `url` works, in seconds. */
+  expires_in_s: number;
+  full: true;
+  /** In the device's own pixels; null when the device could not say. */
+  height: null | number;
+  url: string;
+  width: null | number;
+}
+
 /** POST .../run and GET .../commands/:id. */
 export interface DeviceRunResponse {
   command_id: string;
