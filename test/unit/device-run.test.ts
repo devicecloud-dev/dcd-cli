@@ -27,7 +27,61 @@ function printed(passed: boolean, result: Parameters<typeof printRunResult>[2], 
   return lines.join('\n');
 }
 
+/** A single flow that failed, as a newer API answers: its own words in error, the report in output. */
+const FAILED_INLINE = {
+  success: false,
+  error:
+    'Invalid File Path at flow.yaml:7:3. flow.yaml is the flow you sent inline; line 7 refers to another file (runFlow, runScript, addMedia), which was not sent with it.',
+  output: JSON.stringify({ success: false, device_id: 'x', message: 'Invalid File Path at flow.yaml:7:3' }),
+  failed_at: { file: 'flow.yaml', line: 7, command: 'runFlow: common/setup.yaml', call_chain: ['flow.yaml:7'] },
+};
+
 describe('dcd device run output', () => {
+  describe("the API's own words and where it failed", () => {
+    it("uses the API's text for a single failed flow, not the runner's", () => {
+      const report = parseRunReport(FAILED_INLINE)!;
+      expect(report.flows[0].error).to.equal(FAILED_INLINE.error);
+      expect(report.flows[0].failed_at).to.deep.equal(FAILED_INLINE.failed_at);
+      expect(runFailureMessage(FAILED_INLINE, report)).to.equal(FAILED_INLINE.error);
+      expect(printed(false, FAILED_INLINE)).to.include('which was not sent with it');
+    });
+
+    it('says where each failed flow of a bundle failed, and how it got there', () => {
+      const result = {
+        success: false,
+        flows: [
+          { file: 'a.yaml', success: true, error: null },
+          {
+            file: 'main.yaml',
+            success: false,
+            error: 'Element not found',
+            failed_at: { file: 'sub/check.yaml', line: 5, command: 'tapOn: Next', call_chain: ['main.yaml:4', 'sub/check.yaml:5'] },
+          },
+        ],
+      };
+      const out = printed(false, result);
+      expect(out).to.include('main.yaml failed at sub/check.yaml:5  tapOn: Next  (via main.yaml:4)');
+      expect(runFailureMessage(result, parseRunReport(result))).to.equal(
+        'main.yaml: Element not found (at sub/check.yaml:5  tapOn: Next  (via main.yaml:4))',
+      );
+    });
+
+    it('does not say where twice when the text says it already', () => {
+      const result = {
+        success: false,
+        flows: [
+          {
+            file: 'main.yaml',
+            success: false,
+            error: 'Element not found (at main.yaml:9)',
+            failed_at: { file: 'main.yaml', line: 9, command: null, call_chain: [] },
+          },
+        ],
+      };
+      expect(printed(false, result)).not.to.include('failed at main.yaml:9');
+    });
+  });
+
   describe('parseRunReport', () => {
     it('reads a directory report from error, one row per flow', () => {
       expect(parseRunReport({ success: false, error: FAILED_DIR })).to.deep.equal({

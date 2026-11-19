@@ -1,5 +1,20 @@
 # Changelog
 
+## [5.15.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.14.1...v5.15.0) (2026-11-19)
+
+
+### Features
+
+* **artifacts:** download one flow's artifacts with --result-id or --flow ([#338](https://github.com/devicecloud-dev/dcd-cli/issues/338)) ([3659af3](https://github.com/devicecloud-dev/dcd-cli/commit/3659af364f989a97ec092a31a6bf8b2ee24460de))
+* **device:** keep agents to their own device sessions ([#340](https://github.com/devicecloud-dev/dcd-cli/issues/340)) ([74e951f](https://github.com/devicecloud-dev/dcd-cli/commit/74e951f5b1e51231a6b84ae3c4e2e2c51cb48ace))
+* **device:** save full-size PNG screenshots ([#343](https://github.com/devicecloud-dev/dcd-cli/issues/343)) ([1325da8](https://github.com/devicecloud-dev/dcd-cli/commit/1325da84e96b2e84d8922e6930c5cc00bab88aa8))
+
+
+### Bug Fixes
+
+* **artifacts:** fail on an incomplete ZIP instead of reporting success ([#337](https://github.com/devicecloud-dev/dcd-cli/issues/337)) ([e4b18b2](https://github.com/devicecloud-dev/dcd-cli/commit/e4b18b2c9cdbbc352cd96eb76074a4524a7298e2))
+* **device:** make dcd device safer to script and to drive from an agent ([#341](https://github.com/devicecloud-dev/dcd-cli/issues/341)) ([860ffb8](https://github.com/devicecloud-dev/dcd-cli/commit/860ffb8c14a9cd1bb8031a33dc6490707befb34b))
+
 ## [5.14.1](https://github.com/devicecloud-dev/dcd-cli/compare/v5.14.0...v5.14.1) (2026-11-17)
 
 
