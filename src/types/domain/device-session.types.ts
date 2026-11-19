@@ -29,10 +29,23 @@ export interface DeviceSession {
   model: null | string;
   client_label: null | string;
   created_at: string;
+  /** When a device was assigned (billing starts); null while queued. Absent from older APIs. */
+  started_at?: null | string;
+  /** When it ended; null while open. Absent from older APIs. */
+  released_at?: null | string;
+  /** When its maximum duration ends it; null while queued and once ended. Absent from older APIs. */
+  expires_at?: null | string;
   queue: {
     eta_s: null | number;
     position: null | number;
-    reason: 'fleet_busy' | 'waiting_for_device';
+    /**
+     * Why it waits. org_concurrency_full: the org's tests and sessions hold
+     * every slot it has; fleet_busy: the platform is at its fleet-wide cap;
+     * waiting_for_device: waiting for a free device.
+     */
+    reason: 'fleet_busy' | 'org_concurrency_full' | 'waiting_for_device';
+    /** Seconds since the session was created. Absent from older APIs. */
+    waited_s?: null | number;
   } | null;
   time_remaining_s: null | number;
   idle_remaining_s: null | number;
@@ -127,8 +140,30 @@ export interface DeviceInstalledApp {
   reused: boolean;
 }
 
+/**
+ * Where a flow failed, as the device worked it out from the flow files.
+ * Absent from older APIs, and when only a position is known.
+ */
+export interface DeviceFailureLocation {
+  /** The runFlow lines that led there, outermost first, e.g. `main.yaml:4`. */
+  call_chain: string[];
+  /** The command as written, on one line; null when only a line is known. */
+  command: null | string;
+  /** The file, as a path inside the bundle; `flow.yaml` for a flow sent inline. */
+  file: string;
+  /** 1-based line in that file. */
+  line: number;
+}
+
+/** Where a failure was: one place, or several that all fit the error. */
+export interface DeviceFailedAt {
+  failed_at?: DeviceFailureLocation;
+  /** Two or more commands fit the error, and any of them may have failed. */
+  failed_at_candidates?: DeviceFailureLocation[];
+}
+
 /** One flow of a run, as newer APIs report it in `result.flows`. */
-export interface DeviceFlowResult {
+export interface DeviceFlowResult extends DeviceFailedAt {
   error: null | string;
   /** The flow's path inside the bundle; null for a single flow. */
   file: null | string;
@@ -186,7 +221,7 @@ export const DEVICE_KEYS = [
 export const SWIPE_DIRECTIONS: readonly DeviceSwipeDirection[] = ['up', 'down', 'left', 'right'];
 
 /** The result of a typed action, a launch or a run. */
-export interface DeviceCommandResult {
+export interface DeviceCommandResult extends DeviceFailedAt {
   error?: string;
   /** Each flow of a run. Absent from APIs older than this field. */
   flows?: DeviceFlowResult[];
@@ -246,9 +281,17 @@ export interface DeviceRunResponse {
 export interface DeviceLogs {
   app_id: null | string;
   lines: string[];
+  /** How many lines were looked through before the filters. Absent from older APIs. */
+  scanned?: number;
   /** logcat, ios-unified-log, or none before an app is installed. */
   source: string;
+  /** The answer's size cap (24 KB) dropped older lines. Absent when it did not. */
+  truncated?: true;
 }
+
+/** The filters GET .../logs takes. */
+export const LOG_LEVELS = ['warning', 'error'] as const;
+export type DeviceLogLevel = (typeof LOG_LEVELS)[number];
 
 /** A short-lived download link for one stored artifact. */
 export interface DeviceArtifactLink {

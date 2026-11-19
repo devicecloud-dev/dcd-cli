@@ -8,6 +8,7 @@ import type {
   DeviceFlowBundle,
   DeviceHumanStatus,
   DeviceInstalledApp,
+  DeviceLogLevel,
   DeviceLogs,
   DeviceRunResponse,
   DeviceScreen,
@@ -26,6 +27,13 @@ import { ApiGateway } from './api-gateway.js';
 export class DeviceApiError extends Error {
   code: null | string;
   /**
+   * What else the answer said that a script can act on: how long to wait
+   * (`retry_after_s`), the limit that was hit (`limit`, `spent`), how far
+   * the device got (`phase`), or the command a wait was for (`command_id`).
+   * Printed in the --json envelope's `error` beside `code` and `message`.
+   */
+  details: Record<string, unknown>;
+  /**
    * The API itself answered (its `{ statusCode, message }` envelope), not a
    * proxy in front of it. A proxy's 502 can come after the API did the work.
    */
@@ -39,6 +47,7 @@ export class DeviceApiError extends Error {
     code: null | string,
     session: DeviceSession | null,
     fromApi = false,
+    details: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = 'DeviceApiError';
@@ -46,7 +55,31 @@ export class DeviceApiError extends Error {
     this.code = code;
     this.session = session;
     this.fromApi = fromApi;
+    this.details = details;
   }
+}
+
+/** The fields of an error answer passed on to the caller, when the API sends them. */
+const ERROR_DETAILS = ['retry_after_s', 'limit', 'spent', 'phase'] as const;
+
+/** The longest error text kept from an answer that is not the API's JSON. */
+const MAX_PLAIN_ERROR = 300;
+
+/**
+ * The message for an answer that is not the API's JSON: a proxy's page or
+ * plain text. An HTML page is cut to its title, as a whole page in a
+ * terminal, an envelope or a log says nothing a person can read.
+ */
+export function plainErrorText(text: string, status: number): string {
+  const trimmed = text.trim();
+  if (!trimmed) return `HTTP ${status}`;
+  if (/^<(?:!doctype|html|head|body)\b/i.test(trimmed) || /<\/html>\s*$/i.test(trimmed)) {
+    const title = /<title[^>]*>([^<]*)<\/title>/i.exec(trimmed)?.[1]?.replaceAll(/\s+/g, ' ').trim();
+    return `HTTP ${status}: ${title || 'an error page'} (an HTML page, not the API's answer)`;
+  }
+
+  const oneLine = trimmed.replaceAll(/\s+/g, ' ');
+  return oneLine.length > MAX_PLAIN_ERROR ? `${oneLine.slice(0, MAX_PLAIN_ERROR)}…` : oneLine;
 }
 
 /** How recent an open session must be to count as one a failed start may have made. */
@@ -70,7 +103,12 @@ export function startOutcomeUnknown(error: unknown): boolean {
  */
 async function toDeviceApiError(res: Response, path: string): Promise<DeviceApiError> {
   const text = await res.text();
-  let body: { error?: unknown; message?: unknown; session?: unknown; statusCode?: unknown } = {};
+  let body: Record<string, unknown> & {
+    error?: unknown;
+    message?: unknown;
+    session?: unknown;
+    statusCode?: unknown;
+  } = {};
   try {
     body = JSON.parse(text);
   } catch {
@@ -78,7 +116,7 @@ async function toDeviceApiError(res: Response, path: string): Promise<DeviceApiE
   }
 
   const raw = Array.isArray(body.message) ? body.message.join('; ') : body.message;
-  let message = typeof raw === 'string' && raw ? raw : text.trim() || `HTTP ${res.status}`;
+  let message = typeof raw === 'string' && raw ? raw : plainErrorText(text, res.status);
   if (res.status === 401) {
     message =
       'Authentication failed — your credentials are invalid or expired. ' +
@@ -101,7 +139,15 @@ async function toDeviceApiError(res: Response, path: string): Promise<DeviceApiE
   // Nest's envelope always has a numeric statusCode. Railway's proxy answers
   // `{ status, code, message }`, or a page that isn't JSON at all.
   const fromApi = typeof body.statusCode === 'number';
-  return new DeviceApiError(message, res.status, code, session, fromApi);
+  const details: Record<string, unknown> = {};
+  if (fromApi) {
+    for (const key of ERROR_DETAILS) {
+      const value = body[key];
+      if (typeof value === 'number' || typeof value === 'string') details[key] = value;
+    }
+  }
+
+  return new DeviceApiError(message, res.status, code, session, fromApi, details);
 }
 
 async function request<T>(
@@ -233,13 +279,20 @@ export const DeviceGateway = {
     return request(baseUrl, auth, 'GET', `/device/sessions${all ? '?all=true' : ''}`);
   },
 
+  /** The app's recent log lines; `level` and `grep` narrow them (the API ignores both before it knew them). */
   logs(
     baseUrl: string,
     auth: AuthContext,
     id: string,
     lines: number,
+    filter: { grep?: string; level?: DeviceLogLevel } = {},
   ): Promise<{ logs: DeviceLogs; session: DeviceSession }> {
-    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/logs?lines=${lines}`);
+    const query = new URLSearchParams({
+      lines: String(lines),
+      ...(filter.level && { level: filter.level }),
+      ...(filter.grep && { grep: filter.grep }),
+    });
+    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/logs?${query}`);
   },
 
   models(baseUrl: string, auth: AuthContext): Promise<DeviceCatalogue> {

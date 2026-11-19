@@ -22,6 +22,8 @@ import { homedir } from 'node:os';
 import * as path from 'node:path';
 
 import { ENVIRONMENTS } from '../config/environments.js';
+import { checkApiUrl } from './api-url.js';
+import { CliError } from './cli.js';
 
 export const CONFIG_SCHEMA_VERSION = 1;
 
@@ -80,19 +82,36 @@ export function readConfig(): StoredConfig | null {
   }
 }
 
+/** Hosts already warned about in this process: the MCP server resolves its URL again and again. */
+const warnedHosts = new Set<string>();
+
 /**
  * Resolve the API URL a command should talk to. Precedence:
- *   1. explicit --api-url flag
+ *   1. explicit --api-url flag (or DCD_API_URL, for the MCP server)
  *   2. api_url stored by `dcd login` (honors the env the user logged into)
  *   3. prod default
  *
  * Without this, session commands default to prod and a dev/staging Bearer
  * token is rejected with a misleading "Invalid or expired JWT". `switch-org`
  * has always done this; this helper extends it to every command.
+ *
+ * An explicit URL is checked first, since the credentials go to it
+ * (checkApiUrl): plain http is refused except to this machine, and a host
+ * other than devicecloud.dev gets a warning on stderr, once.
  */
 export function resolveApiUrl(flag: string | undefined): string {
   const explicit = flag?.trim();
-  if (explicit) return explicit;
+  if (explicit) {
+    const check = checkApiUrl(explicit);
+    if (!check.ok) throw new CliError(check.reason);
+    if (check.warning && !warnedHosts.has(check.origin)) {
+      warnedHosts.add(check.origin);
+      process.stderr.write(`Warning: ${check.warning}\n`);
+    }
+
+    return explicit;
+  }
+
   return readConfig()?.api_url ?? ENVIRONMENTS.prod.apiUrl;
 }
 

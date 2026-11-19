@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { scrubArgv } from '../../src/services/telemetry.service.js';
+import { redactUrls, scrubArgv } from '../../src/services/telemetry.service.js';
 
 /**
  * Telemetry keeps the argv of every command. What a caller gives a command
@@ -9,6 +9,30 @@ import { scrubArgv } from '../../src/services/telemetry.service.js';
  */
 describe('telemetry: scrubArgv', () => {
   const R = '<redacted>';
+
+  it("keeps a signed build link's query, user and fragment out, wherever the link is given", () => {
+    expect(
+      scrubArgv(['device', 'start', '--app', 'https://bucket.example/app.apk?X-Amz-Signature=abc&X-Amz-Credential=def']),
+    ).to.deep.equal(['device', 'start', '--app', `https://bucket.example/app.apk?${R}`]);
+    expect(scrubArgv(['device', 'install', 'a-b-c', 'https://ci.example/build.zip?token=abc'])).to.deep.equal([
+      'device',
+      'install',
+      'a-b-c',
+      `https://ci.example/build.zip?${R}`,
+    ]);
+    expect(scrubArgv(['device', 'start', '--app=https://u:p@host.example/a.zip#frag'])).to.deep.equal([
+      'device',
+      'start',
+      `--app=https://${R}@host.example/a.zip#${R}`,
+    ]);
+  });
+
+  it('redactUrls cleans links inside error text, and leaves other text alone', () => {
+    expect(redactUrls('Could not download https://x.example/a.apk?sig=1 (403).')).to.equal(
+      `Could not download https://x.example/a.apk?${R} (403).`,
+    );
+    expect(redactUrls('No link here: brave-teal-otter')).to.equal('No link here: brave-teal-otter');
+  });
 
   it('redacts the link of device open-link, with or without --sensitive, wherever it sits', () => {
     expect(scrubArgv(['device', 'open-link', 'myapp://sign-in?token=SECRET', '--sensitive'])).to.deep.equal([

@@ -5,9 +5,10 @@
  *   runs (createServer), reached over an in-memory transport.
  * - The device tools, proxied from the hosted endpoint at `<api>/mcp`, so
  *   they are defined (and contract-tested) once, in the API. The bridge adds
- *   what a remote server can't do: `install_app` takes a local `app_path`,
- *   and `run` takes a local `path` (a flow file, or a directory uploaded as
- *   a bundle).
+ *   what a remote server can't do: `start_device` and `install_app` take a
+ *   local `app_path`, and `run` takes a local `path` (a flow file, or a
+ *   directory uploaded as a bundle), which must be inside the working
+ *   directory (local-files.ts).
  *
  * Auth is the CLI's: an API key or a `dcd login` session (getContext). The
  * hosted endpoint accepts both. A session is renewed before it expires; the
@@ -16,8 +17,8 @@
  * stdout is the JSON-RPC channel: everything else goes to stderr.
  */
 import { randomBytes } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import * as path from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -31,15 +32,17 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { DeviceGateway, START_RECOVERY_WINDOW_MS } from '../gateways/device-gateway.js';
-import { processDependencies, readTestYamlFileAsJson } from '../services/execution-plan.utils.js';
-import { computeCommonRoot } from '../services/flow-paths.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { uploadLocalApp } from '../utils/app-upload.js';
 import { getCliVersion } from '../utils/cli.js';
-import { uploadFlowBundle } from '../utils/device-bundle.js';
+import { bundlePath, flowFileBundle, uploadFlowBundle } from '../utils/device-bundle.js';
 import { getContext, isReadOnly, logStderr } from './context.js';
 import { errorResult, runTool } from './helpers.js';
+import { isInside, localInput, workingDirectory } from './local-files.js';
 import { createServer } from './server.js';
+
+// Moved to utils/device-bundle.ts, where `dcd device run` uses it too.
+export { flowFileBundle } from '../utils/device-bundle.js';
 
 /*
  * Sent at initialize, before this server knows which hosted tools the
@@ -72,27 +75,43 @@ const READ_ONLY_INSTRUCTIONS =
 
 /** The inputs this bridge adds to hosted tools, and what they say. */
 const LOCAL_INPUTS: Record<string, { description: string; properties: Record<string, object> }> = {
-  install_app: {
+  start_device: {
     description:
-      ' Or pass app_path, a build on this machine (.apk, or a simulator .app / .zip / Expo .tar.gz), which is uploaded first.',
+      ' Or pass app_path, a build on this machine (.apk, or a simulator .app / .zip / Expo .tar.gz) inside the working directory this server runs in: it is uploaded before the session starts, so no device time is spent on the upload.',
     properties: {
       app_path: {
         type: 'string',
-        description: 'A build on this machine to upload and install. Pass this, app_binary_id or app_url.',
+        description:
+          'A build on this machine to upload and install when the device is ready, relative to the working directory or inside it. Pass this or app_binary_id.',
+      },
+    },
+  },
+  install_app: {
+    description:
+      ' Or pass app_path, a build on this machine (.apk, or a simulator .app / .zip / Expo .tar.gz) inside the working directory this server runs in, which is uploaded first.',
+    properties: {
+      app_path: {
+        type: 'string',
+        description:
+          'A build on this machine to upload and install, relative to the working directory or inside it. Pass this, app_binary_id or app_url.',
       },
     },
   },
   run: {
     description:
-      ' Or pass path: a flow file on this machine, or a directory of flows (flow picks the entry file inside it). A file that uses other files (runFlow, runScript, addMedia and the like) is uploaded with its folder; one that uses none is sent as yaml. Only the YAML files and the files the flows use (scripts, media) are uploaded, not builds or anything else in the directory.',
+      ' Or pass path: a flow file (.yaml or .yml) on this machine, or a directory of flows (flow picks the entry file inside it), inside the working directory this server runs in. A file that uses other files (runFlow, runScript, addMedia and the like) is uploaded with them; one that uses none is sent as yaml. Only the flows and the files they use (scripts, media) are uploaded, not builds or anything else in the directory.',
     properties: {
       path: {
         type: 'string',
-        description: 'A local flow file, or a directory of flows. Pass this, yaml or flow_upload_id.',
+        description:
+          'A flow file or a directory of flows, relative to the working directory or inside it. Pass this, yaml or flow_upload_id.',
       },
     },
   },
 };
+
+/** A flow file the device runs. */
+const FLOW_FILE = /\.ya?ml$/i;
 
 /** A hosted tool with this bridge's local inputs added. */
 export function withLocalInputs(tool: Tool): Tool {
@@ -109,30 +128,6 @@ export function withLocalInputs(tool: Tool): Tool {
 }
 
 /**
- * For a single flow file that uses other files (runFlow, runScript, addMedia
- * and the like): the folder to upload as a bundle, and the file's path
- * inside it. Sent as yaml on its own, the flow would fail on the device with
- * an invalid file path, because the files it uses would not be there. Null
- * when the flow uses no other files, or can't be read (the device reports
- * that itself).
- */
-export function flowFileBundle(file: string): { dir: string; entry: string } | null {
-  const absolute = path.resolve(file);
-  let deps: ReturnType<typeof processDependencies>;
-  try {
-    const { config, testSteps } = readTestYamlFileAsJson(absolute);
-    deps = processDependencies({ config, input: absolute, testSteps });
-  } catch {
-    return null;
-  }
-
-  // A missing file goes this way too, so the upload names it.
-  if (deps.allFiles.length === 0 && deps.allErrors.length === 0) return null;
-  const dir = computeCommonRoot([absolute], deps.allFiles) || path.dirname(absolute);
-  return { dir, entry: path.relative(dir, absolute) };
-}
-
-/**
  * Do the local part of a call (uploads, reading a file) and return the
  * arguments the hosted tool takes.
  */
@@ -140,13 +135,22 @@ export async function resolveLocalInputs(
   name: string,
   args: Record<string, unknown>,
   ctx: { apiUrl: string; auth: AuthContext },
+  root: string = workingDirectory(),
 ): Promise<Record<string, unknown>> {
-  if (name === 'install_app' && typeof args.app_path === 'string') {
+  if ((name === 'install_app' || name === 'start_device') && typeof args.app_path === 'string') {
     const { app_path: filePath, ...rest } = args;
-    logStderr(`Uploading ${filePath}…`);
+    if (rest.app_binary_id !== undefined || rest.app_url !== undefined) {
+      throw new Error('Pass app_path or app_binary_id (or app_url), not both.');
+    }
+
+    // Only inside the working directory, as run's path: an agent's call is
+    // not the user typing a path (local-files.ts), and a build from anywhere
+    // on disk would be uploaded to the team's storage.
+    const appFile = localInput(filePath as string, root);
+    logStderr(`Uploading ${appFile}…`);
     const binaryId = await uploadLocalApp({
       ...ctx,
-      filePath: filePath as string,
+      filePath: appFile,
       log: logStderr,
       showProgress: false,
     });
@@ -154,28 +158,38 @@ export async function resolveLocalInputs(
   }
 
   if (name === 'run' && typeof args.path === 'string') {
-    const { path: flowPath, ...rest } = args;
-    const info = await stat(flowPath as string).catch(() => null);
-    if (!info) throw new Error(`No such file or directory: ${flowPath}`);
+    const { path: given, ...rest } = args;
+    // Only inside the working directory: an agent's call is not the user
+    // typing a path (local-files.ts).
+    const flowPath = localInput(given as string, root);
+    const info = await stat(flowPath);
+    // The API takes forward slashes; a path typed on Windows has backslashes.
+    const entry = typeof rest.flow === 'string' ? rest.flow.replaceAll('\\', '/') : undefined;
     if (info.isDirectory()) {
       logStderr(`Uploading the flows in ${flowPath}…`);
-      const bundle = await uploadFlowBundle({
-        ...ctx,
-        dir: flowPath as string,
-        entry: typeof rest.flow === 'string' ? rest.flow : undefined,
-        log: logStderr,
-      });
-      return { ...rest, flow_upload_id: bundle.id };
+      const bundle = await uploadFlowBundle({ ...ctx, confineTo: root, dir: flowPath, entry, log: logStderr });
+      return { ...rest, ...(entry !== undefined && { flow: entry }), flow_upload_id: bundle.id };
     }
 
-    const bundled = flowFileBundle(flowPath as string);
+    if (!FLOW_FILE.test(flowPath)) {
+      throw new Error(`${given} is not a flow file: path takes a .yaml or .yml file, or a directory of flows.`);
+    }
+
+    const bundled = flowFileBundle(flowPath);
     if (bundled) {
-      logStderr(`${flowPath} uses other files; uploading it with ${bundled.dir}…`);
-      const bundle = await uploadFlowBundle({ ...ctx, ...bundled, log: logStderr });
-      return { ...rest, flow: bundled.entry, flow_upload_id: bundle.id };
+      // The files it uses go too, so they must be inside as well.
+      if (!isInside(realpathSync(bundled.dir), root)) {
+        throw new Error(
+          `${given} uses files outside the working directory (${root}). This server uploads only from there: start it in a folder that holds the flow and every file it uses.`,
+        );
+      }
+
+      logStderr(`${given} uses other files; uploading it with them, from ${bundled.dir}…`);
+      const bundle = await uploadFlowBundle({ ...ctx, ...bundled, confineTo: root, log: logStderr });
+      return { ...rest, flow: bundlePath(bundled.entry), flow_upload_id: bundle.id };
     }
 
-    return { ...rest, yaml: await readFile(flowPath as string, 'utf8') };
+    return { ...rest, yaml: await readFile(flowPath, 'utf8') };
   }
 
   return args;
@@ -225,6 +239,8 @@ export async function explainFailedStart(
 class RemoteDevices {
   private connecting: Promise<Client> | null = null;
   private tools: Tool[] | null = null;
+  /** Why the last listing gave no device tools, while it did not. */
+  unavailable: null | string = null;
 
   /** Calls that arrive together share one connect. A failed one is retried by the next call. */
   connect(): Promise<Client> {
@@ -259,12 +275,28 @@ class RemoteDevices {
     return client;
   }
 
+  /**
+   * The hosted device tools. A list that came back empty is not kept, nor is
+   * a failure: the next call asks again, so signing in or the organization
+   * being enabled later is picked up without a restart.
+   */
   async list(): Promise<Tool[]> {
     if (this.tools) return this.tools;
-    const client = await this.connect();
-    const { tools } = await client.listTools();
-    this.tools = tools;
-    return tools;
+    try {
+      const client = await this.connect();
+      const { tools } = await client.listTools();
+      if (tools.length === 0) {
+        this.unavailable = NO_DEVICE_TOOLS;
+        return tools;
+      }
+
+      this.tools = tools;
+      this.unavailable = null;
+      return tools;
+    } catch (error) {
+      this.unavailable = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
   }
 
   has(name: string): boolean {
@@ -277,10 +309,29 @@ class RemoteDevices {
   }
 }
 
+/** Why an account sees no device tools when the endpoint answered. */
+const NO_DEVICE_TOOLS =
+  'the hosted server offers no device tools to this account: Agent Devices may not be enabled for your organization';
+
+/**
+ * Listed in place of the device tools while they can't be loaded, so the
+ * agent sees why (in its description) and can load them once that is fixed.
+ */
+export const LOAD_DEVICE_TOOLS = 'load_device_tools';
+
+function loadDeviceToolsTool(reason: string): Tool {
+  return {
+    name: LOAD_DEVICE_TOOLS,
+    description: `The device tools (start_device and the rest, for driving a cloud phone) could not be loaded: ${reason}. Once that is fixed (for example after \`dcd login\`), call this to load them.`,
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true },
+  };
+}
+
 /**
  * Build the `dcd mcp` server. Without a reachable hosted endpoint (no
- * credentials yet, or an API without it), it still serves the dcd_* tools
- * and says why on stderr.
+ * credentials yet, or an API without it), it still serves the dcd_* tools,
+ * says why on stderr, and lists load_device_tools, which says why too.
  */
 export async function createBridgeServer(
   opts: { callTimeoutMs?: number } = {},
@@ -298,7 +349,8 @@ export async function createBridgeServer(
   const server = new Server(
     { name: 'devicecloud', version: getCliVersion() },
     {
-      capabilities: { tools: {} },
+      // listChanged: the device tools can arrive after the first listing.
+      capabilities: { tools: { listChanged: true } },
       instructions: readOnly ? READ_ONLY_INSTRUCTIONS : INSTRUCTIONS,
     },
   );
@@ -311,10 +363,13 @@ export async function createBridgeServer(
         // Read-only mode keeps only the tools that change nothing.
         .filter((t) => !readOnly || t.annotations?.readOnlyHint === true)
         .map((t) => withLocalInputs(t));
-    } catch (error) {
-      logStderr(
-        `Device tools unavailable: ${error instanceof Error ? error.message : String(error)}. Serving the dcd_* tools only.`,
-      );
+    } catch {
+      // remote.unavailable says why.
+    }
+
+    if (remote.unavailable) {
+      logStderr(`Device tools unavailable: ${remote.unavailable}. Serving the dcd_* tools only.`);
+      return { tools: [...localTools, loadDeviceToolsTool(remote.unavailable)] };
     }
 
     return { tools: [...localTools, ...deviceTools] };
@@ -330,8 +385,31 @@ export async function createBridgeServer(
       return (await local.callTool({ name, arguments: args }, undefined, options)) as CallToolResult;
     }
 
+    if (name === LOAD_DEVICE_TOOLS) {
+      return runTool(`device ${name}`, async () => {
+        const tools = await remote.list().catch(() => []);
+        if (tools.length === 0) {
+          return errorResult(`The device tools are still unavailable: ${remote.unavailable ?? 'no answer'}.`);
+        }
+
+        await server.sendToolListChanged();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Loaded the device tools: ${tools.map((t) => t.name).join(', ')}. List the tools again to see them.`,
+            },
+          ],
+        };
+      });
+    }
+
     return runTool(`device ${name}`, async () => {
-      await remote.list();
+      await remote.list().catch(() => []);
+      if (remote.unavailable) {
+        return errorResult(`${name} is not available: the device tools could not be loaded (${remote.unavailable}).`);
+      }
+
       if (!remote.has(name)) {
         // In read-only mode the hosted server lists only its read-only tools,
         // so a device tool that changes something is unknown here as well.
