@@ -19,6 +19,8 @@ import {
   flowFileBundle,
   LOAD_DEVICE_TOOLS,
   resolveLocalInputs,
+  saveFullScreenshot,
+  screenshotTarget,
   withLocalInputs,
 } from '../../src/mcp/bridge.js';
 import { clearContextCache } from '../../src/mcp/context.js';
@@ -495,6 +497,59 @@ describe('dcd mcp bridge', () => {
       expect(result.isError).to.equal(true);
       expect(hosted.calls).to.deep.equal([]);
       await client.close();
+    });
+  });
+
+  describe('full-size screenshots', () => {
+    const ctx = () => ({ apiUrl: 'https://api.example.test', auth: { headers: {}, mode: 'apiKey' as const } });
+    const answer = (url: unknown) => ({
+      content: [{ type: 'text' as const, text: JSON.stringify({ full_size: { url, width: 1179, height: 2556 } }) }],
+    });
+
+    it('take_screenshot takes a path, which only goes with full_size and stays in the working directory', async () => {
+      const tool = withLocalInputs({
+        name: 'take_screenshot',
+        description: 'A screenshot.',
+        inputSchema: { type: 'object' as const, properties: { full_size: {} } },
+      });
+      expect(tool.inputSchema.properties).to.have.keys('full_size', 'path');
+      expect(screenshotTarget({ full_size: true })).to.equal(null);
+      expect(screenshotTarget({ full_size: true, path: 'shots/home.png' })).to.equal(
+        path.join(tempDir, 'shots', 'home.png'),
+      );
+      expect(() => screenshotTarget({ path: 'home.png' })).to.throw(/full_size: true/);
+      expect(() => screenshotTarget({ full_size: true, path: '../home.png' })).to.throw();
+      // The hosted tool is not sent the path.
+      expect(await resolveLocalInputs('take_screenshot', { full_size: true, path: 'home.png' }, ctx())).to.deep.equal({
+        full_size: true,
+      });
+    });
+
+    it('saves the PNG the answer links to, and says where', async () => {
+      const target = path.join(tempDir, 'home.png');
+      const fetched: string[] = [];
+      const result = await saveFullScreenshot(answer('https://cdn.example/full.png'), target, async (url, file) => {
+        fetched.push(url);
+        fs.writeFileSync(file, 'png');
+      });
+      expect(fetched).to.deep.equal(['https://cdn.example/full.png']);
+      expect(fs.readFileSync(target, 'utf8')).to.equal('png');
+      expect(result.content.at(-1)).to.deep.equal({ type: 'text', text: `Saved to ${target}.` });
+      // Written by this server, so it may be written again.
+      expect(screenshotTarget({ full_size: true, path: 'home.png' })).to.equal(target);
+    });
+
+    it('keeps the link and says why when it cannot save', async () => {
+      const target = path.join(tempDir, 'home.png');
+      const failed = await saveFullScreenshot(answer('https://cdn.example/full.png'), target, async () => {
+        throw new Error('HTTP 403');
+      });
+      expect((failed.content.at(-1) as { text: string }).text).to.match(/^Not saved to .*HTTP 403\. The link above still works/);
+      const noLink = await saveFullScreenshot(answer('file:///etc/passwd'), target, async () => {
+        throw new Error('must not be called');
+      });
+      expect((noLink.content.at(-1) as { text: string }).text).to.include('no link');
+      expect(fs.existsSync(target)).to.equal(false);
     });
   });
 

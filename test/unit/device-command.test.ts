@@ -79,7 +79,7 @@ interface Call {
 }
 
 /** Route fetch to `handler`, recording each call. */
-function stubFetch(handler: (call: Call) => { body: unknown; status?: number }): Call[] {
+function stubFetch(handler: (call: Call) => { body: unknown; raw?: Uint8Array; status?: number }): Call[] {
   const calls: Call[] = [];
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const call: Call = {
@@ -89,8 +89,8 @@ function stubFetch(handler: (call: Call) => { body: unknown; status?: number }):
       body: parseBody(init?.body),
     };
     calls.push(call);
-    const { body, status = 200 } = handler(call);
-    return new Response(JSON.stringify(body), { status });
+    const { body, raw, status = 200 } = handler(call);
+    return new Response(raw ? Buffer.from(raw) : JSON.stringify(body), { status });
   }) as typeof fetch;
   return calls;
 }
@@ -233,6 +233,8 @@ describe('dcd device', () => {
 
     it('maps limits to 3 and ended or missing sessions to 4', () => {
       expect(deviceExitCode(apiError(429, 'LIVE_SPEND_CAP'))).to.equal(DEVICE_EXIT.limit);
+      // A start refused by the team's overage cap or a usage alert's hard stop.
+      expect(deviceExitCode(apiError(402, 'USAGE_LIMIT_EXCEEDED'))).to.equal(DEVICE_EXIT.limit);
       expect(deviceExitCode(apiError(409, 'LIVE_CONCURRENCY_LIMIT'))).to.equal(DEVICE_EXIT.limit);
       expect(deviceExitCode(apiError(429, null))).to.equal(DEVICE_EXIT.limit);
       expect(deviceExitCode(apiError(404, 'LIVE_NOT_FOUND'))).to.equal(DEVICE_EXIT.gone);
@@ -889,6 +891,35 @@ describe('dcd device', () => {
       const { out } = await runJson('screenshot', { id: 'a-b-c', output: file });
       expect(fs.readFileSync(file)).to.deep.equal(jpeg);
       expect(out.data).to.deep.equal({ path: file, captured_at: null, fresh: false });
+    });
+
+    it('screenshot --full saves the PNG the API links to, and reports its size', async () => {
+      const file = path.join(tempDir, 'full.png');
+      const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+      const calls = stubFetch((call) =>
+        call.url === 'https://cdn.example/full.png'
+          ? { body: null, raw: png }
+          : {
+              body: {
+                screenshot: {
+                  url: 'https://cdn.example/full.png',
+                  content_type: 'image/png',
+                  width: 1179,
+                  height: 2556,
+                  bytes: 4,
+                  captured_at: 't',
+                  expires_in_s: 3600,
+                  full: true,
+                },
+                session: session('a-b-c'),
+              },
+            },
+      );
+      const { exit, out } = await runJson('screenshot', { id: 'a-b-c', output: file, full: true });
+      expect(exit).to.equal(0);
+      expect(calls[0].url).to.equal(`${API}/device/sessions/a-b-c/screenshot?full=true`);
+      expect(new Uint8Array(fs.readFileSync(file))).to.deep.equal(png);
+      expect(out.data).to.deep.equal({ path: file, captured_at: 't', width: 1179, height: 2556, bytes: 4 });
     });
 
     it('run sends the flow and the env, and polls a flow that is still running', async () => {

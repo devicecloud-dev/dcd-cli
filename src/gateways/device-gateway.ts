@@ -6,6 +6,7 @@ import type {
   DeviceCatalogue,
   DeviceCommandResult,
   DeviceFlowBundle,
+  DeviceFullScreenshot,
   DeviceHumanStatus,
   DeviceInstalledApp,
   DeviceLogLevel,
@@ -371,6 +372,18 @@ export const DeviceGateway = {
     id: string,
   ): Promise<{ screenshot: DeviceScreenshot; session: DeviceSession }> {
     return request(baseUrl, auth, 'GET', `${sessionPath(id)}/screenshot`);
+  },
+
+  /**
+   * A PNG at the device's own resolution, as a link. A device whose runner
+   * is too old for it answers LIVE_NOT_SUPPORTED.
+   */
+  fullScreenshot(
+    baseUrl: string,
+    auth: AuthContext,
+    id: string,
+  ): Promise<{ screenshot: DeviceFullScreenshot; session: DeviceSession }> {
+    return request(baseUrl, auth, 'GET', `${sessionPath(id)}/screenshot?full=true`);
   },
 
   start(

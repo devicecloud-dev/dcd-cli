@@ -36,6 +36,7 @@ import { bundlePath, flowFileBundle, uploadFlowBundle } from '../utils/device-bu
 import {
   type DeviceArtifactFile,
   downloadArtifactFiles,
+  downloadFile,
   fetchAllArtifacts,
   pendingArtifacts,
   pendingArtifactsWarning,
@@ -1310,6 +1311,16 @@ export function decodeDataUrl(dataUrl: string): { bytes: Buffer; ext: string } {
   return { bytes: Buffer.from(match[2], 'base64'), ext: match[1] === 'jpeg' ? 'jpg' : match[1] };
 }
 
+/** What `dcd device screenshot` reports: a JPEG frame, or with --full a PNG. */
+type ScreenshotData = {
+  bytes?: null | number;
+  captured_at: null | string;
+  fresh?: boolean;
+  height?: null | number;
+  path: string;
+  width?: null | number;
+};
+
 const screenshotSub = defineCommand({
   meta: { name: 'screenshot', description: 'Save a screenshot of the device' },
   args: {
@@ -1318,14 +1329,43 @@ const screenshotSub = defineCommand({
     output: {
       type: 'string',
       alias: ['o'],
-      description: 'Where to save it (default: ./<session>-<time>.jpg)',
+      description: 'Where to save it (default: ./<session>-<time>.jpg, or .png with --full)',
+    },
+    full: {
+      type: 'boolean',
+      description:
+        "A PNG at the device's own resolution, instead of the smaller JPEG frame (for baseline images). Takes a few seconds. A device busy running a flow can't take it: after 30 seconds the request fails, so take it once the flow has finished",
     },
   },
   async run({ args }) {
     const json = Boolean(args.json);
-    await runDeviceCommand(json, async () => {
+    await runDeviceCommand<ScreenshotData>(json, async () => {
       const ctx = await context(args);
       const id = await resolveSessionId(ctx.apiUrl, ctx.auth, args.id as string | undefined);
+      if (args.full) {
+        const { screenshot, session } = await DeviceGateway.fullScreenshot(ctx.apiUrl, ctx.auth, id);
+        const file =
+          (args.output as string | undefined) ||
+          `${session.id}-${new Date().toISOString().replaceAll(/[:.]/g, '-')}.png`;
+        await downloadFile(screenshot.url, file);
+        const filePath = resolvePath(file);
+        const size = screenshot.width && screenshot.height ? `${screenshot.width}x${screenshot.height}` : null;
+        return {
+          session,
+          data: {
+            path: filePath,
+            captured_at: screenshot.captured_at,
+            width: screenshot.width,
+            height: screenshot.height,
+            bytes: screenshot.bytes,
+          },
+          print() {
+            logger.log(ui.success(`Saved ${filePath}${size ? ` (${size})` : ''}`));
+            printWarnings(session);
+          },
+        };
+      }
+
       const { screenshot, session } = await DeviceGateway.screenshot(ctx.apiUrl, ctx.auth, id);
       const { bytes, ext } = decodeDataUrl(screenshot.data_url);
       const file =

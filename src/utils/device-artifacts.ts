@@ -218,6 +218,29 @@ async function downloadOnce(url: string, target: string, idleMs: number, totalMs
 }
 
 /**
+ * Download one link to `target`, tried twice, making its folder. A failed
+ * download leaves no partial file behind.
+ */
+export async function downloadFile(url: string, target: string, options: DownloadArtifactOptions = {}): Promise<void> {
+  const idleMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const totalMs = options.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
+  const attempts = Math.max(1, options.attempts ?? DEFAULT_ATTEMPTS);
+  await mkdir(path.dirname(target), { recursive: true });
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await downloadOnce(url, target, idleMs, totalMs);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  await rm(target, { force: true }).catch(() => {});
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/**
  * Download every file with a link into `dir`, four at a time. Each file is
  * tried twice (a stalled CDN response usually succeeds on a second
  * request). Returns the files that could not be fetched, with why, rather

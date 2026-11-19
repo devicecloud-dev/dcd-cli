@@ -17,13 +17,20 @@ export const DEVICE_EXIT = {
   usage: 1,
   /** It ran and failed: a flow or action failed, or the API could not do it. */
   failed: 2,
-  /** A limit: concurrency, spend cap or rate limit. */
+  /** A limit: concurrency, a spend cap or usage limit, or a rate limit. */
   limit: 3,
   /** The session has ended, or there is no such session. */
   gone: 4,
 } as const;
 
-const LIMIT_CODES = new Set(['LIVE_CONCURRENCY_LIMIT', 'LIVE_RATE_LIMITED', 'LIVE_SPEND_CAP']);
+// USAGE_LIMIT_EXCEEDED: the team's overage cap or a usage alert's hard stop
+// refused a session start, as it refuses a test run.
+const LIMIT_CODES = new Set([
+  'LIVE_CONCURRENCY_LIMIT',
+  'LIVE_RATE_LIMITED',
+  'LIVE_SPEND_CAP',
+  'USAGE_LIMIT_EXCEEDED',
+]);
 const GONE_CODES = new Set(['LIVE_NOT_FOUND', 'LIVE_SESSION_ENDED']);
 const USAGE_CODES = new Set([
   'LIVE_INVALID_ACTION',
