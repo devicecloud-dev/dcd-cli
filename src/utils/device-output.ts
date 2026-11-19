@@ -1,6 +1,6 @@
 import { DeviceApiError, DeviceGateway } from '../gateways/device-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
-import type { DeviceHumanStatus, DeviceSession } from '../types/domain/device-session.types.js';
+import type { DeviceHumanStatus, DeviceSession, DeviceSessionStarter } from '../types/domain/device-session.types.js';
 import { CliError, logger } from './cli.js';
 import { colors, formatUrl } from './styling.js';
 import { type Field, ui } from './ui.js';
@@ -123,9 +123,13 @@ export function deviceProgress(json: boolean): (message: string) => void {
 }
 
 /**
- * The default-session rule: `<id>` may be left out when the org has exactly
- * one open session. With none, or several, the command is a usage error and
- * lists what there is to choose from.
+ * The default-session rule: `<id>` may be left out when you have exactly one
+ * open session. Other people's sessions are never the default: a teammate's
+ * agent may be using one. With none of yours, or several, the command is a
+ * usage error that lists what there is to choose from.
+ *
+ * An API that does not say who started each session (no `started_by`) is
+ * read the old way: the org's only open session.
  */
 export async function resolveSessionId(
   apiUrl: string,
@@ -136,7 +140,9 @@ export async function resolveSessionId(
   if (id) return id;
 
   const { sessions } = await DeviceGateway.list(apiUrl, auth);
-  if (sessions.length === 1) return sessions[0].id;
+  const knowsOwners = sessions.some((s) => s.started_by !== undefined);
+  const yours = knowsOwners ? sessions.filter((s) => s.started_by?.you) : sessions;
+  if (yours.length === 1) return yours[0].id;
   if (sessions.length === 0) {
     throw new CliError(
       'No open device session. Start one with `dcd device start --platform ios|android`.',
@@ -144,13 +150,32 @@ export async function resolveSessionId(
     );
   }
 
-  const candidates = sessions
-    .map((s) => `  ${s.id}  ${s.platform}  ${s.state}${s.client_label ? `  ${s.client_label}` : ''}`)
-    .join('\n');
+  const candidates = (list: DeviceSession[]) =>
+    list
+      .map((s) => {
+        const who = s.started_by ? startedByLabel(s.started_by) : '';
+        return `  ${s.id}  ${s.platform}  ${s.state}${s.client_label ? `  ${s.client_label}` : ''}${who ? `  (${who})` : ''}`;
+      })
+      .join('\n');
+  if (yours.length === 0) {
+    throw new CliError(
+      `None of the open device sessions is yours. Start your own, or name one of these (changing it needs --force):\n${candidates(sessions)}`,
+      DEVICE_EXIT.usage,
+    );
+  }
+
   throw new CliError(
-    `${sessions.length} device sessions are open. Name one:\n${candidates}`,
+    `${yours.length} of your device sessions are open. Name one:\n${candidates(yours)}`,
     DEVICE_EXIT.usage,
   );
+}
+
+/** Who started a session, in a few words: "you", an email, or an API key's name. */
+export function startedByLabel(starter: DeviceSessionStarter): string {
+  if (starter.you) return starter.this_client ? 'you, this connection' : 'you';
+  if (starter.email) return `started by ${starter.email}`;
+  if (starter.key_name) return `started with API key "${starter.key_name}"`;
+  return 'started by someone else';
 }
 
 export function formatSeconds(seconds: number): string {
@@ -169,6 +194,7 @@ export function sessionFields(session: DeviceSession): Field[] {
   ];
   if (session.model) fields.push(['model', session.model]);
   if (session.client_label) fields.push(['client', session.client_label]);
+  if (session.started_by) fields.push(['started', startedByLabel(session.started_by)]);
   if (session.queue) {
     const position = session.queue.position === null ? '' : `#${session.queue.position}`;
     const eta = session.queue.eta_s === null ? '' : `, about ${formatSeconds(session.queue.eta_s)}`;

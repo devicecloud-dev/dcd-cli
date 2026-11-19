@@ -146,6 +146,14 @@ async function request<T>(
 const sessionPath = (id: string) => `/device/sessions/${encodeURIComponent(id)}`;
 
 /** The Agent Devices session API (dcd docs/device-v1-plan.md, section 4.1). */
+/**
+ * A changing request's body, with `force` when asked: the API refuses an
+ * agent changing a session someone else started (LIVE_NOT_YOURS) unless it
+ * says so. Left out otherwise, so an older API sees the body it always did.
+ */
+const withForce = <T extends object>(body: T, force: boolean): T | (T & { force: true }) =>
+  force ? { ...body, force: true } : body;
+
 export const DeviceGateway = {
   artifacts(
     baseUrl: string,
@@ -202,8 +210,9 @@ export const DeviceGateway = {
     auth: AuthContext,
     id: string,
     app: { binaryUploadId: string } | { url: string },
+    force = false,
   ): Promise<{ app: DeviceInstalledApp; session: DeviceSession }> {
-    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/install`, app);
+    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/install`, withForce(app, force));
   },
 
   launch(
@@ -211,8 +220,9 @@ export const DeviceGateway = {
     auth: AuthContext,
     id: string,
     body: { appId?: string; clearState?: boolean },
+    force = false,
   ): Promise<{ result: DeviceCommandResult; session: DeviceSession }> {
-    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/launch`, body);
+    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/launch`, withForce(body, force));
   },
 
   list(
@@ -274,8 +284,9 @@ export const DeviceGateway = {
     auth: AuthContext,
     id: string,
     reason: string,
+    force = false,
   ): Promise<{ human: DeviceHumanStatus; session: DeviceSession }> {
-    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/request-human`, { reason });
+    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/request-human`, withForce({ reason }, force));
   },
 
   /** One typed action: tap, type, swipe, press_key, open_link or set_location. Synchronous: answers with the outcome. */
@@ -284,8 +295,9 @@ export const DeviceGateway = {
     auth: AuthContext,
     id: string,
     body: DeviceActionRequest,
+    force = false,
   ): Promise<{ result: DeviceCommandResult; session: DeviceSession }> {
-    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/actions`, body);
+    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/actions`, withForce(body, force));
   },
 
   run(
@@ -295,8 +307,9 @@ export const DeviceGateway = {
     body:
       | { env?: Record<string, string>; flow?: string; flowUploadId: string }
       | { env?: Record<string, string>; yaml: string },
+    force = false,
   ): Promise<DeviceRunResponse> {
-    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/run`, body);
+    return request(baseUrl, auth, 'POST', `${sessionPath(id)}/run`, withForce(body, force));
   },
 
   screenshot(
@@ -319,7 +332,7 @@ export const DeviceGateway = {
     return request(baseUrl, auth, 'GET', sessionPath(id));
   },
 
-  stop(baseUrl: string, auth: AuthContext, id: string): Promise<{ session: DeviceSession }> {
-    return request(baseUrl, auth, 'DELETE', sessionPath(id));
+  stop(baseUrl: string, auth: AuthContext, id: string, force = false): Promise<{ session: DeviceSession }> {
+    return request(baseUrl, auth, 'DELETE', `${sessionPath(id)}${force ? '?force=true' : ''}`);
   },
 };

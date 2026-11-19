@@ -49,6 +49,24 @@ export interface DeviceSession {
   } | null;
   warnings: string[];
   monitor_url: string;
+  /**
+   * Who started the session, and how that stands to you. Absent from an API
+   * that predates it.
+   */
+  started_by?: DeviceSessionStarter;
+}
+
+/** Who started a session. */
+export interface DeviceSessionStarter {
+  /** The name of the API key that started it, when one did: its label, never the key. */
+  key_name: null | string;
+  client_label: null | string;
+  /** The person who started it, when a person did. */
+  email: null | string;
+  /** Started from this connection (the same `dcd mcp` process). */
+  this_client: boolean;
+  /** Started by you: this person, or this API key. */
+  you: boolean;
 }
 
 /**
