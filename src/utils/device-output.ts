@@ -174,7 +174,7 @@ export async function resolveSessionId(
 export function startedByLabel(starter: DeviceSessionStarter): string {
   if (starter.you) return starter.this_client ? 'you, this connection' : 'you';
   if (starter.email) return `started by ${starter.email}`;
-  if (starter.api_key_name) return `started with API key "${starter.api_key_name}"`;
+  if (starter.key_name) return `started with API key "${starter.key_name}"`;
   return 'started by someone else';
 }
 
