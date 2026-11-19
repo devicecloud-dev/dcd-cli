@@ -445,6 +445,34 @@ describe('dcd mcp bridge', () => {
       }
     });
 
+    it('refuses an app_path outside the working directory, before uploading anything', async () => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-bridge-outside-'));
+      fs.writeFileSync(path.join(outside, 'backup.zip'), 'not a build');
+      const realFetch = globalThis.fetch;
+      let fetched = 0;
+      globalThis.fetch = (async () => {
+        fetched += 1;
+        return new Response('{}');
+      }) as typeof fetch;
+      try {
+        for (const name of ['start_device', 'install_app']) {
+          for (const given of [path.join(outside, 'backup.zip'), path.relative(tempDir, path.join(outside, 'backup.zip'))]) {
+            try {
+              await resolveLocalInputs(name, { app_path: given }, ctx());
+              expect.fail(`${name} took ${given}`);
+            } catch (error) {
+              expect((error as Error).message).to.include('outside the working directory');
+            }
+          }
+        }
+
+        expect(fetched).to.equal(0);
+      } finally {
+        globalThis.fetch = realFetch;
+        fs.rmSync(outside, { force: true, recursive: true });
+      }
+    });
+
     it('start_device takes app_path, and refuses it with app_binary_id', async () => {
       const start = withLocalInputs({
         name: 'start_device',

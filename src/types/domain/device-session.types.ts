@@ -71,9 +71,10 @@ export interface DeviceSession {
 
 /** Who started a session. */
 export interface DeviceSessionStarter {
-  /** The person who started it, when a person did. */
-  api_key_name: null | string;
+  /** The name of the API key that started it, when one did: its label, never the key. */
+  key_name: null | string;
   client_label: null | string;
+  /** The person who started it, when a person did. */
   email: null | string;
   /** Started from this connection (the same `dcd mcp` process). */
   this_client: boolean;

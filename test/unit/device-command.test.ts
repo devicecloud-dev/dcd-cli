@@ -279,13 +279,13 @@ describe('dcd device', () => {
 
     it("takes your only session, never someone else's", async () => {
       stubFetch(() => ({
-        body: { sessions: [session('theirs', { started_by: { api_key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } }), session('yours', { started_by: { api_key_name: null, client_label: null, email: null, this_client: false, you: true } })] },
+        body: { sessions: [session('theirs', { started_by: { key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } }), session('yours', { started_by: { key_name: null, client_label: null, email: null, this_client: false, you: true } })] },
       }));
       expect(await resolveSessionId(API, auth, undefined)).to.equal('yours');
     });
 
     it('is a usage error, naming who started each, when none of the open sessions is yours', async () => {
-      stubFetch(() => ({ body: { sessions: [session('theirs', { started_by: { api_key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } })] } }));
+      stubFetch(() => ({ body: { sessions: [session('theirs', { started_by: { key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } })] } }));
       try {
         await resolveSessionId(API, auth, undefined);
         expect.fail('should have thrown');
@@ -812,7 +812,7 @@ describe('dcd device', () => {
     it("stop --all stops your sessions and leaves others' unless --force", async () => {
       const calls = stubFetch((call) =>
         call.method === 'GET'
-          ? { body: { sessions: [session('mine-1', { started_by: { api_key_name: null, client_label: null, email: null, this_client: false, you: true } }), session('theirs', { started_by: { api_key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } })] } }
+          ? { body: { sessions: [session('mine-1', { started_by: { key_name: null, client_label: null, email: null, this_client: false, you: true } }), session('theirs', { started_by: { key_name: null, client_label: 'claude-code', email: 'ann@example.com', this_client: false, you: false } })] } }
           : { body: { session: session(call.url.split('/').pop()!.split('?')[0], { state: 'released' }) } },
       );
       const { out } = await runJson('stop', { all: true });
@@ -1677,11 +1677,11 @@ describe('dcd device', () => {
         session(id, {
           state: 'released',
           created_at: created,
-          started_by: { api_key_name: null, client_label: null, email: null, this_client: false, you: true },
+          started_by: { key_name: null, client_label: null, email: null, this_client: false, you: true },
         });
       const theirs = session('their-new-one', {
         created_at: '2026-10-19T12:00:00Z',
-        started_by: { api_key_name: null, client_label: null, email: 'ann@example.com', this_client: false, you: false },
+        started_by: { key_name: null, client_label: null, email: 'ann@example.com', this_client: false, you: false },
       });
       const calls = stubFetch((call) =>
         call.url.includes('/artifacts')

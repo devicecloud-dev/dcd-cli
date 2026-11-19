@@ -78,21 +78,23 @@ const READ_ONLY_INSTRUCTIONS =
 const LOCAL_INPUTS: Record<string, { description: string; properties: Record<string, object> }> = {
   start_device: {
     description:
-      ' Or pass app_path, a build on this machine (.apk, or a simulator .app / .zip / Expo .tar.gz): it is uploaded before the session starts, so no device time is spent on the upload.',
+      ' Or pass app_path, a build on this machine (.apk, or a simulator .app / .zip / Expo .tar.gz) inside the working directory this server runs in: it is uploaded before the session starts, so no device time is spent on the upload.',
     properties: {
       app_path: {
         type: 'string',
-        description: 'A build on this machine to upload and install when the device is ready. Pass this or app_binary_id.',
+        description:
+          'A build on this machine to upload and install when the device is ready, relative to the working directory or inside it. Pass this or app_binary_id.',
       },
     },
   },
   install_app: {
     description:
-      ' Or pass app_path, a build on this machine (.apk, or a simulator .app / .zip / Expo .tar.gz), which is uploaded first.',
+      ' Or pass app_path, a build on this machine (.apk, or a simulator .app / .zip / Expo .tar.gz) inside the working directory this server runs in, which is uploaded first.',
     properties: {
       app_path: {
         type: 'string',
-        description: 'A build on this machine to upload and install. Pass this, app_binary_id or app_url.',
+        description:
+          'A build on this machine to upload and install, relative to the working directory or inside it. Pass this, app_binary_id or app_url.',
       },
     },
   },
@@ -153,10 +155,14 @@ export async function resolveLocalInputs(
       throw new Error('Pass app_path or app_binary_id (or app_url), not both.');
     }
 
-    logStderr(`Uploading ${filePath}…`);
+    // Only inside the working directory, as run's path: an agent's call is
+    // not the user typing a path (local-files.ts), and a build from anywhere
+    // on disk would be uploaded to the team's storage.
+    const appFile = localInput(filePath as string, root);
+    logStderr(`Uploading ${appFile}…`);
     const binaryId = await uploadLocalApp({
       ...ctx,
-      filePath: filePath as string,
+      filePath: appFile,
       log: logStderr,
       showProgress: false,
     });
