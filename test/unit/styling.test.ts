@@ -15,10 +15,14 @@ const { colors, forStderr, symbols } = await import(${JSON.stringify(stylingUrl)
 process.stdout.write(JSON.stringify({
   bold: colors.bold('b'),
   dimNull: colors.dim(null),
+  empty: colors.dim(''),
   error: colors.error('e'),
   forStderr: forStderr('\\u001B[31mx\\u001B[39m'),
+  lines: colors.dim('\\none\\r\\ntwo'),
+  nested: colors.dim('a' + colors.highlight('b') + 'c'),
   success: symbols.success,
   url: colors.url('u'),
+  urlLines: colors.url('u\\nv'),
 }));
 `;
 
@@ -57,6 +61,25 @@ describe('styling', function () {
     expect(r.error).to.equal('\u001B[31me\u001B[39m');
     expect(r.url).to.equal('\u001B[36m\u001B[4mu\u001B[24m\u001B[39m');
     expect(r.success).to.equal('\u001B[32m✓\u001B[39m');
+  });
+
+  // The bytes chalk produced, which the CLI's output must keep on every runtime.
+  it('re-opens the outer colour after a nested span', () => {
+    expect(runProbe({ FORCE_COLOR: '1' }).nested).to.equal(
+      '\u001B[90ma\u001B[36mb\u001B[39m\u001B[90mc\u001B[39m',
+    );
+  });
+
+  it('closes and re-opens colour around each line break', () => {
+    const r = runProbe({ FORCE_COLOR: '1' });
+    expect(r.lines).to.equal('\u001B[90m\u001B[39m\n\u001B[90mone\u001B[39m\r\n\u001B[90mtwo\u001B[39m');
+    expect(r.urlLines).to.equal(
+      '\u001B[36m\u001B[4mu\u001B[24m\u001B[39m\n\u001B[36m\u001B[4mv\u001B[24m\u001B[39m',
+    );
+  });
+
+  it('leaves an empty string empty', () => {
+    expect(runProbe({ FORCE_COLOR: '1' }).empty).to.equal('');
   });
 
   it('prints plain text under FORCE_COLOR=0', () => {
