@@ -163,7 +163,7 @@ export default {
 } satisfies E2EConfig;
 ```
 
-Run `npx e2e run` with `DEVICE_CLOUD_API_KEY` set. The provider uploads `appPath` once per run and each session installs it, so e2e installs nothing itself. To use a build you already uploaded, pass `deviceCloud({ appBinaryId })`. It also takes `model`, `os` and `maxDurationMin`. Each session's console link is printed as the run starts, and the session is stopped when e2e is done with it.
+Run `npx e2e run` with `DEVICE_CLOUD_API_KEY` set. The provider uploads `appPath` once per run and each session installs it, so e2e installs nothing itself. To use a build you already uploaded, pass `deviceCloud({ appBinaryId })`. It also takes `model`, `os`, `maxDurationMin`, and `locale` (such as `en_US`) for the device's language and region, set before your build is installed. Each session's console link is printed as the run starts, and the session is stopped when e2e is done with it.
 
 
 ## Development
