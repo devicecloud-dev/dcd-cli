@@ -82,6 +82,11 @@ export interface DeviceCloudOptions {
   os?: string;
   /** How long each session may last, in minutes. The organization's limit without. */
   maxDurationMin?: number;
+  /**
+   * The device's locale, as `en_US` or `en-US`: set before the build is
+   * installed or opened. The device's own default without.
+   */
+  locale?: string;
 }
 
 /** What the provider calls out to: the network, the upload, and the clock. */
@@ -189,10 +194,27 @@ function connection(
   return { apiKey, apiUrl: check.origin };
 }
 
+/** A locale as the API takes it, `en_US`, from that or `en-US`. */
+const LOCALE = /^[a-z]{2,3}_[A-Z]{2}$/;
+
+function deviceLocale(locale: string | undefined): string | undefined {
+  if (locale === undefined) return undefined;
+  const normalised = locale.trim().replace('-', '_');
+  if (!LOCALE.test(normalised)) {
+    throw new Error(
+      `DeviceCloud: "${locale}" is not a locale. Use a language and region, such as en_US or en-US.`,
+    );
+  }
+
+  return normalised;
+}
+
 export function createProvider(
   options: DeviceCloudOptions,
   deps: ProviderDeps,
 ): DeviceCloudProvider {
+  // Checked when the config is read, before any session is started or billed.
+  const locale = deviceLocale(options.locale);
   // One upload per build per run: e2e acquires every worker slot at once.
   const uploads = new Map<string, Promise<string>>();
 
@@ -308,6 +330,7 @@ export function createProvider(
           ...(options.maxDurationMin
             ? { maxDurationMin: options.maxDurationMin }
             : {}),
+          ...(locale ? { deviceLocale: locale } : {}),
         },
         request.signal,
       );

@@ -197,6 +197,36 @@ describe('the e2e device provider', () => {
     );
   });
 
+  it('starts the device in the locale asked for, written either way', async () => {
+    for (const locale of ['en_US', 'en-US', ' en-US ']) {
+      const { api, provider } = setup(happyRoutes(), { locale });
+      await provider.acquire(request());
+      expect(
+        (api.calls[0].body as { deviceLocale?: string }).deviceLocale,
+      ).to.equal('en_US');
+    }
+
+    const { api, provider } = setup(happyRoutes(), { locale: 'pt-BR' });
+    await provider.acquire(request());
+    expect(
+      (api.calls[0].body as { deviceLocale?: string }).deviceLocale,
+    ).to.equal('pt_BR');
+  });
+
+  it("leaves the device's own locale without one", async () => {
+    const { api, provider } = setup(happyRoutes());
+    await provider.acquire(request());
+    expect(api.calls[0].body).to.not.have.property('deviceLocale');
+  });
+
+  it('refuses a locale it cannot send when the config is read, before any session starts', () => {
+    for (const locale of ['english', 'en_us', 'EN-US', 'en', 'en_USA', '']) {
+      expect(() => setup(happyRoutes(), { locale }), locale).to.throw(
+        'is not a locale. Use a language and region, such as en_US or en-US.',
+      );
+    }
+  });
+
   it('takes the key from the options before the environment', async () => {
     const { api, provider } = setup(happyRoutes(), {
       apiKey: 'key-from-options',
