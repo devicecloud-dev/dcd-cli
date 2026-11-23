@@ -144,6 +144,27 @@ The npm package also ships `dcd-mcp`, an older server with the same `dcd_*` tool
 
 `--package` matters: the package's default bin is `dcd`, so `npx @devicecloud.dev/dcd dcd-mcp` would run `dcd dcd-mcp` (an unknown command) instead of the server. It signs in like `dcd mcp`, and takes `--read-only` and `DCD_MCP_READONLY=1` the same way.
 
+## e2e tests on DeviceCloud devices (early access)
+
+`@devicecloud.dev/dcd/e2e` is a device provider for [e2e](https://github.com/e2e-inc/e2e). Each e2e worker gets its own DeviceCloud device session, and e2e drives the device directly. The session shows in the console, is recorded, and is billed like any other. Your organization needs this turned on by DeviceCloud first.
+
+```ts
+// e2e.config.ts
+import type { E2EConfig } from 'e2e';
+import { mobile } from '@e2e-dev/mobile';
+import { deviceCloud } from '@devicecloud.dev/dcd/e2e';
+
+const engine = mobile({ platform: 'android', device: deviceCloud() });
+
+export default {
+  targets: [{ name: 'android', engine, app: { bundleId: 'com.example.app', appPath: './build/app.apk' } }],
+  // The first screen read after a launch can take a few seconds.
+  assertionTimeout: 20_000,
+} satisfies E2EConfig;
+```
+
+Run `npx e2e run` with `DEVICE_CLOUD_API_KEY` set. The provider uploads `appPath` once per run and each session installs it, so e2e installs nothing itself. To use a build you already uploaded, pass `deviceCloud({ appBinaryId })`. It also takes `model`, `os` and `maxDurationMin`. Each session's console link is printed as the run starts, and the session is stopped when e2e is done with it.
+
 
 ## Development
 
