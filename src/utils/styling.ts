@@ -1,4 +1,4 @@
-import { styleText } from 'node:util';
+import { inspect } from 'node:util';
 
 import { findEnvByApiUrl } from '../config/environments.js';
 
@@ -6,9 +6,10 @@ import { findEnvByApiUrl } from '../config/environments.js';
  * Centralized styling utilities for CLI output
  * Provides consistent, developer-friendly visual formatting
  *
- * Colours come from Node's `util.styleText`. Text is styled only when stdout
- * takes colour (see {@link takesColour}); text bound for stderr goes through
- * {@link forStderr}.
+ * Text is styled only when stdout takes colour (see {@link takesColour}); text
+ * bound for stderr goes through {@link forStderr}. The escape codes come from
+ * `util.inspect.colors`, the table Node's `styleText` reads, and are applied
+ * by {@link style}.
  */
 
 /** Strip ANSI color escape sequences for visible-width calculations. */
@@ -20,10 +21,6 @@ export const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '
  * `FORCE_COLOR` decides when set; otherwise the stream must be a terminal
  * whose colour depth (which folds in `NO_COLOR`, `NODE_DISABLE_COLORS` and
  * `TERM=dumb`) is above monochrome.
- *
- * Decided here rather than left to `styleText`'s own check because not every
- * runtime makes that check: bun 1.3, which compiles the standalone binaries,
- * and Node before 22.8 colour unconditionally.
  */
 function takesColour(stream: NodeJS.WriteStream): boolean {
   const force = process.env.FORCE_COLOR;
@@ -34,20 +31,36 @@ function takesColour(stream: NodeJS.WriteStream): boolean {
   );
 }
 
-/**
- * One format at a time; combined styles nest single-format calls, which every
- * supported runtime handles alike, where an array of formats does not.
- */
-type StyleFormat = Extract<Parameters<typeof styleText>[0], string>;
+/** The formats the palette uses. Combined styles nest single-format calls. */
+type StyleFormat = 'blue' | 'bold' | 'cyan' | 'gray' | 'green' | 'red' | 'underline' | 'yellow';
 
 /**
- * Apply `format` to `text` when stdout takes colour. `styleText` throws on
- * anything but a string, so a value the types call a string but an API sent
- * as null or a number is printed, never fatal.
+ * Apply `format` to `text` when stdout takes colour.
+ *
+ * This is not left to `util.styleText`, because its output differs across the
+ * runtimes the CLI ships on: bun 1.3 (which compiles the standalone binaries)
+ * and Node before 22.20 drop the outer colour after a nested span, and bun 1.3
+ * and Node before 22.8 colour even when the stream can't show it. The rules
+ * here are the ones chalk applied, so output is the same everywhere:
+ * - an inner span that ends this style's colour re-opens it, so text after
+ *   the span keeps the outer colour;
+ * - each line is closed and re-opened, so a line read on its own (a CI log, a
+ *   pager) still carries its colour;
+ * - an empty string stays empty.
+ *
+ * Anything but a string is printed as `String(value)`, never fatal: the types
+ * may call a value a string that an API sent as null or a number.
  */
 function style(format: StyleFormat, text: string): string {
   const s = String(text);
-  return takesColour(process.stdout) ? styleText(format, s, { validateStream: false }) : s;
+  const codes = inspect.colors[format];
+  if (s === '' || !codes || !takesColour(process.stdout)) return s;
+  const open = `\u001B[${codes[0]}m`;
+  const close = `\u001B[${codes[1]}m`;
+  const body = s
+    .replaceAll(close, close + open)
+    .replaceAll(/\r?\n/g, (lineBreak) => close + lineBreak + open);
+  return open + body + close;
 }
 
 const paint =
