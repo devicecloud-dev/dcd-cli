@@ -48,7 +48,6 @@ before(async () => {
 
 /** `zip` cut off before its central directory, as a dropped stream leaves it. */
 const truncated = (zip: Buffer) => zip.subarray(0, Math.floor(zip.length / 2));
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const originalFetch = (global as any).fetch;
 
 /**
@@ -63,7 +62,6 @@ function mockFetch(status: number, responseBody?: Buffer | string) {
   const encoder = new TextEncoder();
   // Default: a complete ZIP, the body a successful artifacts download has.
   const body = responseBody ?? INLINE_ZIP;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (global as any).fetch = async (
     input: URL | string,
     init?: RequestInit,
@@ -91,7 +89,6 @@ function mockFetch(status: number, responseBody?: Buffer | string) {
 }
 
 function restoreFetch() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (global as any).fetch = originalFetch;
   captured = null;
 }

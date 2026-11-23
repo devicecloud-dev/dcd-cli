@@ -70,16 +70,13 @@ export interface Logger {
 
 export const logger: Logger = {
   log(message: string): void {
-    // eslint-disable-next-line no-console
     console.log(message);
   },
   warn(message: string): void {
-    // eslint-disable-next-line no-console
     console.warn(symbols.warning + ' ' + message);
   },
   json(value: unknown): void {
     // The one stdout write under --json; everything else is gated off.
-    // eslint-disable-next-line no-console
     console.log(JSON.stringify(value, null, 2));
   },
   error(
@@ -95,7 +92,6 @@ export const logger: Logger = {
     } else {
       // The literal "Error:" prefix is important for tests and for grep-friendly
       // CI logs — it survives color stripping and matches /error/i assertions.
-      // eslint-disable-next-line no-console
       console.error(symbols.error + ' Error: ' + text);
     }
     return logger.fail(message, opts.exit ?? 1);

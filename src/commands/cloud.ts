@@ -1,4 +1,3 @@
-/* eslint-disable complexity */
 import { defineCommand } from 'citty';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
@@ -80,7 +79,6 @@ process.on('warning', (warning) => {
   ) {
     return;
   }
-  // eslint-disable-next-line no-console
   console.warn(warning.stack ?? `${warning.name}: ${warning.message}`);
 });
 
@@ -122,7 +120,6 @@ export const cloudCommand = defineCommand({
       description: 'The flow file to run against the app, e.g. test.yaml',
     },
   },
-  // eslint-disable-next-line complexity
   async run({ args, rawArgs }) {
     const cliVersion = getCliVersion();
     const deviceValidationService = new DeviceValidationService();
