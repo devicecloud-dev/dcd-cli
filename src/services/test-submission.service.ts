@@ -448,7 +448,6 @@ export class TestSubmissionService {
   }
 
   private parseKeyValuePairs(pairs: string[]): Record<string, string> {
-    // eslint-disable-next-line unicorn/no-array-reduce
     return pairs.reduce((acc, cur) => {
       const [key, ...value] = cur.split('=');
       // handle case where value includes an equals sign

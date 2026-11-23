@@ -85,7 +85,6 @@ export const statusCommand = defineCommand({
       description: 'UUID of the upload to check status for',
     },
   },
-  // eslint-disable-next-line complexity
   async run({ args }) {
     const apiKeyFlag = args['api-key'] as string | undefined;
     const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);

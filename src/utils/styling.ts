@@ -170,7 +170,6 @@ export function table<T>(
   options: { printLine?: (line: string) => void } = {},
 ): void {
   const printLine = options.printLine ?? ((line: string) => {
-    // eslint-disable-next-line no-console
     console.log(line);
   });
 

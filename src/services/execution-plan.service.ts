@@ -602,7 +602,6 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
     throw error;
   }
 
-  // eslint-disable-next-line unicorn/no-array-reduce
   const configPerFlowFile = unfilteredFlowFiles.reduce(
     (acc, filePath) => {
       const { config } = readTestYamlFileAsJson(filePath);
@@ -645,7 +644,6 @@ export async function plan(options: PlanOptions): Promise<IExecutionPlan> {
     allFlows.map((filePath) => checkDependencies(filePath)),
   ).then((results) => [...new Set(results.flat())]);
 
-  // eslint-disable-next-line unicorn/no-array-reduce
   const pathsByName = allFlows.reduce((acc, filePath) => {
     const config = configPerFlowFile[filePath];
     const name = (config?.name as string) || path.parse(filePath).name;
