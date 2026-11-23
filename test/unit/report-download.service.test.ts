@@ -617,7 +617,7 @@ describe('ReportDownloadService', () => {
       expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
     });
 
-    // dcd#2138: a folder as the artifacts path failed with EISDIR, which the
+    // A folder as the artifacts path failed with EISDIR, which the
     // CLI took for a broken stream, so it fell back to the inline download
     // (the API building the whole ZIP) and then failed the same way.
     describe('folder and local file paths', () => {
