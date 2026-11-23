@@ -79,6 +79,15 @@
     "testing"
   ],
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./e2e": {
+      "types": "./dist/e2e/index.d.ts",
+      "default": "./dist/e2e/index.js"
+    },
+    "./package.json": "./package.json",
+    "./dist/*": "./dist/*"
+  },
   "packageManager": "pnpm@10.17.1",
   "pnpm": {
     "overrides": {
