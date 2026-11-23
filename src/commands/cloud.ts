@@ -1012,7 +1012,7 @@ export const cloudCommand = defineCommand({
       if (!results?.length) {
         throw new CliError('No tests created: ' + message);
       }
-      out(`${ui.success('Submitted')} ${colors.dim(message)}`);
+      out(message ? `${ui.success('Submitted')} ${colors.dim(message)}` : ui.success('Submitted'));
 
       const testNames = results
         .map((r) => r.test_file_name)

@@ -1,10 +1,14 @@
-import chalk from 'chalk';
+import { styleText } from 'node:util';
 
 import { findEnvByApiUrl } from '../config/environments.js';
 
 /**
  * Centralized styling utilities for CLI output
  * Provides consistent, developer-friendly visual formatting
+ *
+ * Colours come from Node's `util.styleText`. Text is styled only when stdout
+ * takes colour (see {@link takesColour}); text bound for stderr goes through
+ * {@link forStderr}.
  */
 
 /** Strip ANSI color escape sequences for visible-width calculations. */
@@ -12,34 +16,88 @@ import { findEnvByApiUrl } from '../config/environments.js';
 export const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '');
 
 /**
+ * Whether `stream` takes colour, by the rule Node's `styleText` applies:
+ * `FORCE_COLOR` decides when set; otherwise the stream must be a terminal
+ * whose colour depth (which folds in `NO_COLOR`, `NODE_DISABLE_COLORS` and
+ * `TERM=dumb`) is above monochrome.
+ *
+ * Decided here rather than left to `styleText`'s own check because not every
+ * runtime makes that check: bun 1.3, which compiles the standalone binaries,
+ * and Node before 22.8 colour unconditionally.
+ */
+function takesColour(stream: NodeJS.WriteStream): boolean {
+  const force = process.env.FORCE_COLOR;
+  if (force !== undefined) return ['', '1', '2', '3', 'true'].includes(force);
+  return (
+    stream.isTTY === true &&
+    (typeof stream.getColorDepth !== 'function' || stream.getColorDepth() > 2)
+  );
+}
+
+/**
+ * One format at a time; combined styles nest single-format calls, which every
+ * supported runtime handles alike, where an array of formats does not.
+ */
+type StyleFormat = Extract<Parameters<typeof styleText>[0], string>;
+
+/**
+ * Apply `format` to `text` when stdout takes colour. `styleText` throws on
+ * anything but a string, so a value the types call a string but an API sent
+ * as null or a number is printed, never fatal.
+ */
+function style(format: StyleFormat, text: string): string {
+  const s = String(text);
+  return takesColour(process.stdout) ? styleText(format, s, { validateStream: false }) : s;
+}
+
+const paint =
+  (format: StyleFormat) =>
+  (text: string): string =>
+    style(format, text);
+
+const cyan = paint('cyan');
+const underline = paint('underline');
+
+/**
  * Status symbols with associated colors
  */
 export const symbols = {
-  cancelled: chalk.gray('⊘'),
-  deprecation: chalk.red('⚠'),
-  error: chalk.red('✗'),
-  info: chalk.blue('ℹ'),
-  pending: chalk.yellow('⏸'),
-  queued: chalk.gray('⏳'),
-  running: chalk.blue('▶'),
-  success: chalk.green('✓'),
-  unknown: chalk.gray('?'),
-  warning: chalk.yellow('⚠'),
+  cancelled: style('gray', '⊘'),
+  deprecation: style('red', '⚠'),
+  error: style('red', '✗'),
+  info: style('blue', 'ℹ'),
+  pending: style('yellow', '⏸'),
+  queued: style('gray', '⏳'),
+  running: style('blue', '▶'),
+  success: style('green', '✓'),
+  unknown: style('gray', '?'),
+  warning: style('yellow', '⚠'),
 } as const;
 
 /**
  * Color utility functions for semantic styling
  */
 export const colors = {
-  bold: chalk.bold,
-  dim: chalk.gray,
-  error: chalk.red,
-  highlight: chalk.cyan,
-  info: chalk.blue,
-  success: chalk.green,
-  url: chalk.cyan.underline,
-  warning: chalk.yellow,
+  bold: paint('bold'),
+  dim: paint('gray'),
+  error: paint('red'),
+  highlight: cyan,
+  info: paint('blue'),
+  success: paint('green'),
+  url: (text: string): string => cyan(underline(text)),
+  warning: paint('yellow'),
 } as const;
+
+/**
+ * Prepare styled text for stderr. The palette above follows stdout, so when
+ * stdout is a terminal but stderr is not (`dcd cloud 2> err.log`), the colour
+ * codes are stripped here to keep the file plain.
+ * @param text - Text that may carry colour codes from {@link colors} or {@link symbols}
+ * @returns The text, without colour codes unless stderr takes colour
+ */
+export function forStderr(text: string): string {
+  return takesColour(process.stderr) ? text : stripAnsi(text);
+}
 
 /**
  * Structural glyphs that give the CLI its tree-shaped layout. `section` marks a
@@ -148,7 +206,7 @@ export function formatTestSummary(summary: {
   total: number;
 }): string {
   const parts = [
-    chalk.bold(`${summary.completed}/${summary.total}`),
+    colors.bold(`${summary.completed}/${summary.total}`),
     colors.success(`✓ ${summary.passed}`),
     colors.error(`✗ ${summary.failed}`),
     colors.info(`▶ ${summary.running}`),
@@ -189,8 +247,8 @@ export function table<T>(
     return s + ' '.repeat(Math.max(0, width - visibleLen));
   };
 
-  printLine(headers.map((h, i) => pad(chalk.bold(h), widths[i])).join('  '));
-  printLine(widths.map((w) => chalk.gray('─'.repeat(w))).join('  '));
+  printLine(headers.map((h, i) => pad(colors.bold(h), widths[i])).join('  '));
+  printLine(widths.map((w) => colors.dim('─'.repeat(w))).join('  '));
   for (const row of cells) {
     printLine(row.map((c, i) => pad(c, widths[i])).join('  '));
   }

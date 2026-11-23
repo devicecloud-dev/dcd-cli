@@ -10,7 +10,7 @@ import type { LiveSession } from '../types/domain/live.types.js';
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger, validateEnum, wantsJson } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
-import { colors, formatUrl } from '../utils/styling.js';
+import { colors, formatUrl, forStderr } from '../utils/styling.js';
 import { type Field, ui } from '../utils/ui.js';
 
 const PLATFORM_OPTIONS = ['android', 'ios'] as const;
@@ -722,7 +722,7 @@ export const liveCommand = defineCommand({
   subCommands,
   // Runs before any subcommand. On stderr, so --json output is unchanged.
   setup() {
-    process.stderr.write(`${LIVE_DEPRECATION}\n`);
+    process.stderr.write(`${forStderr(LIVE_DEPRECATION)}\n`);
   },
   // citty's runCommand does not early-return after dispatching to a
   // subcommand — it still invokes the parent `run` afterwards. So when a
