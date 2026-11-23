@@ -11,6 +11,7 @@ import {
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger, validateEnum } from '../utils/cli.js';
 import { resolveApiUrl } from '../utils/config-store.js';
+import { forStderr } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
 
 const DOWNLOAD_OPTIONS = ['ALL', 'FAILED'] as const;
@@ -104,7 +105,7 @@ export const artifactsCommand = defineCommand({
     // deprecation notice nor the API's submit warning reaches it.
     const deprecation = reportFormatDeprecation(report);
     if (deprecation) {
-      process.stderr.write(`${ui.deprecation(deprecation)}\n`);
+      process.stderr.write(`${forStderr(ui.deprecation(deprecation))}\n`);
     }
 
     const auth = await resolveAuth({ apiKeyFlag });

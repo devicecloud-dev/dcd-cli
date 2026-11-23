@@ -19,7 +19,7 @@ is a one-time step. PRs cannot be merged until the CLA check is green.
 
 ## Getting started
 
-You need **Node.js 22+** and **[pnpm](https://pnpm.io)** (`packageManager` pins
+You need **Node.js 22.8+** and **[pnpm](https://pnpm.io)** (`packageManager` pins
 the exact version; [Corepack](https://nodejs.org/api/corepack.html) will pick it
 up automatically).
 

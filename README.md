@@ -16,7 +16,7 @@ On Windows:
 irm https://get.devicecloud.dev/install.ps1 | iex
 ```
 
-Or via npm if you already have Node 22+:
+Or via npm if you already have Node 22.8+:
 
 ```sh-session
 $ npm install -g @devicecloud.dev/dcd
@@ -105,7 +105,7 @@ $ claude mcp add --scope user devicecloud -- dcd mcp
 $ codex mcp add devicecloud -- dcd mcp
 ```
 
-If you use the npm package instead of the standalone binary, the command is `npx` with `"args": ["-y", "@devicecloud.dev/dcd", "mcp"]`. That needs Node 22 or newer on the app's PATH, and it checks npm each time it starts.
+If you use the npm package instead of the standalone binary, the command is `npx` with `"args": ["-y", "@devicecloud.dev/dcd", "mcp"]`. That needs Node 22.8 or newer on the app's PATH, and it checks npm each time it starts.
 
 It signs in the same way as the CLI: with your `dcd login` session, which it renews as it runs, or with `DEVICE_CLOUD_API_KEY`. Point it at a non-prod environment with `DCD_API_URL` (https, or plain http to `localhost` only).
 
@@ -168,7 +168,7 @@ Run `npx e2e run` with `DEVICE_CLOUD_API_KEY` set. The provider uploads `appPath
 
 ## Development
 
-Requires Node 22+ and [pnpm](https://pnpm.io). `pnpm install` builds the CLI and installs the git hooks automatically.
+Requires Node 22.8+ and [pnpm](https://pnpm.io). `pnpm install` builds the CLI and installs the git hooks automatically.
 
 ```sh-session
 $ pnpm install        # install deps, build, set up git hooks

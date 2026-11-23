@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `pnpm build` — clean, compile TypeScript to `dist/`, and `chmod +x dist/index.js dist/mcp/index.js` so both published binaries are directly executable.
 - `pnpm build:binaries` — `scripts/build-binaries.mjs` produces the bun-compiled, self-contained `dcd-<platform>-<arch>` binaries published to GitHub Releases (the install `dcd upgrade` self-updates). The platform/arch keys must stay in sync with `ASSET_BY_PLATFORM` in `src/commands/upgrade.ts`.
 - `pnpm lint` — ESLint over `src/` and `test/`.
-- `pnpm typecheck` — `tsc --noEmit -p tsconfig.test.json` over `src/` and `test/` (strict mode; `pnpm build` only compiles `src/`). Requires Node `>=22`.
+- `pnpm typecheck` — `tsc --noEmit -p tsconfig.test.json` over `src/` and `test/` (strict mode; `pnpm build` only compiles `src/`). Requires Node `>=22.8`.
 - `pnpm test` — runs `scripts/test-runner.mjs`: builds the CLI, boots the mock API if one is available, then runs mocha. TypeScript is loaded by **tsx** (`.mocharc.json`'s `node-option: ["import=tsx"]`), *not* ts-node — Mocha 11 imports specs as ESM, which bypasses the `require: ts-node/register` hook. The runner isolates `DCD_CONFIG_DIR` to a temp dir so tests never touch your real `dcd login` session.
 - `pnpm test:unit` — the same runner with `--unit`: unit specs only, no mock API. **This is what CI runs.**
 - Tests split into `test/unit/*` (pure, no backend) and `test/integration/*` (drive the built CLI against a Prism mock of the dcd API on port 3001).

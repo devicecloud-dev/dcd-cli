@@ -11,10 +11,11 @@
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { isAuthExpiring, resolveAuth } from '../utils/auth.js';
 import { resolveApiUrl } from '../utils/config-store.js';
+import { forStderr } from '../utils/styling.js';
 
 /** Write a line to stderr. Safe under stdio transport; stdout is reserved. */
 export function logStderr(message: string): void {
-  process.stderr.write(`${message}\n`);
+  process.stderr.write(`${forStderr(message)}\n`);
 }
 
 export interface McpContext {
