@@ -617,6 +617,59 @@ describe('ReportDownloadService', () => {
       expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
     });
 
+    // A folder as the artifacts path failed with EISDIR, which the
+    // CLI took for a broken stream, so it fell back to the inline download
+    // (the API building the whole ZIP) and then failed the same way.
+    describe('folder and local file paths', () => {
+      it('saves artifacts.zip inside an existing folder', async () => {
+        mockBundleFetch();
+        const dir = fs.mkdtempSync(path.join(tempDir, 'shard-'));
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: dir,
+          downloadType: 'ALL',
+        });
+
+        const file = path.join(dir, 'artifacts.zip');
+        expect(result).to.include({ ok: true, path: file });
+        expect(fs.readFileSync(file).equals(BUNDLE_ZIP)).to.be.true;
+        expect(fallbacks).to.deep.equal([]);
+      });
+
+      it('creates a folder given with a trailing separator', async () => {
+        mockBundleFetch();
+        const dir = path.join(tempDir, 'not-yet', 'here') + path.sep;
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: dir,
+          downloadType: 'ALL',
+        });
+
+        const file = path.join(dir, 'artifacts.zip');
+        expect(result).to.include({ ok: true, path: file });
+        expect(fs.readFileSync(file).equals(BUNDLE_ZIP)).to.be.true;
+      });
+
+      it('reports a destination it cannot write, without falling back', async () => {
+        mockBundleFetch();
+        // A file where a parent folder should be: mkdir fails (ENOTDIR/EEXIST).
+        const blocker = path.join(tempDir, 'blocker.txt');
+        fs.writeFileSync(blocker, 'x');
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: path.join(blocker, 'artifacts.zip'),
+          downloadType: 'ALL',
+        });
+
+        expect(result.ok).to.be.false;
+        expect(fallbacks).to.deep.equal([]);
+        expect(calls.some((c) => c.url.endsWith('/download'))).to.be.false;
+      });
+    });
+
     describe('records why it fell back', () => {
       const download = (name: string) =>
         service.downloadArtifacts({

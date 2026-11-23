@@ -1,6 +1,5 @@
 import { createWriteStream, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -20,12 +19,8 @@ import type {
 } from '../types/domain/live.types.js';
 import type { TeamSettings } from '../types/domain/team-settings.types.js';
 import { components, paths } from '../types/generated/schema.types.js';
+import { expandHome } from '../utils/paths.js';
 import { assertCompleteZip, IncompleteZipError } from '../utils/zip-integrity.js';
-
-/** Expand a leading `~` to the home directory, as the download paths allow. */
-function expandHome(p: string): string {
-  return p.replace(/^~(?=$|\/|\\)/, homedir());
-}
 
 /** Extra checks a bundle download makes before it trusts the manifest. */
 interface BundleDownloadOptions {
@@ -57,6 +52,16 @@ function errorDetail(error: unknown): Pick<
     error_message: err.message.slice(0, 300),
     error_name: err.name,
   };
+}
+
+/**
+ * A Node file-system error (EACCES, ENOSPC, EISDIR…) on the local side of a
+ * download. These name a `syscall` and a `path`; network errors from fetch
+ * carry neither.
+ */
+function isLocalFileError(error: unknown): boolean {
+  const e = error as { path?: unknown; syscall?: unknown } | null;
+  return typeof e?.syscall === 'string' && typeof e?.path === 'string';
 }
 
 function failure(
@@ -422,6 +427,10 @@ export const ApiGateway = {
         operation,
       );
     } catch (error) {
+      // The destination can't be written (a permission, a full disk): the
+      // inline path would hit the same wall, after making the API build the
+      // whole ZIP. Report it as it is instead of falling back.
+      if (isLocalFileError(error)) throw error;
       return failure('bundle_stream_failed', {
         ...errorDetail(error),
         bytes_received: bytesReceived,

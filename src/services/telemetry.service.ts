@@ -99,11 +99,16 @@ class Telemetry {
    * be sent. Commands that never reach `resolveAuth` (`--help`, `--version`,
    * `dcd login` before sign-in completes) will skip telemetry entirely — by
    * design, since those flows have no identity to attach.
+   *
+   * Events go where the command's requests go: the `--api-url` flag first,
+   * then `opts.apiUrl` (a login's stored API). Taking the login's API first
+   * sent events from a command aimed at another API (a local one, or dev) to
+   * that login's API instead.
    */
   configure(opts: { auth: AuthContext; apiUrl?: string }) {
     if (this.disabled) return;
     this.config = {
-      apiUrl: opts.apiUrl ?? inferApiUrlFromArgv(),
+      apiUrl: argvApiUrl() ?? opts.apiUrl ?? DEFAULT_API_URL,
       auth: opts.auth,
       command: this.command,
     };
@@ -448,11 +453,12 @@ function inferCommandFromArgv(): string {
 
 const API_URL_FLAGS = ['--api-url', '--apiURL', '--apiUrl'];
 
-function inferApiUrlFromArgv(): string {
+/** The `--api-url` this command was given, if it is one the command would use. */
+function argvApiUrl(): string | undefined {
   const args = process.argv.slice(2);
   // Only a URL the command itself would send credentials to: these events
   // carry them too, and may be sent before the command checks its flag.
-  const usable = (url: string) => (checkApiUrl(url.trim()).ok ? url.trim() : DEFAULT_API_URL);
+  const usable = (url: string) => (checkApiUrl(url.trim()).ok ? url.trim() : undefined);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     for (const flag of API_URL_FLAGS) {
@@ -460,7 +466,7 @@ function inferApiUrlFromArgv(): string {
       if (arg.startsWith(`${flag}=`)) return usable(arg.slice(flag.length + 1));
     }
   }
-  return DEFAULT_API_URL;
+  return undefined;
 }
 
 export const telemetry = new Telemetry();

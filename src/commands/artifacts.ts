@@ -42,7 +42,7 @@ export const artifactsCommand = defineCommand({
     'artifacts-path': {
       type: 'string',
       description:
-        'Custom file path for downloaded artifacts (default: ./artifacts.zip). Requires --download-artifacts.',
+        'File path for downloaded artifacts, or a folder to save artifacts.zip in (default: ./artifacts.zip). Requires --download-artifacts.',
     },
     'result-id': {
       type: 'string',

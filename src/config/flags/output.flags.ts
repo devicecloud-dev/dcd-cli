@@ -16,7 +16,7 @@ export const outputFlags = {
   'artifacts-path': {
     type: 'string',
     description:
-      'Custom file path for downloaded artifacts (default: ./artifacts.zip). Requires --download-artifacts.',
+      'File path for downloaded artifacts, or a folder to save artifacts.zip in (default: ./artifacts.zip). Requires --download-artifacts.',
   },
   'junit-path': {
     type: 'string',
