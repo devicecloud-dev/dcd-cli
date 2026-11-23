@@ -429,7 +429,7 @@ export const ApiGateway = {
     } catch (error) {
       // The destination can't be written (a permission, a full disk): the
       // inline path would hit the same wall, after making the API build the
-      // whole ZIP. Report it as it is instead of falling back (dcd#2138).
+      // whole ZIP. Report it as it is instead of falling back.
       if (isLocalFileError(error)) throw error;
       return failure('bundle_stream_failed', {
         ...errorDetail(error),
