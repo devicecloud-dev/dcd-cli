@@ -4,6 +4,7 @@ import { apiFlags } from '../config/flags/api.flags.js';
 import { jsonFlag } from '../config/flags/output.flags.js';
 import {
   type DownloadResult,
+  downloadsSucceeded,
   ReportDownloadService,
   reportFormatDeprecation,
 } from '../services/report-download.service.js';
@@ -42,6 +43,16 @@ export const artifactsCommand = defineCommand({
       description:
         'Custom file path for downloaded artifacts (default: ./artifacts.zip). Requires --download-artifacts.',
     },
+    'result-id': {
+      type: 'string',
+      description:
+        "Download only this result's artifacts: its flow's attempts on that one device. Requires --download-artifacts.",
+    },
+    flow: {
+      type: 'string',
+      description:
+        'Download only the artifacts of the flow with this file path or name (e.g. flows/login.yaml or login). Fails, listing the result ids, when it matches more than one result, e.g. one per device. Requires --download-artifacts.',
+    },
     report: {
       type: 'string',
       description:
@@ -75,6 +86,8 @@ export const artifactsCommand = defineCommand({
       'download-artifacts',
     );
     const artifactsPath = args['artifacts-path'] as string | undefined;
+    const resultIdArg = args['result-id'] as string | undefined;
+    const flow = args.flow as string | undefined;
     const report = validateEnum(
       args.report as string | undefined,
       REPORT_OPTIONS,
@@ -108,6 +121,8 @@ export const artifactsCommand = defineCommand({
       );
     }
 
+    const resultId = parseResultFilter(resultIdArg, flow, Boolean(downloadArtifacts));
+
     const service = new ReportDownloadService();
     const downloads: DownloadResult[] = [];
 
@@ -118,7 +133,9 @@ export const artifactsCommand = defineCommand({
         artifactsPath: artifactsPath ?? './artifacts.zip',
         debug,
         downloadType: downloadArtifacts,
+        flow,
         logger: log,
+        resultId,
         uploadId,
         warnLogger: (m: string) => logger.warn(m),
       }));
@@ -140,13 +157,49 @@ export const artifactsCommand = defineCommand({
       if (result) downloads.push(result);
     }
 
+    // Downloading is this command's only job, so a failed or incomplete
+    // download exits 1, with or without --json. Its warning is already
+    // printed, and fail() prints nothing more (no second JSON object).
+    const ok = downloadsSucceeded(downloads);
     if (json) {
-      const ok = downloads.some((d) => d.ok);
       logger.json({ status: ok ? 'SUCCESS' : 'FAILED', uploadId, downloads });
-      // Same exit code a thrown error would give, without a second JSON object.
-      if (!ok) logger.fail('Every download failed', 1);
     }
+
+    if (!ok) logger.fail('Download failed', 1);
   },
 });
+
+/**
+ * Check --result-id and --flow: at most one, only with --download-artifacts,
+ * and a result id that is a positive whole number. Returns the parsed id.
+ */
+export function parseResultFilter(
+  resultIdArg: string | undefined,
+  flow: string | undefined,
+  downloadingArtifacts: boolean,
+): number | undefined {
+  if (resultIdArg !== undefined && flow !== undefined) {
+    throw new CliError(
+      '--result-id cannot also be provided when using --flow (flags are mutually exclusive).',
+    );
+  }
+
+  const flag = resultIdArg === undefined ? (flow === undefined ? undefined : '--flow') : '--result-id';
+  if (flag && !downloadingArtifacts) {
+    throw new CliError(`${flag} requires --download-artifacts.`);
+  }
+
+  if (flow !== undefined && flow.trim() === '') {
+    throw new CliError('--flow needs a flow file path or name.');
+  }
+
+  if (resultIdArg === undefined) return undefined;
+  const resultId = Number(resultIdArg);
+  if (!/^\d+$/.test(resultIdArg.trim()) || !Number.isSafeInteger(resultId) || resultId <= 0) {
+    throw new CliError(`--result-id must be a positive whole number, got '${resultIdArg}'.`);
+  }
+
+  return resultId;
+}
 
 export default artifactsCommand;

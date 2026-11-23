@@ -1,4 +1,5 @@
 import { createWriteStream, mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
@@ -19,10 +20,22 @@ import type {
 } from '../types/domain/live.types.js';
 import type { TeamSettings } from '../types/domain/team-settings.types.js';
 import { components, paths } from '../types/generated/schema.types.js';
+import { assertCompleteZip, IncompleteZipError } from '../utils/zip-integrity.js';
 
 /** Expand a leading `~` to the home directory, as the download paths allow. */
 function expandHome(p: string): string {
   return p.replace(/^~(?=$|\/|\\)/, homedir());
+}
+
+/** Extra checks a bundle download makes before it trusts the manifest. */
+interface BundleDownloadOptions {
+  /**
+   * The manifest's `filename` must start with this, or the download throws
+   * `unsupportedMessage` instead of falling back: how a filtered request
+   * tells an API that applied the filter from an older one that ignored it.
+   */
+  requiredFilenamePrefix?: string;
+  unsupportedMessage?: string;
 }
 
 /** What went wrong in a bundle attempt, minus the route/timing added later. */
@@ -291,6 +304,7 @@ export const ApiGateway = {
     manifestEndpoint: string,
     destinationPath: string,
     operation: string,
+    options: BundleDownloadOptions = {},
   ): Promise<boolean> {
     const startedAt = Date.now();
     const outcome = await this.attemptBundleDownload(
@@ -299,6 +313,7 @@ export const ApiGateway = {
       manifestEndpoint,
       destinationPath,
       operation,
+      options,
     );
     if (outcome === true) return true;
 
@@ -325,6 +340,7 @@ export const ApiGateway = {
     manifestEndpoint: string,
     destinationPath: string,
     operation: string,
+    options: BundleDownloadOptions = {},
   ): Promise<BundleFailure | true> {
     let manifestRes: Response;
     try {
@@ -347,6 +363,7 @@ export const ApiGateway = {
 
     let bundle: {
       bundleUrl?: string;
+      filename?: string;
       manifest?: string;
       sig?: string;
     };
@@ -357,6 +374,14 @@ export const ApiGateway = {
     }
     if (!bundle?.bundleUrl || !bundle?.manifest || !bundle?.sig) {
       return failure('manifest_incomplete');
+    }
+
+    // An API that predates a filter ignores it and bundles the whole upload,
+    // named as such. Thrown, not a fallback: the inline route would ignore the
+    // filter just the same and save the wrong ZIP.
+    const prefix = options.requiredFilenamePrefix;
+    if (prefix !== undefined && !bundle.filename?.startsWith(prefix)) {
+      throw new Error(options.unsupportedMessage ?? `${operation}: the API ignored the request filter`);
     }
 
     let zipRes: Response;
@@ -402,7 +427,50 @@ export const ApiGateway = {
         bytes_received: bytesReceived,
       });
     }
+
+    // A bundle that fails after its 200 headers still ends cleanly, so the
+    // stream above succeeds and leaves a ZIP with no central directory. Check
+    // before calling it done; the inline path then overwrites the file.
+    try {
+      await assertCompleteZip(expandHome(destinationPath));
+    } catch (error) {
+      return failure('bundle_truncated', {
+        ...errorDetail(error),
+        bytes_received: bytesReceived,
+      });
+    }
+
     return true;
+  },
+
+  /**
+   * Fail an inline ZIP download that ended before its central directory: the
+   * API streams the ZIP as it builds it, so a failure after the headers can
+   * still close the response cleanly. Deletes the partial file, so nothing
+   * downstream (a CI artifact upload, say) picks up a corrupt ZIP.
+   */
+  async assertInlineZipComplete(
+    destinationPath: string,
+    operation: string,
+    route: string,
+    uploadId: string,
+  ) {
+    const file = expandHome(destinationPath);
+    try {
+      await assertCompleteZip(file);
+    } catch (error) {
+      if (!(error instanceof IncompleteZipError)) throw error;
+      await rm(file, { force: true }).catch(() => {});
+      telemetry.recordDownloadIncomplete({
+        bytes: error.bytes,
+        route,
+        upload_id: uploadId,
+      });
+      throw new Error(
+        `${operation}: the download ended early and ${error.message}. Please retry.`,
+        { cause: error },
+      );
+    }
   },
 
   /**
@@ -458,21 +526,37 @@ export const ApiGateway = {
   },
 
 
+  /**
+   * Download an upload's artifacts ZIP. With `resultId`, only the attempts of
+   * the flow run that result belongs to; the parameter is sent only when set,
+   * so an unfiltered request is exactly what it always was.
+   */
   async downloadArtifactsZip(
     baseUrl: string,
     auth: AuthContext,
     uploadId: string,
     results: 'ALL' | 'FAILED',
     artifactsPath: string = './artifacts.zip',
+    resultId?: number,
   ) {
+    const filtered = resultId !== undefined;
     // Prefer bundle delivery; fall back to the inline download below.
     if (
       await this.tryBundleDownload(
         baseUrl,
         auth,
-        `/results/${uploadId}/artifacts-bundle?results=${results}`,
+        `/results/${uploadId}/artifacts-bundle?results=${results}` +
+          (filtered ? `&resultId=${resultId}` : ''),
         artifactsPath,
         'Failed to download artifacts',
+        filtered
+          ? {
+              // What the API names a bundle it narrowed to one result.
+              requiredFilenamePrefix: 'artifacts-result-',
+              unsupportedMessage:
+                'Failed to download artifacts: this API does not support downloading one result yet. Download without --result-id or --flow.',
+            }
+          : {},
       )
     ) {
       return;
@@ -480,7 +564,7 @@ export const ApiGateway = {
 
     try {
       const res = await fetch(`${baseUrl}/results/${uploadId}/download`, {
-        body: JSON.stringify({ results }),
+        body: JSON.stringify(filtered ? { results, resultId } : { results }),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
@@ -492,6 +576,12 @@ export const ApiGateway = {
       }
 
       await this.streamResponseToFile(res, artifactsPath, 'Failed to download artifacts');
+      await this.assertInlineZipComplete(
+        artifactsPath,
+        'Failed to download artifacts',
+        'download',
+        uploadId,
+      );
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/results/${uploadId}/download`);
@@ -1089,6 +1179,15 @@ export const ApiGateway = {
       }
 
       await this.streamResponseToFile(res, finalReportPath, errorPrefix);
+      // Only the HTML report is a ZIP; junit is XML and allure is one HTML file.
+      if (reportType === 'html') {
+        await this.assertInlineZipComplete(
+          finalReportPath,
+          errorPrefix,
+          'html-report',
+          uploadId,
+        );
+      }
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, url);

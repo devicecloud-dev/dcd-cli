@@ -1,6 +1,8 @@
+import { stripVTControlCharacters } from 'node:util';
+
 import { DeviceApiError, DeviceGateway } from '../gateways/device-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
-import type { DeviceHumanStatus, DeviceSession } from '../types/domain/device-session.types.js';
+import type { DeviceHumanStatus, DeviceSession, DeviceSessionStarter } from '../types/domain/device-session.types.js';
 import { CliError, logger } from './cli.js';
 import { colors, formatUrl } from './styling.js';
 import { type Field, ui } from './ui.js';
@@ -15,13 +17,20 @@ export const DEVICE_EXIT = {
   usage: 1,
   /** It ran and failed: a flow or action failed, or the API could not do it. */
   failed: 2,
-  /** A limit: concurrency, spend cap or rate limit. */
+  /** A limit: concurrency, a spend cap or usage limit, or a rate limit. */
   limit: 3,
   /** The session has ended, or there is no such session. */
   gone: 4,
 } as const;
 
-const LIMIT_CODES = new Set(['LIVE_CONCURRENCY_LIMIT', 'LIVE_RATE_LIMITED', 'LIVE_SPEND_CAP']);
+// USAGE_LIMIT_EXCEEDED: the team's overage cap or a usage alert's hard stop
+// refused a session start, as it refuses a test run.
+const LIMIT_CODES = new Set([
+  'LIVE_CONCURRENCY_LIMIT',
+  'LIVE_RATE_LIMITED',
+  'LIVE_SPEND_CAP',
+  'USAGE_LIMIT_EXCEEDED',
+]);
 const GONE_CODES = new Set(['LIVE_NOT_FOUND', 'LIVE_SESSION_ENDED']);
 const USAGE_CODES = new Set([
   'LIVE_INVALID_ACTION',
@@ -53,7 +62,12 @@ export interface DeviceEnvelope<T> {
   ok: boolean;
   session?: DeviceSession | null;
   data: T | null;
-  error: { code: null | string; message: string } | null;
+  /**
+   * With `code` and `message`, whatever else the API said that a script can
+   * act on: `retry_after_s`, `limit`, `spent`, `phase`, and `command_id` when
+   * a wait for a flow gave up.
+   */
+  error: ({ code: null | string; message: string } & Record<string, unknown>) | null;
 }
 
 export interface DeviceOutcome<T> {
@@ -90,7 +104,10 @@ export async function runDeviceCommand<T>(
       ok: false,
       session: error instanceof DeviceApiError ? error.session : null,
       data: null,
-      error: { code: error instanceof DeviceApiError ? error.code : null, message },
+      error:
+        error instanceof DeviceApiError
+          ? { ...error.details, code: error.code, message }
+          : { code: null, message },
     };
     logger.json(envelope);
     logger.fail(message, exitCode);
@@ -123,20 +140,26 @@ export function deviceProgress(json: boolean): (message: string) => void {
 }
 
 /**
- * The default-session rule: `<id>` may be left out when the org has exactly
- * one open session. With none, or several, the command is a usage error and
- * lists what there is to choose from.
+ * The default-session rule: `<id>` may be left out when you have exactly one
+ * open session. Other people's sessions are never the default: a teammate's
+ * agent may be using one. With none of yours, or several, the command is a
+ * usage error that lists what there is to choose from.
+ *
+ * An API that does not say who started each session (no `started_by`) is
+ * read the old way: the org's only open session.
  */
 export async function resolveSessionId(
   apiUrl: string,
   auth: AuthContext,
   given: string | undefined,
 ): Promise<string> {
-  const id = given?.trim();
+  const id = checkSessionId(given);
   if (id) return id;
 
   const { sessions } = await DeviceGateway.list(apiUrl, auth);
-  if (sessions.length === 1) return sessions[0].id;
+  const knowsOwners = sessions.some((s) => s.started_by !== undefined);
+  const yours = knowsOwners ? sessions.filter((s) => s.started_by?.you) : sessions;
+  if (yours.length === 1) return yours[0].id;
   if (sessions.length === 0) {
     throw new CliError(
       'No open device session. Start one with `dcd device start --platform ios|android`.',
@@ -144,13 +167,127 @@ export async function resolveSessionId(
     );
   }
 
-  const candidates = sessions
-    .map((s) => `  ${s.id}  ${s.platform}  ${s.state}${s.client_label ? `  ${s.client_label}` : ''}`)
-    .join('\n');
+  const candidates = (list: DeviceSession[]) =>
+    list
+      .map((s) => {
+        const who = s.started_by ? startedByLabel(s.started_by) : '';
+        return `  ${s.id}  ${s.platform}  ${s.state}${s.client_label ? `  ${s.client_label}` : ''}${who ? `  (${who})` : ''}`;
+      })
+      .join('\n');
+  if (yours.length === 0) {
+    throw new CliError(
+      `None of the open device sessions is yours. Start your own, or name one of these (changing it needs --force):\n${candidates(sessions)}`,
+      DEVICE_EXIT.usage,
+    );
+  }
+
   throw new CliError(
-    `${sessions.length} device sessions are open. Name one:\n${candidates}`,
+    `${yours.length} of your device sessions are open. Name one:\n${candidates(yours)}`,
     DEVICE_EXIT.usage,
   );
+}
+
+/**
+ * A session id: its name (`brave-teal-otter`, `brave-teal-otter-0042`, or an
+ * older `teal-otter-42`), or its number. Words joined by dashes, so a single
+ * word is never one.
+ */
+const SESSION_ID = /^(?:[a-z][a-z0-9]*(?:-[a-z0-9]+)+|\d+)$/;
+
+/** What a shell or a script prints for a value it does not have. */
+const UNSET_WORDS = new Set(['', 'null', 'undefined', 'none', 'nan', 'nil', '[object object]']);
+
+/**
+ * The id given, trimmed, or undefined when none was. A value that cannot be
+ * a session id is a usage error, never sent: `undefined` from a script's
+ * unset variable would otherwise reach the API as a session name.
+ */
+export function checkSessionId(given: string | undefined): string | undefined {
+  if (given === undefined) return undefined;
+  const id = given.trim();
+  if (!id) return undefined;
+  if (SESSION_ID.test(id)) return id;
+  const unset = UNSET_WORDS.has(id.toLowerCase());
+  throw new CliError(
+    unset
+      ? `"${id}" is not a session id: it looks like a variable that was not set. A session id looks like brave-teal-otter; \`dcd device list\` shows yours.`
+      : `"${id}" is not a session id. A session id looks like brave-teal-otter; \`dcd device list\` shows yours.`,
+    DEVICE_EXIT.usage,
+  );
+}
+
+/**
+ * For commands that read what a session left behind (`artifacts`): the
+ * session given, or else your most recent one, ended or not. Others' sessions
+ * are never the default. An API that does not say who started each is read
+ * the old way: the only session in the list.
+ */
+export async function resolveRecentSessionId(
+  apiUrl: string,
+  auth: AuthContext,
+  given: string | undefined,
+): Promise<string> {
+  const id = checkSessionId(given);
+  if (id) return id;
+
+  // Open sessions and those that ended in the last day, newest first by start.
+  const { sessions } = await DeviceGateway.list(apiUrl, auth, true);
+  const knowsOwners = sessions.some((s) => s.started_by !== undefined);
+  const newestFirst = (list: DeviceSession[]) =>
+    [...list].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  if (knowsOwners) {
+    const [newest] = newestFirst(sessions.filter((s) => s.started_by?.you));
+    if (newest) return newest.id;
+  } else if (sessions.length === 1) {
+    return sessions[0].id;
+  }
+
+  if (sessions.length === 0) {
+    throw new CliError('No device session in the last day. Name one: `dcd device artifacts <id>`.', DEVICE_EXIT.usage);
+  }
+
+  const listed = newestFirst(sessions)
+    .map((s) => `  ${s.id}  ${s.platform}  ${s.state}${s.started_by ? `  (${startedByLabel(s.started_by)})` : ''}`)
+    .join('\n');
+  throw new CliError(
+    knowsOwners
+      ? `None of the sessions of the last day is yours. Name one:\n${listed}`
+      : `Name the session:\n${listed}`,
+    DEVICE_EXIT.usage,
+  );
+}
+
+/** Who started a session, in a few words: "you", an email, or an API key's name. */
+export function startedByLabel(starter: DeviceSessionStarter): string {
+  if (starter.you) return starter.this_client ? 'you, this connection' : 'you';
+  if (starter.email) return `started by ${printable(starter.email, { oneLine: true })}`;
+  if (starter.key_name) return `started with API key "${printable(starter.key_name, { oneLine: true })}"`;
+  return 'started by someone else';
+}
+
+/** Control characters other than tab and newline, C1 controls, and bidirectional overrides. */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/g;
+
+/**
+ * Text from the device, the app or another client, made safe to print in a
+ * terminal: escape sequences and control characters removed, so an element's
+ * label, a log line or a note can't retitle the terminal, move the cursor or
+ * draw a fake result line. `oneLine` also folds line breaks into spaces, for
+ * text shown inside a row. --json output keeps the text exactly as it came.
+ */
+export function printable(text: string, opts: { oneLine?: boolean } = {}): string {
+  const clean = stripVTControlCharacters(text).replaceAll(CONTROL, '');
+  return opts.oneLine ? clean.replaceAll(/[\t\n]+/g, ' ') : clean;
+}
+
+/**
+ * Dollars for a person. Sessions are billed in units of $0.015, so a cost
+ * is shown to the half cent when it has one: $0.015, not $0.01.
+ */
+export function formatCost(usd: number): string {
+  const tenths = Math.round(usd * 1000);
+  return tenths % 10 === 0 ? `$${usd.toFixed(2)}` : `$${(tenths / 1000).toFixed(3)}`;
 }
 
 export function formatSeconds(seconds: number): string {
@@ -167,8 +304,9 @@ export function sessionFields(session: DeviceSession): Field[] {
     ['state', session.release_reason ? `${session.state} (${session.release_reason})` : session.state],
     ['platform', session.platform],
   ];
-  if (session.model) fields.push(['model', session.model]);
-  if (session.client_label) fields.push(['client', session.client_label]);
+  if (session.model) fields.push(['model', printable(session.model, { oneLine: true })]);
+  if (session.client_label) fields.push(['client', printable(session.client_label, { oneLine: true })]);
+  if (session.started_by) fields.push(['started', startedByLabel(session.started_by)]);
   if (session.queue) {
     const position = session.queue.position === null ? '' : `#${session.queue.position}`;
     const eta = session.queue.eta_s === null ? '' : `, about ${formatSeconds(session.queue.eta_s)}`;
@@ -184,11 +322,14 @@ export function sessionFields(session: DeviceSession): Field[] {
   }
 
   if (session.cost_so_far_usd !== null) {
-    fields.push(['cost so far', `$${session.cost_so_far_usd.toFixed(2)}`]);
+    fields.push(['cost so far', formatCost(session.cost_so_far_usd)]);
   }
 
   if (session.last_crash) {
-    fields.push(['last crash', colors.error(`${session.last_crash.summary} (${session.last_crash.at})`)]);
+    fields.push([
+      'last crash',
+      colors.error(`${printable(session.last_crash.summary, { oneLine: true })} (${session.last_crash.at})`),
+    ]);
   }
 
   fields.push(['monitor', formatUrl(session.monitor_url)]);
@@ -198,7 +339,17 @@ export function sessionFields(session: DeviceSession): Field[] {
 /** A session as a branch group, with its warnings after it. */
 export function printSession(session: DeviceSession): void {
   logger.log(ui.branch(ui.fields(sessionFields(session))));
-  for (const warning of session.warnings) logger.log(ui.warn(warning));
+  printWarnings(session);
+}
+
+/**
+ * The session's warnings (a crash, the idle timeout or the end of its time
+ * coming up, an install still going), after a command's own result: a
+ * person or an agent driving it without --json must see them before the
+ * session ends under them.
+ */
+export function printWarnings(session: DeviceSession | null | undefined): void {
+  for (const warning of session?.warnings ?? []) logger.log(ui.warn(printable(warning)));
 }
 
 /**
@@ -227,7 +378,7 @@ export function humanState(human: DeviceHumanStatus): string {
 /** The rows that describe a request for a person, for {@link ui.fields}. */
 export function humanFields(human: DeviceHumanStatus, now: number = Date.now()): Field[] {
   const fields: Field[] = [['state', humanState(human)]];
-  if (human.reason) fields.push(['reason', human.reason]);
+  if (human.reason) fields.push(['reason', printable(human.reason, { oneLine: true })]);
   // A person who took control unasked: the reason is "<email> took control",
   // and nobody asked for anything.
   const tookControl = human.human_in_control && !!human.reason?.endsWith(' took control');
@@ -240,6 +391,8 @@ export function humanFields(human: DeviceHumanStatus, now: number = Date.now()):
     fields.push(['handed back', formatWhen(human.handed_back_at, now)]);
   }
 
-  if (human.handed_back) fields.push(['note', human.note ?? colors.dim('none')]);
+  if (human.handed_back) {
+    fields.push(['note', human.note ? printable(human.note, { oneLine: true }) : colors.dim('none')]);
+  }
   return fields;
 }

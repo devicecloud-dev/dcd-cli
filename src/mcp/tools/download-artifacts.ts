@@ -1,4 +1,4 @@
-import * as path from 'node:path';
+import { existsSync } from 'node:fs';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -6,11 +6,15 @@ import { z } from 'zod';
 import { ReportDownloadService } from '../../services/report-download.service.js';
 import { getContext, logStderr } from '../context.js';
 import { jsonResult, runTool } from '../helpers.js';
+import { localOutput, markWritten } from '../local-files.js';
 
 /**
  * Download a completed run's artifacts (zip) and/or a formatted report to local
  * disk. This reads cloud state and writes files locally — it does not change
- * anything cloud-side, so it stays available in read-only mode.
+ * anything cloud-side, so it stays available in read-only mode. It does write
+ * files, so it is not annotated read-only: the files go inside the working
+ * directory only, and never over a file this server did not write
+ * (local-files.ts).
  *
  * The underlying service swallows download failures into `warnLogger` rather
  * than throwing (a missing-artifacts 404 isn't fatal), so we collect those
@@ -23,6 +27,7 @@ export function registerDownloadArtifacts(server: McpServer): void {
       title: 'Download run artifacts',
       description:
         'Download a completed test run\'s artifacts (videos/logs zip) and/or a formatted report to local disk. ' +
+        'Paths are relative to the working directory this server runs in, and must stay inside it; an existing file this server did not write is never replaced. ' +
         'Returns the resolved output paths and any warnings (a non-empty warnings array means a download could not be produced, e.g. no results yet).',
       inputSchema: {
         uploadId: z.string().describe('UUID of the upload to download artifacts for'),
@@ -33,7 +38,22 @@ export function registerDownloadArtifacts(server: McpServer): void {
         artifactsPath: z
           .string()
           .optional()
-          .describe('Local path to write the artifacts zip (default ./artifacts.zip)'),
+          .describe('Where to write the artifacts zip, inside the working directory (default ./artifacts.zip)'),
+        resultId: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Only this result's artifacts: its flow's attempts on that one device. Leave unset with flow.",
+          ),
+        flow: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Only the artifacts of the flow with this file path or name (e.g. flows/login.yaml or login). A name matching several results (one per device) gives a warning listing their ids; pass one as resultId.',
+          ),
         report: z
           .enum(['junit', 'allure', 'html'])
           .optional()
@@ -44,13 +64,18 @@ export function registerDownloadArtifacts(server: McpServer): void {
           .string()
           .optional()
           .describe(
-            'Local path for the report file (default ./report.xml for junit, ./report.html for allure, ./report.zip for html, which is a ZIP of report.html and its assets)',
+            'Where to write the report, inside the working directory (default ./report.xml for junit, ./report.html for allure, ./report.zip for html, which is a ZIP of report.html and its assets)',
           ),
       },
-      annotations: { readOnlyHint: true, openWorldHint: true },
+      // It writes local files (nothing in the cloud), and never over one it did not write.
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     async (args) =>
       runTool('dcd_download_artifacts', async () => {
+        if (args.resultId !== undefined && args.flow !== undefined) {
+          throw new Error('Pass resultId or flow, not both');
+        }
+
         const { apiUrl, auth } = await getContext();
         const service = new ReportDownloadService();
         const warnings: string[] = [];
@@ -59,27 +84,32 @@ export function registerDownloadArtifacts(server: McpServer): void {
           logStderr(m);
         };
 
-        const artifactsPath = args.artifactsPath ?? './artifacts.zip';
+        // Both checked before anything is downloaded.
+        const artifactsPath = localOutput(args.artifactsPath ?? './artifacts.zip');
+        const defaultReportPath = args.report
+          ? { allure: 'report.html', html: 'report.zip', junit: 'report.xml' }[args.report]
+          : undefined;
+        const reportPath = defaultReportPath ? localOutput(args.reportPath || defaultReportPath) : undefined;
+        if (reportPath && reportPath === artifactsPath) {
+          throw new Error('artifactsPath and reportPath name the same file. Give them different paths.');
+        }
+
         await service.downloadArtifacts({
           apiUrl,
           auth,
           uploadId: args.uploadId,
           downloadType: args.type ?? 'ALL',
           artifactsPath,
+          flow: args.flow,
+          resultId: args.resultId,
           logger: logStderr,
           warnLogger,
         });
+        if (existsSync(artifactsPath)) markWritten(artifactsPath);
 
-        let reportPath: string | undefined;
-        if (args.report) {
-          // The HTML report is a ZIP of report.html plus assets; Allure's is
-          // a single HTML file.
-          const defaultReportPath = {
-            allure: 'report.html',
-            html: 'report.zip',
-            junit: 'report.xml',
-          }[args.report];
-          reportPath = path.resolve(args.reportPath || defaultReportPath);
+        // The HTML report is a ZIP of report.html plus assets; Allure's is a
+        // single HTML file.
+        if (args.report && reportPath) {
           await service.downloadReports({
             apiUrl,
             auth,
@@ -91,11 +121,12 @@ export function registerDownloadArtifacts(server: McpServer): void {
             logger: logStderr,
             warnLogger,
           });
+          if (existsSync(reportPath)) markWritten(reportPath);
         }
 
         return jsonResult({
           uploadId: args.uploadId,
-          artifactsPath: path.resolve(artifactsPath),
+          artifactsPath,
           reportPath,
           warnings,
         });

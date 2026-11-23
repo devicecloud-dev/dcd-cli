@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { AuthContext } from '../types/domain/auth.types.js';
+import { checkApiUrl } from '../utils/api-url.js';
 import { getCliVersion, getInstallMethod } from '../utils/cli.js';
 import type { EncryptionSource } from '../utils/envelope.js';
 
@@ -49,6 +50,8 @@ export type BundleFallbackReason =
   | 'bundle_http_error'
   | 'bundle_request_failed'
   | 'bundle_stream_failed'
+  /** The stream ended cleanly but the ZIP has no complete central directory. */
+  | 'bundle_truncated'
   | 'manifest_http_error'
   | 'manifest_incomplete'
   | 'manifest_invalid_json'
@@ -147,7 +150,7 @@ class Telemetry {
     this.enqueue('error', 'cli.mcp', 'mcp tool failed', {
       tool,
       duration_ms: durationMs,
-      error_message: error instanceof Error ? error.message : String(error),
+      error_message: redactUrls(error instanceof Error ? error.message : String(error)),
       error_name: error instanceof Error ? error.name : 'Error',
       ...extra,
     });
@@ -195,6 +198,19 @@ class Telemetry {
     );
   }
 
+  /**
+   * Record an inline ZIP download that ended before its central directory.
+   * The user sees the failure; this keeps a count of how often it happens.
+   */
+  recordDownloadIncomplete(detail: {
+    bytes: number;
+    /** The inline route, e.g. `download` or `html-report`. */
+    route: string;
+    upload_id?: string;
+  }) {
+    this.enqueue('warn', 'cli.download', 'download incomplete', { ...detail });
+  }
+
   recordCommandSuccess() {
     this.enqueue('info', 'cli.lifecycle', 'command completed', {
       duration_ms: Date.now() - this.startedAt,
@@ -213,11 +229,12 @@ class Telemetry {
     this.enqueue('error', 'cli.lifecycle', 'command failed', {
       duration_ms: Date.now() - this.startedAt,
       exit_code: opts.exitCode,
-      error_message: message,
+      // A failed install from a signed link says the link.
+      error_message: redactUrls(message),
       error_name:
         opts.error instanceof Error ? opts.error.name : 'CliError',
       error_stack:
-        opts.error instanceof Error ? opts.error.stack : undefined,
+        opts.error instanceof Error && opts.error.stack ? redactUrls(opts.error.stack) : undefined,
       ...this.encryptionExtra(),
       ...this.submitExtra(),
     });
@@ -348,6 +365,20 @@ const SENSITIVE_FLAG_NAMES = new Set([
 const REDACTED = '<redacted>';
 
 /**
+ * Links in `text` without their query, fragment and user info. A signed
+ * download link's query is its credential (`?X-Amz-Signature=…`), and `dcd
+ * device start --app <url>` and `install <url>` take one as a plain value.
+ * Where the link points stays, for telling failures apart.
+ */
+export function redactUrls(text: string): string {
+  return text.replaceAll(
+    /\b([a-z][a-z0-9+.-]*:\/\/)([^\s/?#]*@)?([^\s?#]*)(\?[^\s#]*)?(#\S*)?/gi,
+    (_match, scheme: string, user: string | undefined, rest: string, query: string | undefined, fragment: string | undefined) =>
+      `${scheme}${user ? `${REDACTED}@` : ''}${rest}${query ? `?${REDACTED}` : ''}${fragment ? `#${REDACTED}` : ''}`,
+  );
+}
+
+/**
  * The argv a command was run with, as telemetry may keep it: without the
  * values of the flags above, and without what two `dcd device` subcommands
  * are given that no flag name marks as a secret.
@@ -398,7 +429,7 @@ export function scrubArgv(args: string[]): string[] {
       scrubbed.push(arg);
     }
   }
-  return scrubbed;
+  return scrubbed.map((arg) => redactUrls(arg));
 }
 
 // argv layout: node|tsx, script, command, ...flags. The first non-flag after
@@ -419,11 +450,14 @@ const API_URL_FLAGS = ['--api-url', '--apiURL', '--apiUrl'];
 
 function inferApiUrlFromArgv(): string {
   const args = process.argv.slice(2);
+  // Only a URL the command itself would send credentials to: these events
+  // carry them too, and may be sent before the command checks its flag.
+  const usable = (url: string) => (checkApiUrl(url.trim()).ok ? url.trim() : DEFAULT_API_URL);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     for (const flag of API_URL_FLAGS) {
-      if (arg === flag && args[i + 1]) return args[i + 1];
-      if (arg.startsWith(`${flag}=`)) return arg.slice(flag.length + 1);
+      if (arg === flag && args[i + 1]) return usable(args[i + 1]);
+      if (arg.startsWith(`${flag}=`)) return usable(arg.slice(flag.length + 1));
     }
   }
   return DEFAULT_API_URL;
