@@ -4,6 +4,7 @@ import * as tus from 'tus-js-client';
 
 import { ENVIRONMENTS, type DcdEnvName } from '../config/environments.js';
 import { getSupabaseKey, supabaseKeyHeaders } from '../config/supabase-key.js';
+import { tusHttpStackOptions } from './fetch-http-stack.js';
 
 /** Disk-backed upload descriptor — see UploadSource in src/methods.ts. */
 export interface ResumableUploadSource {
@@ -51,6 +52,9 @@ export class SupabaseGateway {
       // is required because a stream's length can't be derived.
       const upload = new tus.Upload(createReadStream(source.diskPath), {
         uploadSize: source.size,
+
+        // Bun's node:http can't send tus's create request; see FetchHttpStack.
+        ...tusHttpStackOptions(),
 
         // TUS endpoint for Supabase Storage
         endpoint: `${storageUrl}/storage/v1/upload/resumable`,
