@@ -14,33 +14,131 @@ export interface ResumableUploadSource {
   size: number;
 }
 
+/**
+ * A signed upload for one storage path, from the API's upload-URL response.
+ * The token is sent as `x-signature` on every TUS request; it writes only
+ * `path` and never overwrites an existing object.
+ */
+export interface SignedUpload {
+  expiresInSeconds: number;
+  path: string;
+  token: string;
+}
+
+/** Refresh this long before the token says it expires. */
+const REFRESH_MARGIN_MS = 10 * 60 * 1000;
+/** Fresh tokens one upload may ask for before it gives up. */
+const MAX_TOKEN_REFRESHES = 5;
+const RETRY_DELAYS = [0, 3000, 5000, 10_000, 20_000];
+
+/**
+ * Whether a TUS error response says the upload token was refused, which a
+ * fresh token for the same path fixes. Storage answers an expired or bad
+ * signature with a 4xx whose body names the JWT or signature.
+ */
+export function isSignatureError(status: number, body: string): boolean {
+  return [400, 401, 403].includes(status) && /jwt|signature|expired/i.test(body);
+}
+
+/** tus's own rule: retry anything but a 4xx, except 409 and 423. */
+function defaultShouldRetry(status: number): boolean {
+  return !(status >= 400 && status < 500) || status === 409 || status === 423;
+}
+
 export class SupabaseGateway {
   /**
-   * Upload to Supabase using resumable uploads (TUS protocol)
-   * Uploads to staging location (uploads/{id}/) using the publishable key
-   * File is later moved to final location by API after finalization
-   * @param env - Environment (dev or prod)
-   * @param path - Staging storage path (uploads/{id}/file.ext)
-   * @param source - Upload source descriptor; the file is streamed from disk
-   * @param debug - Enable debug logging
-   * @param onProgress - Optional callback for upload progress (bytesUploaded, bytesTotal)
-   * @returns Promise that resolves when upload completes
+   * Upload straight to the final storage path with a signed token, through
+   * `/storage/v1/upload/resumable/sign`. No storage key of the client's own
+   * is needed: the token is the permission.
+   *
+   * The token lasts a couple of hours and storage checks it on every
+   * request, so a long or resumed upload can outlive it. Before each request
+   * the token is refreshed when it is close to expiry, and a request refused
+   * for its signature is retried with a fresh one. Either way it is the same
+   * path, so the same TUS upload carries on.
+   *
+   * @param refreshToken - Asks the API for a fresh token for `signed.path`
+   * @param options.storageUrl - Test seam; defaults to the environment's URL
    */
-  static async uploadResumable(
+  static async uploadResumableSigned(
     env: DcdEnvName,
-    path: string,
+    signed: SignedUpload,
     source: ResumableUploadSource,
+    refreshToken: (path: string) => Promise<SignedUpload>,
     debug = false,
-    onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
+    options: { retryDelays?: number[]; storageUrl?: string } = {},
   ): Promise<void> {
-    // Prod's Supabase URL is our own custom domain, so customers' networks
-    // only need to reach devicecloud.dev, not supabase.co.
-    const storageUrl = ENVIRONMENTS[env].supabase.url;
+    const storageUrl = options.storageUrl ?? ENVIRONMENTS[env].supabase.url;
     const supabaseKey = await getSupabaseKey(env);
+
+    let { token } = signed;
+    let expiresAt = Date.now() + signed.expiresInSeconds * 1000;
+    let stale = false;
+    let refreshes = 0;
+    let pending: Promise<void> | undefined;
+
+    const margin = Math.min(REFRESH_MARGIN_MS, (signed.expiresInSeconds * 1000) / 2);
+    const refresh = (): Promise<void> => {
+      pending ??= (async () => {
+        refreshes += 1;
+        if (debug) console.log(`[DEBUG] Refreshing the upload token for ${signed.path}`);
+        const fresh = await refreshToken(signed.path);
+        token = fresh.token;
+        expiresAt = Date.now() + fresh.expiresInSeconds * 1000;
+        stale = false;
+      })().finally(() => {
+        pending = undefined;
+      });
+      return pending;
+    };
+
+    await this.runTusUpload({
+      debug,
+      endpoint: `${storageUrl}/storage/v1/upload/resumable/sign`,
+      // The gateway in front of Storage routes on the key; the token is the
+      // permission, and the upload is checked against it, not the key.
+      headers: supabaseKeyHeaders(supabaseKey),
+      async onBeforeRequest(req) {
+        if (stale || Date.now() >= expiresAt - margin) {
+          await refresh();
+        }
+
+        req.setHeader('x-signature', token);
+      },
+      onShouldRetry(err) {
+        const status = err.originalResponse?.getStatus() ?? 0;
+        const body = err.originalResponse?.getBody() ?? '';
+        if (isSignatureError(status, body)) {
+          if (refreshes >= MAX_TOKEN_REFRESHES) return false;
+          stale = true;
+          return true;
+        }
+
+        return defaultShouldRetry(status);
+      },
+      path: signed.path,
+      retryDelays: options.retryDelays ?? RETRY_DELAYS,
+      source,
+    });
+  }
+
+  /** One TUS upload of `source` to `path` in the organizations bucket. */
+  private static runTusUpload(config: {
+    debug: boolean;
+    endpoint: string;
+    headers: Record<string, string>;
+    onBeforeRequest?: (req: tus.HttpRequest) => Promise<void> | void;
+    onProgress?: (bytesUploaded: number, bytesTotal: number) => void;
+    onShouldRetry?: (err: tus.DetailedError) => boolean;
+    path: string;
+    retryDelays: number[];
+    source: ResumableUploadSource;
+  }): Promise<void> {
+    const { debug, endpoint, headers, onBeforeRequest, onProgress, onShouldRetry, path, retryDelays, source } = config;
 
     if (debug) {
       console.log(`[DEBUG] Resumable upload starting...`);
-      console.log(`[DEBUG] Storage URL: ${storageUrl}`);
+      console.log(`[DEBUG] Endpoint: ${endpoint}`);
       console.log(`[DEBUG] Upload path: ${path}`);
       console.log(`[DEBUG] File name: ${source.name}`);
       console.log(`[DEBUG] File size: ${(source.size / 1024 / 1024).toFixed(2)} MB`);
@@ -56,18 +154,11 @@ export class SupabaseGateway {
         // Bun's node:http can't send tus's create request; see FetchHttpStack.
         ...tusHttpStackOptions(),
 
-        // TUS endpoint for Supabase Storage
-        endpoint: `${storageUrl}/storage/v1/upload/resumable`,
-
-        // Retry configuration - will retry 5 times with increasing delays
-        retryDelays: [0, 3000, 5000, 10_000, 20_000],
-
-        // Authentication and headers
-        // Publishable key for staging uploads to uploads/* folder
-        headers: {
-          ...supabaseKeyHeaders(supabaseKey),
-          'x-upsert': 'true', // Allow overwriting existing files
-        },
+        endpoint,
+        retryDelays,
+        headers,
+        ...(onBeforeRequest ? { onBeforeRequest } : {}),
+        ...(onShouldRetry ? { onShouldRetry } : {}),
 
         // Upload metadata
         metadata: {
@@ -132,6 +223,44 @@ export class SupabaseGateway {
       }
 
       upload.start();
+    });
+  }
+
+  /**
+   * Upload to Supabase using resumable uploads (TUS protocol)
+   * Uploads to staging location (uploads/{id}/) using the publishable key
+   * File is later moved to final location by API after finalization
+   * @param env - Environment (dev or prod)
+   * @param path - Staging storage path (uploads/{id}/file.ext)
+   * @param source - Upload source descriptor; the file is streamed from disk
+   * @param debug - Enable debug logging
+   * @param onProgress - Optional callback for upload progress (bytesUploaded, bytesTotal)
+   * @returns Promise that resolves when upload completes
+   */
+  static async uploadResumable(
+    env: DcdEnvName,
+    path: string,
+    source: ResumableUploadSource,
+    debug = false,
+    onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
+  ): Promise<void> {
+    // Prod's Supabase URL is our own custom domain, so customers' networks
+    // only need to reach devicecloud.dev, not supabase.co.
+    const storageUrl = ENVIRONMENTS[env].supabase.url;
+    const supabaseKey = await getSupabaseKey(env);
+
+    return this.runTusUpload({
+      debug,
+      endpoint: `${storageUrl}/storage/v1/upload/resumable`,
+      // Publishable key for staging uploads to uploads/* folder
+      headers: {
+        ...supabaseKeyHeaders(supabaseKey),
+        'x-upsert': 'true', // Allow overwriting existing files
+      },
+      onProgress,
+      path,
+      retryDelays: RETRY_DELAYS,
+      source,
     });
   }
 }
