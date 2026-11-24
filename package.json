@@ -7,7 +7,6 @@
   "dependencies": {
     "@clack/prompts": "^1.6.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "@supabase/supabase-js": "^2.108.2",
     "bplist-parser": "^0.6.0",
     "citty": "^0.2.2",
     "js-yaml": "^5.2.2",
