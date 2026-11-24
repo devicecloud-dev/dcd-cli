@@ -30,8 +30,23 @@ interface BundleDownloadOptions {
    * tells an API that applied the filter from an older one that ignored it.
    */
   requiredFilenamePrefix?: string;
+  /**
+   * Throws the error the inline route gives for the same answer. Called for a
+   * manifest status in {@link FINAL_MANIFEST_STATUSES} instead of falling
+   * back, so the caller's message is the one the user saw before.
+   */
+  throwFinalError?: (res: Response) => Promise<never>;
   unsupportedMessage?: string;
 }
+
+/**
+ * Manifest answers the inline route would only repeat: a bad request, a key
+ * that can't reach the run, a run that isn't there. Falling back on them cost
+ * a second request for the same error. 413 (too many files for the bundle)
+ * and 501 (no bundle delivery here) still fall back, since the inline route
+ * can serve those.
+ */
+const FINAL_MANIFEST_STATUSES: ReadonlySet<number> = new Set([400, 403, 404]);
 
 /** What went wrong in a bundle attempt, minus the route/timing added later. */
 type BundleFailure = Omit<
@@ -300,8 +315,8 @@ export const ApiGateway = {
    * the bundle path is unavailable or anything about it doesn't pan out — a
    * `501` (deployment doesn't offer it), a non-OK manifest response, a body
    * that isn't a manifest, or a delivery-service error — so the caller can fall
-   * back to the inline download endpoint. Definitive errors (e.g. not found)
-   * surface through that inline path instead.
+   * back to the inline download endpoint. A manifest 400, 403 or 404 throws
+   * `throwFinalError`'s error instead, without a fallback.
    */
   async tryBundleDownload(
     baseUrl: string,
@@ -357,9 +372,16 @@ export const ApiGateway = {
       return failure('manifest_request_failed', errorDetail(error));
     }
 
-    // 501 => this deployment has no bundle delivery; any other non-OK => let
-    // the inline path re-request and surface the real error.
+    // 400/403/404 => the inline route would answer the same, so throw its
+    // error now. 501 => this deployment has no bundle delivery; any other
+    // non-OK (413, 5xx) => the inline path may still deliver.
     if (!manifestRes.ok) {
+      if (
+        options.throwFinalError &&
+        FINAL_MANIFEST_STATUSES.has(manifestRes.status)
+      ) {
+        await options.throwFinalError(manifestRes);
+      }
       return failure(
         manifestRes.status === 501 ? 'manifest_unavailable' : 'manifest_http_error',
         { status: manifestRes.status },
@@ -558,14 +580,18 @@ export const ApiGateway = {
           (filtered ? `&resultId=${resultId}` : ''),
         artifactsPath,
         'Failed to download artifacts',
-        filtered
-          ? {
-              // What the API names a bundle it narrowed to one result.
-              requiredFilenamePrefix: 'artifacts-result-',
-              unsupportedMessage:
-                'Failed to download artifacts: this API does not support downloading one result yet. Download without --result-id or --flow.',
-            }
-          : {},
+        {
+          throwFinalError: (res) =>
+            this.handleApiError(res, 'Failed to download artifacts'),
+          ...(filtered
+            ? {
+                // What the API names a bundle it narrowed to one result.
+                requiredFilenamePrefix: 'artifacts-result-',
+                unsupportedMessage:
+                  'Failed to download artifacts: this API does not support downloading one result yet. Download without --result-id or --flow.',
+              }
+            : {}),
+        },
       )
     ) {
       return;
@@ -1153,6 +1179,17 @@ export const ApiGateway = {
     const finalReportPath = reportPath || path.resolve(process.cwd(), defaultFilename);
     const url = `${baseUrl}${endpoint}`;
 
+    // The error for a non-OK answer, from the inline route or, for the html
+    // report, a final answer from its bundle route.
+    const throwHttpError = async (res: Response): Promise<never> => {
+      const errorText = await res.text();
+      if (res.status === 404) {
+        throw new Error(notFoundMessage);
+      }
+
+      throw new Error(`${errorPrefix}: ${res.status} ${errorText}`);
+    };
+
     // The HTML report is a ZIP bundle; prefer bundle delivery when available.
     // (junit is a single small file and allure has its own endpoint — both stay
     // on the inline path.)
@@ -1164,6 +1201,7 @@ export const ApiGateway = {
         `/results/${uploadId}/report-bundle`,
         finalReportPath,
         errorPrefix,
+        { throwFinalError: throwHttpError },
       ))
     ) {
       return;
@@ -1179,12 +1217,7 @@ export const ApiGateway = {
       });
 
       if (!res.ok) {
-        const errorText = await res.text();
-        if (res.status === 404) {
-          throw new Error(notFoundMessage);
-        }
-
-        throw new Error(`${errorPrefix}: ${res.status} ${errorText}`);
+        await throwHttpError(res);
       }
 
       await this.streamResponseToFile(res, finalReportPath, errorPrefix);
