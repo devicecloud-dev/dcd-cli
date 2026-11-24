@@ -33,11 +33,17 @@ const RETRY_DELAYS = [0, 3000, 5000, 10_000, 20_000];
 
 /**
  * Whether a TUS error response says the upload token was refused, which a
- * fresh token for the same path fixes. Storage answers an expired or bad
- * signature with a 4xx whose body names the JWT or signature.
+ * fresh token for the same path fixes. Storage answers with a 400 whose body
+ * is the verifier's message, and those name no single word. Seen or expected:
+ * - "Invalid signature" (wrong path, or a tampered token)
+ * - "Invalid Compact JWS" (a token that is not a JWT at all)
+ * - `"exp" claim timestamp check failed` (an expired token: the JWT library
+ *   checks expiry before Storage's own "The provided token has expired.")
  */
+const SIGNATURE_ERROR = /jwt|jws|signature|expired|"exp" claim/i;
+
 export function isSignatureError(status: number, body: string): boolean {
-  return [400, 401, 403].includes(status) && /jwt|signature|expired/i.test(body);
+  return [400, 401, 403].includes(status) && SIGNATURE_ERROR.test(body);
 }
 
 /** tus's own rule: retry anything but a 4xx, except 409 and 423. */

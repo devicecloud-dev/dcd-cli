@@ -93,6 +93,13 @@ describe('isSignatureError', () => {
     expect(isSignatureError(403, 'invalid signature')).to.equal(true);
   });
 
+  it('spots the messages Storage actually sends', () => {
+    expect(isSignatureError(400, '"exp" claim timestamp check failed')).to.equal(true);
+    expect(isSignatureError(400, 'The provided token has expired.')).to.equal(true);
+    expect(isSignatureError(400, 'Invalid Compact JWS')).to.equal(true);
+    expect(isSignatureError(400, 'Invalid signature')).to.equal(true);
+  });
+
   it('leaves other failures alone', () => {
     expect(isSignatureError(500, 'jwt expired')).to.equal(false);
     expect(isSignatureError(400, 'The resource already exists')).to.equal(false);
