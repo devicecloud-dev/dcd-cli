@@ -16,7 +16,7 @@ import * as yazl from 'yazl';
 
 import { inferEnvFromApiUrl } from './config/environments.js';
 import { ApiError, ApiGateway } from './gateways/api-gateway.js';
-import { SupabaseGateway } from './gateways/supabase-gateway.js';
+import { type SignedUpload, SupabaseGateway } from './gateways/supabase-gateway.js';
 import {
   detectFlutterEngine,
   MetadataExtractorService,
@@ -603,6 +603,63 @@ async function uploadToSupabase(
   }
 }
 
+/**
+ * Where the Supabase copy went, and so which path to finalise with.
+ * `direct` means `path` is the final path a signed token uploaded to.
+ */
+export interface SupabaseUploadOutcome {
+  direct: boolean;
+  path: string;
+  result: UploadResult;
+}
+
+/**
+ * Upload the Supabase copy. When the API offered a signed upload, go straight
+ * to the final path, so the API has nothing to copy when it finalises. If
+ * that fails, or none was offered, upload to the temp path as before.
+ *
+ * When everything fails, `path` is the temp path, which an API finalising a
+ * Backblaze-only upload accepts from any client.
+ */
+export async function uploadSupabaseCopy(config: {
+  apiUrl: string;
+  auth: AuthContext;
+  debug: boolean;
+  env: 'dev' | 'prod';
+  signedUpload?: SignedUpload;
+  source: UploadSource;
+  tempPath: string;
+}): Promise<SupabaseUploadOutcome> {
+  const { apiUrl, auth, debug, env, signedUpload, source, tempPath } = config;
+
+  if (signedUpload?.path && signedUpload.token) {
+    if (debug) {
+      console.log(`[DEBUG] Uploading to Supabase (${env}) straight to the final path with a signed token`);
+      console.log(`[DEBUG] Final path: ${signedUpload.path}`);
+    }
+
+    try {
+      await SupabaseGateway.uploadResumableSigned(
+        env,
+        signedUpload,
+        source,
+        (signedPath) => ApiGateway.refreshUploadToken(apiUrl, auth, signedPath),
+        debug,
+      );
+      return { direct: true, path: signedUpload.path, result: { error: null, success: true } };
+    } catch (error) {
+      if (debug) {
+        console.error(
+          `[DEBUG] Signed upload failed, falling back to the temp path: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
+
+  const result = await uploadToSupabase(env, tempPath, source, debug);
+  return { direct: false, path: tempPath, result };
+}
+
 interface BackblazeUploadConfig {
   auth: AuthContext;
   apiUrl: string;
@@ -692,6 +749,7 @@ interface UploadPaths {
   b2: unknown;
   finalPath: string;
   id: string;
+  signedUpload?: SignedUpload;
   tempPath: string;
 }
 
@@ -720,7 +778,12 @@ async function requestUploadPaths(
 
   try {
     const urlRequestStartTime = Date.now();
-    const { id, tempPath, finalPath, b2 } = await ApiGateway.getBinaryUploadUrl(apiUrl, auth, platform, fileSize);
+    const { id, tempPath, finalPath, b2, signedUpload } = await ApiGateway.getBinaryUploadUrl(
+      apiUrl,
+      auth,
+      platform,
+      fileSize,
+    );
 
     if (debug) {
       const hasStrategy = b2 && typeof b2 === 'object' && 'strategy' in b2;
@@ -729,12 +792,13 @@ async function requestUploadPaths(
       console.log(`[DEBUG] Temp path (TUS upload): ${tempPath}`);
       console.log(`[DEBUG] Final path (after finalize): ${finalPath}`);
       console.log(`[DEBUG] Backblaze upload URL provided: ${Boolean(b2)}`);
+      console.log(`[DEBUG] Signed upload offered: ${Boolean(signedUpload)}`);
       if (hasStrategy) console.log(`[DEBUG] Backblaze strategy: ${(b2 as { strategy: string }).strategy}`);
     }
 
     if (!tempPath) throw new Error('No upload path provided by API');
 
-    return { b2, finalPath, id, tempPath };
+    return { b2, finalPath, id, signedUpload, tempPath };
   } catch (error) {
     if (debug) {
       console.error('[DEBUG] === FAILED TO GET UPLOAD URL ===');
@@ -833,7 +897,13 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
   const { filePath, apiUrl, auth, enc, source, sha, shaPlain, debug, startTime } = config;
 
   // Request upload URL and paths
-  const { id, tempPath, finalPath, b2 } = await requestUploadPaths(apiUrl, auth, filePath, source.size, debug);
+  const { id, tempPath, finalPath, b2, signedUpload } = await requestUploadPaths(
+    apiUrl,
+    auth,
+    filePath,
+    source.size,
+    debug,
+  );
 
   // Extract app metadata from the original (plaintext) file. Attach the
   // envelope so it lands on binaries.metadata.enc (#1138).
@@ -871,7 +941,8 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     console.log('[DEBUG] Uploading to Supabase...');
   }
 
-  const supabaseResult: UploadResult = await uploadToSupabase(env, tempPath, source, debug);
+  const supabase = await uploadSupabaseCopy({ apiUrl, auth, debug, env, signedUpload, source, tempPath });
+  const supabaseResult: UploadResult = supabase.result;
 
   // Validate results
   validateUploadResults(supabaseResult, backblazeResult, b2, debug);
@@ -881,8 +952,11 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     console.log(`[DEBUG] Upload summary - Backblaze: ${backblazeResult.success ? '✓' : '✗'}, Supabase: ${supabaseResult.success ? '✓' : '✗'}`);
     console.log('[DEBUG] Finalizing upload...');
     console.log(`[DEBUG] Target endpoint: ${apiUrl}/uploads/finaliseUpload`);
-    console.log(`[DEBUG] Uploaded to staging path: ${tempPath}`);
-    console.log(`[DEBUG] API will move to final path: ${finalPath}`);
+    console.log(
+      supabase.direct
+        ? `[DEBUG] Uploaded straight to final path: ${supabase.path}`
+        : `[DEBUG] Uploaded to staging path: ${tempPath}; API will move it to ${finalPath}`,
+    );
     console.log(`[DEBUG] Backblaze upload status: ${backblazeResult.success ? 'SUCCESS' : 'FAILED'}`);
     console.log(`[DEBUG] Supabase upload status: ${supabaseResult.success ? 'SUCCESS' : 'FAILED'}`);
     if (!backblazeResult.success && supabaseResult.success) console.log('[DEBUG] ⚠ Warning: File only exists in Supabase (Backblaze failed)');
@@ -897,11 +971,12 @@ async function performUpload(config: PerformUploadConfig): Promise<string> {
     bytes: source.size,
     id,
     metadata,
-    path: tempPath,
+    path: supabase.path,
     // sha is undefined when hash calculation failed — omit it explicitly
     ...(sha ? { sha } : {}),
     ...(shaPlain ? { shaPlain } : {}),
     supabaseSuccess: supabaseResult.success,
+    ...(supabase.direct ? { useTus: true } : {}),
   });
 
   if (debug) {
@@ -962,7 +1037,7 @@ export const uploadFlowZip = async (config: {
     // Same response shape as getBinaryUploadUrl. A 404 here means the API
     // predates the client-direct flow path — let it propagate so the caller
     // falls back to the multipart endpoint.
-    const { id, tempPath, finalPath, b2 } = await ApiGateway.getFlowUploadUrl(
+    const { id, tempPath, finalPath, b2, signedUpload } = await ApiGateway.getFlowUploadUrl(
       apiUrl,
       auth,
       buffer.length,
@@ -983,7 +1058,8 @@ export const uploadFlowZip = async (config: {
     });
 
     // Always upload to Supabase (always-on alongside Backblaze)
-    const supabaseResult = await uploadToSupabase(env, tempPath, source, debug);
+    const supabase = await uploadSupabaseCopy({ apiUrl, auth, debug, env, signedUpload, source, tempPath });
+    const supabaseResult = supabase.result;
 
     validateUploadResults(supabaseResult, backblazeResult, b2, debug);
 
@@ -995,7 +1071,8 @@ export const uploadFlowZip = async (config: {
       backblazeSuccess: backblazeResult.success,
       bytes: buffer.length,
       id,
-      path: tempPath,
+      // The signed final path or the temp path; submitFlowTest takes either.
+      path: supabase.path,
       supabaseSuccess: supabaseResult.success,
       useTus: true,
     };

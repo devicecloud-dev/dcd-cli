@@ -19,6 +19,7 @@ import type {
 } from '../types/domain/live.types.js';
 import type { TeamSettings } from '../types/domain/team-settings.types.js';
 import { components, paths } from '../types/generated/schema.types.js';
+import type { SignedUpload } from './supabase-gateway.js';
 import { expandHome } from '../utils/paths.js';
 import { assertCompleteZip, IncompleteZipError } from '../utils/zip-integrity.js';
 
@@ -144,6 +145,15 @@ export interface ResultsPollCache {
   body?: ResultsResponse;
   etag?: string;
 }
+
+/**
+ * An upload-URL response. `signedUpload` comes only from an API that supports
+ * direct uploads, and only when the request asked for it; without it the
+ * client uploads to `tempPath`.
+ */
+type UploadUrlResponse = components['schemas']['IGetBinaryUploadUrlResponse'] & {
+  signedUpload?: SignedUpload;
+};
 
 export const ApiGateway = {
   /**
@@ -642,8 +652,13 @@ export const ApiGateway = {
      */
     shaPlain?: string;
     supabaseSuccess: boolean;
+    /**
+     * True when `path` is the final path a signed token uploaded to. The API
+     * then checks the object is there and skips its copy.
+     */
+    useTus?: boolean;
   }) {
-    const { baseUrl, auth, id, metadata, path, sha, shaPlain, supabaseSuccess, backblazeSuccess, bytes } = config;
+    const { baseUrl, auth, id, metadata, path, sha, shaPlain, supabaseSuccess, backblazeSuccess, bytes, useTus } = config;
     try {
       const res = await fetch(`${baseUrl}/uploads/finaliseUpload`, {
         body: JSON.stringify({
@@ -651,10 +666,11 @@ export const ApiGateway = {
           bytes,
           id,
           metadata,
-          path, // This is tempPath for TUS uploads
+          path, // tempPath, or the signed final path when useTus is set
           ...(sha ? { sha } : {}),
           ...(shaPlain ? { shaPlain } : {}),
           supabaseSuccess,
+          ...(useTus ? { useTus } : {}),
         }),
         headers: {
           'content-type': 'application/json',
@@ -686,7 +702,9 @@ export const ApiGateway = {
   ) {
     try {
       const res = await fetch(`${baseUrl}/uploads/getBinaryUploadUrl`, {
-        body: JSON.stringify({ platform, fileSize }),
+        // signedUpload: ask for a token to upload straight to the final
+        // path. An API without direct uploads ignores the field.
+        body: JSON.stringify({ platform, fileSize, signedUpload: true }),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
@@ -697,9 +715,7 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to get upload URL');
       }
 
-      return await parseJsonResponse<
-        paths['/uploads/getBinaryUploadUrl']['post']['responses']['201']['content']['application/json']
-      >(res, 'Failed to get upload URL');
+      return await parseJsonResponse<UploadUrlResponse>(res, 'Failed to get upload URL');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/getBinaryUploadUrl`);
@@ -1007,7 +1023,7 @@ export const ApiGateway = {
   ) {
     try {
       const res = await fetch(`${baseUrl}/uploads/getFlowUploadUrl`, {
-        body: JSON.stringify({ fileSize, useTus: true }),
+        body: JSON.stringify({ fileSize, signedUpload: true, useTus: true }),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
@@ -1018,13 +1034,44 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to get flow upload URL');
       }
 
-      // Same response shape as getBinaryUploadUrl: { id, tempPath, finalPath, path, b2?, token? }.
-      return await parseJsonResponse<
-        components['schemas']['IGetBinaryUploadUrlResponse']
-      >(res, 'Failed to get flow upload URL');
+      // Same response shape as getBinaryUploadUrl.
+      return await parseJsonResponse<UploadUrlResponse>(res, 'Failed to get flow upload URL');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/getFlowUploadUrl`);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * A fresh signed upload token for a path an upload-URL response gave us,
+   * so an upload whose token expired can carry on. The API refuses a path
+   * outside the caller's org and an upload that is already finalised.
+   */
+  async refreshUploadToken(baseUrl: string, auth: AuthContext, path: string): Promise<SignedUpload> {
+    try {
+      const res = await fetch(`${baseUrl}/uploads/refreshUploadToken`, {
+        body: JSON.stringify({ path }),
+        headers: {
+          'content-type': 'application/json',
+          ...auth.headers,
+        },
+        method: 'POST',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to refresh upload token');
+      }
+
+      const { signedUpload } = await parseJsonResponse<{ signedUpload: SignedUpload }>(
+        res,
+        'Failed to refresh upload token',
+      );
+      return signedUpload;
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, `${baseUrl}/uploads/refreshUploadToken`);
       }
 
       throw error;
