@@ -617,6 +617,102 @@ describe('ReportDownloadService', () => {
       expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
     });
 
+    // The inline route gives these answers too, so asking it again only cost
+    // a second request for the same error.
+    describe('a manifest answer the inline route would repeat', () => {
+      const cases = [
+        {
+          expected: 'Invalid request: resultId must be a positive whole number',
+          message: 'resultId must be a positive whole number',
+          status: 400,
+        },
+        {
+          expected: 'Access denied. This upload belongs to another team',
+          message: 'This upload belongs to another team',
+          status: 403,
+        },
+        {
+          expected: 'Resource not found. No results found for uploadId=run-42',
+          message: 'No results found for uploadId=run-42',
+          status: 404,
+        },
+      ];
+
+      for (const { expected, message, status } of cases) {
+        it(`shows an artifacts ${status} without asking the inline route`, async () => {
+          mockBundleFetch({
+            manifestBody: { message, statusCode: status },
+            manifestStatus: status,
+          });
+          const warnings: string[] = [];
+
+          const result = await service.downloadArtifacts({
+            ...BASE,
+            artifactsPath: path.join(tempDir, `final-${status}.zip`),
+            downloadType: 'ALL',
+            warnLogger: (msg) => warnings.push(msg),
+          });
+
+          expect(result.ok).to.be.false;
+          expect(warnings[0]).to.equal(`Failed to download artifacts: ${expected}`);
+          expect(calls).to.have.length(1);
+          expect(calls.some((c) => c.url.endsWith('/download'))).to.be.false;
+          expect(fallbacks).to.deep.equal([]);
+        });
+
+        it(`shows an html report ${status} without asking the inline route`, async () => {
+          mockBundleFetch({
+            manifestBody: { message, statusCode: status },
+            manifestStatus: status,
+          });
+          const warnings: string[] = [];
+
+          await service.downloadReports({
+            ...BASE,
+            htmlPath: path.join(tempDir, `final-report-${status}.zip`),
+            reportType: 'html',
+            warnLogger: (msg) => warnings.push(msg),
+          });
+
+          // The same text the inline route's answer gave.
+          expect(warnings[0]).to.equal(
+            status === 404
+              ? "Failed to download HTML report: Upload ID 'run-42' not found or no HTML report available for this upload"
+              : `Failed to download HTML report: Failed to download HTML report: ${status} ${JSON.stringify({ message, statusCode: status })}`,
+          );
+          expect(calls).to.have.length(1);
+          expect(calls.some((c) => c.url.endsWith('/html-report'))).to.be.false;
+          expect(fallbacks).to.deep.equal([]);
+        });
+      }
+
+      for (const status of [413, 500]) {
+        it(`still falls back on a manifest ${status}`, async () => {
+          mockBundleFetch({
+            manifestBody: { message: 'no' },
+            manifestStatus: status,
+          });
+          const outPath = path.join(tempDir, `fallback-${status}.zip`);
+
+          const result = await service.downloadArtifacts({
+            ...BASE,
+            artifactsPath: outPath,
+            downloadType: 'ALL',
+          });
+
+          expect(result.ok).to.be.true;
+          expect(fallbacks[0]).to.include({
+            reason: 'manifest_http_error',
+            status,
+          });
+          expect(
+            calls.some((c) => c.method === 'POST' && c.url.endsWith('/download')),
+          ).to.be.true;
+          expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
+        });
+      }
+    });
+
     // A folder as the artifacts path failed with EISDIR, which the
     // CLI took for a broken stream, so it fell back to the inline download
     // (the API building the whole ZIP) and then failed the same way.
