@@ -20,9 +20,9 @@ export interface DcdEnvironment {
    */
   legacyApiUrls?: string[];
   frontendUrl: string;
+  /** Supabase Storage is reached at `${url}/storage/v1/...`. */
   supabase: {
     url: string;
-    projectRef: string;
   };
 }
 
@@ -32,7 +32,6 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
     frontendUrl: 'https://console.devicecloud.dev',
     supabase: {
       url: 'https://cloud.devicecloud.dev',
-      projectRef: 'pgydnphbimetinsgfkbo',
     },
   },
   dev: {
@@ -41,7 +40,6 @@ export const ENVIRONMENTS: Record<DcdEnvName, DcdEnvironment> = {
     frontendUrl: 'https://dev.console.devicecloud.dev',
     supabase: {
       url: 'https://lbmsowehtjwnqlurpemb.supabase.co',
-      projectRef: 'lbmsowehtjwnqlurpemb',
     },
   },
 };

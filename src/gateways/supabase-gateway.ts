@@ -1,6 +1,5 @@
 import { createReadStream } from 'node:fs';
 
-import { createClient } from '@supabase/supabase-js';
 import * as tus from 'tus-js-client';
 
 import { ENVIRONMENTS, type DcdEnvName } from '../config/environments.js';
@@ -33,9 +32,10 @@ export class SupabaseGateway {
     debug = false,
     onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
   ): Promise<void> {
-    const { projectRef } = ENVIRONMENTS[env].supabase;
+    // Prod's Supabase URL is our own custom domain, so customers' networks
+    // only need to reach devicecloud.dev, not supabase.co.
+    const storageUrl = ENVIRONMENTS[env].supabase.url;
     const supabaseKey = await getSupabaseKey(env);
-    const storageUrl = `https://${projectRef}.storage.supabase.co`;
 
     if (debug) {
       console.log(`[DEBUG] Resumable upload starting...`);
@@ -129,139 +129,5 @@ export class SupabaseGateway {
 
       upload.start();
     });
-  }
-
-  static async uploadToSignedUrl(
-    env: DcdEnvName,
-    path: string,
-    token: string,
-    file: File,
-    debug = false,
-  ) {
-    const { url: SUPABASE_URL } = ENVIRONMENTS[env].supabase;
-
-    if (debug) {
-      console.log(`[DEBUG] Supabase upload starting...`);
-      console.log(`[DEBUG] Supabase URL: ${SUPABASE_URL}`);
-      console.log(`[DEBUG] Upload path: ${path}`);
-      console.log(`[DEBUG] File name: ${file.name}`);
-      console.log(`[DEBUG] File type: ${file.type}`);
-    }
-
-    try {
-      const supabase = createClient(SUPABASE_URL, await getSupabaseKey(env));
-      const uploadToUrl = await supabase.storage
-        .from('organizations')
-        .uploadToSignedUrl(path, token, file);
-
-      if (uploadToUrl.error) {
-        const error = uploadToUrl.error as
-          | { message?: string; statusCode?: number | string }
-          | string;
-        const errorMessage =
-          typeof error === 'string' ? error : error?.message || 'Upload failed';
-
-        if (debug) {
-          console.error(`[DEBUG] Supabase upload error:`, error);
-          if (typeof error === 'object' && 'statusCode' in error) {
-            console.error(`[DEBUG] HTTP Status Code: ${error.statusCode}`);
-          }
-        }
-
-        throw new Error(errorMessage);
-      }
-
-      if (debug) {
-        console.log(`[DEBUG] Supabase upload successful`);
-        console.log(
-          `[DEBUG] Upload result path: ${uploadToUrl.data?.path || 'N/A'}`,
-        );
-      }
-    } catch (error) {
-      if (debug) {
-        this.logUploadException(error, env, SUPABASE_URL, path, file);
-      }
-
-      // Re-throw with additional context
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      throw new Error(`Supabase upload error: ${errorMsg}`, { cause: error });
-    }
-  }
-
-  /**
-   * Logs network error details for debugging
-   * @param error - Error object to analyze for network-related issues
-   * @returns void
-   */
-  private static logNetworkError(error: Error): void {
-    const errorMsg = error.message.toLowerCase();
-    if (errorMsg.includes('econnrefused') || errorMsg.includes('connection refused')) {
-      console.error(
-        `[DEBUG] Network error: Connection refused - check internet connectivity`,
-      );
-    } else if (errorMsg.includes('etimedout') || errorMsg.includes('timeout')) {
-      console.error(
-        `[DEBUG] Network error: Connection timeout - check internet connectivity or try again`,
-      );
-    } else if (errorMsg.includes('enotfound') || errorMsg.includes('not found')) {
-      console.error(
-        `[DEBUG] Network error: DNS lookup failed - check internet connectivity`,
-      );
-    } else if (errorMsg.includes('econnreset') || errorMsg.includes('connection reset') || errorMsg.includes('connection lost')) {
-      console.error(
-        `[DEBUG] Network error: Connection reset/lost - network unstable or interrupted`,
-      );
-    } else if (errorMsg.includes('network')) {
-      console.error(
-        `[DEBUG] Network-related error detected - check internet connectivity`,
-      );
-    }
-  }
-
-  /**
-   * Logs upload exception details for debugging
-   * @param error - Exception that occurred during upload
-   * @param env - Environment (dev or prod)
-   * @param supabaseUrl - Supabase URL being used
-   * @param path - Upload path
-   * @param file - File being uploaded
-   * @returns void
-   */
-  private static logUploadException(
-    error: unknown,
-    env: string,
-    supabaseUrl: string,
-    path: string,
-    file: File,
-  ): void {
-    console.error(`[DEBUG] === SUPABASE UPLOAD EXCEPTION ===`);
-    console.error(`[DEBUG] Exception caught:`, error);
-    console.error(
-      `[DEBUG] Error type: ${
-        error instanceof Error ? error.name : typeof error
-      }`,
-    );
-    console.error(
-      `[DEBUG] Error message: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-
-    if (error instanceof Error && error.stack) {
-      console.error(`[DEBUG] Error stack:\n${error.stack}`);
-    }
-
-    // Log additional context
-    console.error(`[DEBUG] Upload context:`);
-    console.error(`[DEBUG] - Environment: ${env}`);
-    console.error(`[DEBUG] - Supabase URL: ${supabaseUrl}`);
-    console.error(`[DEBUG] - Upload path: ${path}`);
-    console.error(`[DEBUG] - File name: ${file.name}`);
-    console.error(`[DEBUG] - File size: ${file.size} bytes`);
-
-    // Check for common network errors
-    if (error instanceof Error) {
-      this.logNetworkError(error);
-    }
   }
 }
