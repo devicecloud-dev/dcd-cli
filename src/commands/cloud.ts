@@ -531,7 +531,7 @@ export const cloudCommand = defineCommand({
       }));
 
       // Validated after the notices, so a notice aimed at a removed device or
-      // OS version (e.g. removed-ios-17-2026-11-02) is shown before the
+      // OS version (e.g. removed-ios-17-2026-11-24) is shown before the
       // rejection it explains.
       deviceValidationService.validateiOSDevice(iOSVersion, iOSDevice, compatibilityData, {
         debug,
