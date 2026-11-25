@@ -165,6 +165,8 @@ export default {
 
 Run `npx e2e run` with `DEVICE_CLOUD_API_KEY` set. The provider uploads `appPath` once per run and each session installs it, so e2e installs nothing itself. To use a build you already uploaded, pass `deviceCloud({ appBinaryId })`. It also takes `model`, `os`, `maxDurationMin`, and `locale` (such as `en_US`) for the device's language and region, set before your build is installed. Each session's console link is printed as the run starts, and the session is stopped when e2e is done with it.
 
+With e2e's `video` option on (any setting but `'off'`), each test's video in e2e's report is a console link to that test's part of the session's recording. The session is recorded as one video, so the link plays the part from the test's start to its end; it works once the session has ended and its video has uploaded, for as long as the session's files are kept.
+
 
 ## Development
 

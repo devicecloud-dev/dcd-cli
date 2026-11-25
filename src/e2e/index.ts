@@ -8,7 +8,8 @@
  *   const engine = mobile({ platform: 'android', device: deviceCloud() });
  *
  * Each e2e worker gets its own DeviceCloud device session, which shows in the
- * console, is recorded, and is billed like any other. Reads
+ * console, is recorded, and is billed like any other. With `video` on, each
+ * test's video is a link to its part of the session in the console. Reads
  * `DEVICE_CLOUD_API_KEY` from the run's environment. Early access: the
  * organization needs it turned on by DeviceCloud.
  *
@@ -28,6 +29,9 @@ export type {
   DeviceCloudProvider,
   E2eDeviceLease,
   E2eDeviceRequest,
+  E2eRecordContext,
+  E2eRecording,
+  E2eRecordingResult,
   E2eReleaseContext,
 } from './provider.js';
 
