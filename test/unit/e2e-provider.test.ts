@@ -496,4 +496,108 @@ describe('the e2e device provider', () => {
     );
     expect(error.message).to.include('Something broke.');
   });
+
+  describe('a test that records video', () => {
+    const context = (attemptId = 'attempt-1') => ({
+      attemptId,
+      env: { DEVICE_CLOUD_API_KEY: 'key-from-env' },
+      runId: 'run-1',
+      signal: new AbortController().signal,
+      targetName: 'android',
+    });
+    const stopContext = {
+      dir: '/tmp/video',
+      signal: new AbortController().signal,
+    };
+    const at = (iso: string) => () => Date.parse(iso);
+
+    it("gets a console link to its part of the session's recording", async () => {
+      let clock = Date.parse('2026-11-25T10:00:10.000Z');
+      const { api, provider } = setup(
+        {
+          'GET /device/sessions/brave-teal-otter': [
+            { body: session('active'), status: 200 },
+          ],
+        },
+        {},
+        { now: () => clock },
+      );
+
+      const recording = await provider.record(
+        { id: 'brave-teal-otter' },
+        context(),
+      );
+      expect(recording.startedAt).to.equal('2026-11-25T10:00:10.000Z');
+      clock = Date.parse('2026-11-25T10:00:45.500Z');
+      const result = await recording.stop(stopContext);
+
+      expect(result).to.deep.equal({
+        mediaType: 'text/html',
+        url: 'https://console.example/device/brave-teal-otter?from=2026-11-25T10%3A00%3A10.000Z&to=2026-11-25T10%3A00%3A45.500Z',
+      });
+      // The session was read with the run's key; stopping asked for nothing.
+      expect(api.calls).to.have.length(1);
+      expect(api.calls[0].headers['x-app-api-key']).to.equal('key-from-env');
+    });
+
+    it('reads the session once per lease, however many tests record', async () => {
+      const { api, provider } = setup(
+        {
+          'GET /device/sessions/brave-teal-otter': [
+            { body: session('active'), status: 200 },
+          ],
+        },
+        {},
+        { now: at('2026-11-25T10:00:00.000Z') },
+      );
+      for (const attempt of ['attempt-1', 'attempt-2', 'attempt-3']) {
+        const recording = await provider.record(
+          { id: 'brave-teal-otter' },
+          context(attempt),
+        );
+        await recording.stop(stopContext);
+      }
+
+      expect(api.calls.map((c) => `${c.method} ${c.path}`)).to.deep.equal([
+        'GET /device/sessions/brave-teal-otter',
+      ]);
+    });
+
+    it('fails, named, when the session cannot be read, and reads it again next time', async () => {
+      const { api, provider } = setup(
+        {
+          'GET /device/sessions/brave-teal-otter': [
+            { body: { message: 'Device session not found.' }, status: 404 },
+            {
+              body: session('active', { monitor_url: undefined }),
+              status: 200,
+            },
+            { body: session('active'), status: 200 },
+          ],
+        },
+        {},
+        { now: at('2026-11-25T10:00:00.000Z') },
+      );
+
+      const gone = await rejection(
+        provider.record({ id: 'brave-teal-otter' }, context()),
+      );
+      expect(gone.message).to.include(
+        'reading device session brave-teal-otter',
+      );
+      expect(gone.message).to.include('Device session not found.');
+      const noPage = await rejection(
+        provider.record({ id: 'brave-teal-otter' }, context()),
+      );
+      expect(noPage.message).to.include('has no console page');
+      const recording = await provider.record(
+        { id: 'brave-teal-otter' },
+        context(),
+      );
+      expect((await recording.stop(stopContext)).url).to.match(
+        /^https:\/\/console\.example\/device\/brave-teal-otter\?from=/,
+      );
+      expect(api.calls).to.have.length(3);
+    });
+  });
 });

@@ -12,6 +12,12 @@
  * is. e2e then drives the device directly, so its calls do not pass through
  * the API's command queue. `release` stops the session.
  *
+ * When a test records video, `record` gives e2e a link for it instead of a
+ * file: the session's page in the DeviceCloud console, at that test's part of
+ * the session's own recording (`?from=&to=`, clock times). The recording is
+ * one video for the whole session, finished when the session ends, so no
+ * per-test file exists when the test does.
+ *
  * The types below describe e2e's provider contract (`DeviceProvider` in
  * `@e2e-dev/mobile`) by shape, for the fields this provider uses, so the
  * package does not depend on e2e. An object of this type can be passed to
@@ -54,10 +60,40 @@ export interface E2eReleaseContext {
   readonly log: (line: string) => void;
 }
 
+/** Handed to `record`, once per test attempt that records video. */
+export interface E2eRecordContext {
+  readonly attemptId: string;
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly runId: string;
+  readonly signal: AbortSignal;
+  readonly targetName: string;
+}
+
+/** What a stopped recording became: here always a link, with its media type. */
+export interface E2eRecordingResult {
+  readonly mediaType: string;
+  readonly url: string;
+}
+
+/** A test attempt's recording, as `record` starts it (`ProviderRecording` in `@e2e-dev/core/engine`). */
+export interface E2eRecording {
+  /** When it started, as an ISO time. */
+  readonly startedAt: string;
+  stop(context: {
+    readonly dir: string;
+    readonly signal: AbortSignal;
+  }): Promise<E2eRecordingResult>;
+}
+
 /** A source of DeviceCloud devices for e2e, the shape of `@e2e-dev/mobile`'s `DeviceProvider`. */
 export interface DeviceCloudProvider {
   readonly name: string;
   acquire(request: E2eDeviceRequest): Promise<E2eDeviceLease>;
+  /** A test attempt's video: a console link to its part of the session's recording. */
+  record(
+    lease: E2eDeviceLease,
+    context: E2eRecordContext,
+  ): Promise<E2eRecording>;
   release(lease: E2eDeviceLease, context: E2eReleaseContext): Promise<void>;
 }
 
@@ -105,6 +141,8 @@ export interface ProviderDeps {
   pollMs: number;
   /** How long a session may take to be ready: queued, starting, installing. */
   startTimeoutMs: number;
+  /** The clock, in ms. `Date.now` without. */
+  now?: () => number;
 }
 
 const DEFAULT_API_URL = 'https://api.devicecloud.dev';
@@ -217,6 +255,10 @@ export function createProvider(
   const locale = deviceLocale(options.locale);
   // One upload per build per run: e2e acquires every worker slot at once.
   const uploads = new Map<string, Promise<string>>();
+  const now = deps.now ?? Date.now;
+  // Each lease's page in the console, read once per worker process: e2e
+  // records in the worker, which has the lease's id but not the session.
+  const pages = new Map<string, Promise<string>>();
 
   const client =
     (apiKey: string, apiUrl: string) =>
@@ -425,6 +467,46 @@ export function createProvider(
     },
 
     name: 'devicecloud',
+
+    async record(lease, context) {
+      // The test starts once this returns: from now on is its part.
+      const startedAt = new Date(now()).toISOString();
+      let page = pages.get(lease.id);
+      if (!page) {
+        page = (async () => {
+          const { apiKey, apiUrl } = connection(options, context.env, () => {});
+          const read = await client(apiKey, apiUrl)(
+            'GET',
+            `/device/sessions/${encodeURIComponent(lease.id)}`,
+            undefined,
+            context.signal,
+          );
+          if (read.status >= 300 || !read.json?.session)
+            throw failure(`reading device session ${lease.id}`, read);
+          const { monitor_url: monitorUrl } = read.json.session as SessionBlock;
+          if (!monitorUrl)
+            throw new Error(
+              `DeviceCloud: session ${lease.id} has no console page to link a test's video to`,
+            );
+          return monitorUrl;
+        })();
+        pages.set(lease.id, page);
+        // A failed read is tried again by the next attempt, not remembered.
+        page.catch(() => pages.delete(lease.id));
+      }
+
+      const monitorUrl = await page;
+      return {
+        startedAt,
+        // No request here: stopping can't fail once the test is over.
+        async stop() {
+          const url = new URL(monitorUrl);
+          url.searchParams.set('from', startedAt);
+          url.searchParams.set('to', new Date(now()).toISOString());
+          return { mediaType: 'text/html', url: url.href };
+        },
+      };
+    },
 
     async release(lease, context) {
       const { apiKey, apiUrl } = connection(options, context.env, context.log);
