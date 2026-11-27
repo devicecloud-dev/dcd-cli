@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import StreamZip from 'node-stream-zip';
 
-import { clearCompatibilityCache } from '../../src/utils/compatibility.js';
+import { resetCliConfigCache } from '../../src/config/cli-config.js';
 import { bundleFiles, flowFileBundle, uploadFlowBundle } from '../../src/utils/device-bundle.js';
 
 const API = 'https://api.devicecloud.dev';
@@ -22,7 +22,6 @@ describe('dcd device run <dir>: flow bundles', () => {
   const ORIGINAL_ENV = { ...process.env };
   let dir: string;
   let calls: Call[];
-  let encryptionDefault: boolean;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dcd-bundle-test-'));
@@ -35,8 +34,7 @@ describe('dcd device run <dir>: flow bundles', () => {
     fs.writeFileSync(path.join(dir, 'node_modules', 'x.js'), '');
     delete process.env.DCD_ENCRYPT;
     delete process.env.DCD_ENCRYPT_BINARIES;
-    encryptionDefault = false;
-    clearCompatibilityCache();
+    resetCliConfigCache();
     calls = [];
     globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
       const url = String(input);
@@ -46,10 +44,10 @@ describe('dcd device run <dir>: flow bundles', () => {
         body: init?.body as Uint8Array | string | undefined,
       };
       calls.push(call);
-      if (url.includes('/results/compatibility')) {
-        return new Response(
-          JSON.stringify({ statusCode: 200, data: { encryption: { defaultOn: encryptionDefault } } }),
-        );
+      // The API publishes no KEK, so bundles go up in plaintext unless a
+      // test sets DCD_BINARY_KEK_PUBLIC.
+      if (url.endsWith('/cli-config')) {
+        return new Response(JSON.stringify({ supabase_publishable_key: 'sb_publishable_test' }));
       }
 
       if (url.endsWith('/device/bundles/upload-url')) {
@@ -76,7 +74,7 @@ describe('dcd device run <dir>: flow bundles', () => {
   });
 
   afterEach(() => {
-    clearCompatibilityCache();
+    resetCliConfigCache();
     globalThis.fetch = realFetch;
     process.env = { ...ORIGINAL_ENV };
     fs.rmSync(dir, { force: true, recursive: true });
@@ -195,7 +193,7 @@ describe('dcd device run <dir>: flow bundles', () => {
     });
   });
 
-  it('uploads the zip to both copies and registers what landed', async () => {
+  it('uploads the zip to both copies and registers what landed (no KEK, so plaintext)', async () => {
     const bundle = await uploadFlowBundle({ apiUrl: API, auth, dir, log: () => {} });
     expect(bundle.id).to.equal('b-1');
     expect(bundle.files).to.equal(2);
@@ -223,11 +221,11 @@ describe('dcd device run <dir>: flow bundles', () => {
     await zip.close();
   });
 
-  it("encrypts the zip when the org's default says so", async () => {
+  it('encrypts the zip whenever there is a KEK, even with DCD_ENCRYPT=0', async () => {
     const { publicKey } = generateKeyPairSync('x25519');
     const raw = publicKey.export({ type: 'spki', format: 'der' }).subarray(12);
     process.env.DCD_BINARY_KEK_PUBLIC = `1:${raw.toString('base64')}`;
-    encryptionDefault = true;
+    process.env.DCD_ENCRYPT = '0';
 
     const bundle = await uploadFlowBundle({ apiUrl: API, auth, dir, log: () => {} });
     expect(bundle.encrypted).to.equal(true);
