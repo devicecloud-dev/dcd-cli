@@ -168,6 +168,30 @@ Run `npx e2e run` with `DEVICE_CLOUD_API_KEY` set. The provider uploads `appPath
 With e2e's `video` option on (any setting but `'off'`), each test's video in e2e's report is a console link to that test's part of the session's recording. The session is recorded as one video, so the link plays the part from the test's start to its end; it works once the session has ended and its video has uploaded, for as long as the session's files are kept.
 
 
+## Telemetry
+
+The CLI sends a small amount of usage and error data to the DeviceCloud API. We use it only for debugging and development: to find and fix bugs, and to see which commands and options are used. It is not used for marketing, and it is not sold.
+
+**What is sent**, for each command run:
+
+- the command name and its arguments, with secrets removed (API keys, `--env` values, text typed into a device, and the query part of any URL, which is where signed links keep their credential)
+- whether it succeeded, how long it took, and the error message if it failed (URLs redacted the same way)
+- the CLI version, how it was installed, the Node.js version, the OS and CPU architecture
+- how you signed in (API key or `dcd login`), your organization ID, and a random ID for this run
+- whether the app, flows and env vars were encrypted
+
+Nothing is sent until a command has signed in, so `--help`, `--version` and `dcd login` itself send nothing. Telemetry goes to the same API the command uses (`--api-url`, or the default). A failure to send it never affects the command.
+
+**Turning it off.** Set either of these in your environment:
+
+```sh-session
+$ export DO_NOT_TRACK=1             # the cross-tool convention, see consoledonottrack.com
+$ export DCD_TELEMETRY_DISABLED=1
+```
+
+`0`, `false` or an empty value leaves telemetry on. For the MCP server, add the variable to the `env` block of your MCP client's config.
+
+
 ## Development
 
 Requires Node 22.8+ and [pnpm](https://pnpm.io). `pnpm install` builds the CLI and installs the git hooks automatically.

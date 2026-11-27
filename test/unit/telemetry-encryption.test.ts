@@ -4,6 +4,7 @@ import { jsonResult, runTool } from '../../src/mcp/helpers.js';
 import {
   type EncryptionTelemetry,
   telemetry,
+  telemetryDisabled,
 } from '../../src/services/telemetry.service.js';
 
 /**
@@ -22,7 +23,7 @@ describe('encryption telemetry (#1138)', () => {
 
   beforeEach(function () {
     // The singleton reads this once, at import.
-    if (process.env.DCD_TELEMETRY_DISABLED) this.skip();
+    if (telemetryDisabled()) this.skip();
 
     events = [];
     globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
