@@ -3,7 +3,6 @@ import { rm } from 'node:fs/promises';
 import { uploadBinary, verifyAppZip } from '../methods.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { CliError } from './cli.js';
-import { fetchCompatibilityData } from './compatibility.js';
 import { checkKekForEncryption, resolveEncryption } from './envelope.js';
 import { extractTarGz, findAppBundle } from './expo.js';
 
@@ -47,8 +46,8 @@ export interface UploadLocalAppOptions {
 
 /**
  * Upload a local build the way `dcd upload` does, and return its binary id:
- * an Expo `.tar.gz` is unpacked to its `.app`, a `.zip` is checked, and the
- * org's encryption default applies. URLs are not handled here: `dcd device`
+ * an Expo `.tar.gz` is unpacked to its `.app`, a `.zip` is checked, and it
+ * is encrypted before upload. URLs are not handled here: `dcd device`
  * hands those to the API's install-from-URL instead.
  */
 export async function uploadLocalApp(opts: UploadLocalAppOptions): Promise<string> {
@@ -60,17 +59,7 @@ export async function uploadLocalApp(opts: UploadLocalAppOptions): Promise<strin
     );
   }
 
-  // As in `dcd upload`: a failed compatibility fetch leaves the default off
-  // rather than failing the upload.
-  let serverDefault: boolean | undefined;
-  try {
-    const compatibility = await fetchCompatibilityData(apiUrl, auth);
-    serverDefault = compatibility.encryption?.defaultOn;
-  } catch {
-    serverDefault = undefined;
-  }
-
-  const encryption = await checkKekForEncryption(resolveEncryption({ serverDefault }), apiUrl);
+  const encryption = await checkKekForEncryption(resolveEncryption(), apiUrl);
   if (encryption.notice) log(encryption.notice);
 
   const tempDirs: string[] = [];

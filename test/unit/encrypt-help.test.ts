@@ -9,8 +9,9 @@ import { cloudCommand } from '../../src/commands/cloud.js';
 import { uploadCommand } from '../../src/commands/upload.js';
 
 /**
- * Client-side encryption is on by default (dcd#1138), so --encrypt is listed
- * in --help, and --no-encrypt, the per-run opt-out, must parse.
+ * Uploads are always encrypted (dcd#1138). --encrypt stays as a no-op so old
+ * scripts still run, and --no-encrypt must still parse so it can be ignored
+ * with a warning rather than fail.
  */
 const commands: Array<[string, CommandDef<ArgsDef>]> = [
   ['cloud', cloudCommand as CommandDef<ArgsDef>],
@@ -24,10 +25,11 @@ async function argsOf(cmd: CommandDef<ArgsDef>): Promise<ArgsDef> {
 describe('--encrypt flag', () => {
   for (const [name, cmd] of commands) {
     describe(`dcd ${name}`, () => {
-      it('lists encrypt in the usage, with the opt-out', async () => {
+      it('lists encrypt in the usage, as no longer needed', async () => {
         const usage = await renderUsage(cmd);
         expect(usage).to.contain('--encrypt');
-        expect(usage).to.contain('--no-encrypt or DCD_ENCRYPT=0 turns it off');
+        expect(usage).to.contain('always encrypted');
+        expect(usage).to.not.contain('turns it off');
       });
 
       it('parses --encrypt and --no-encrypt', async () => {

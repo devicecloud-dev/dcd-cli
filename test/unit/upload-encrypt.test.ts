@@ -10,9 +10,9 @@ import { resetCliConfigCache } from '../../src/config/cli-config.js';
 import { clearCompatibilityCache } from '../../src/utils/compatibility.js';
 
 /**
- * `dcd upload` decides encryption in the same order as `dcd cloud`: the flag
- * (--encrypt / --no-encrypt), then DCD_ENCRYPT, then the server default from
- * the compatibility data (dcd#1138), then off.
+ * `dcd upload` always encrypts, like `dcd cloud` (dcd#1138). --no-encrypt and
+ * DCD_ENCRYPT=0 are ignored with a warning. The only way to get a plaintext
+ * upload is an API that publishes no KEK.
  *
  * Observed through the dedup lookup, which is the first upload request either
  * way: an encrypted upload deduplicates on the plaintext hash and says so
@@ -22,8 +22,6 @@ const API = 'http://localhost:9999';
 /** An API that publishes no KEK on /cli-config (see the fetch stub). */
 const UNKNOWN_API = 'https://api.example.com';
 const APK = path.join(process.cwd(), 'test/fixtures/wikipedia.apk');
-/** Printed when the server default, not a flag or env var, turned encryption on. */
-const DEFAULT_ON_NOTICE = 'Encrypting uploads; opt out with --no-encrypt';
 
 describe('dcd upload encryption', () => {
   const ORIGINAL_ENV = { ...process.env };
@@ -31,9 +29,6 @@ describe('dcd upload encryption', () => {
   const realExit = process.exit;
   const realFlushSync = telemetry.flushSync;
   let lookups: Array<Record<string, unknown>>;
-  /** The `encryption` field the mocked compatibility endpoint returns, if any. */
-  let compatEncryption: { defaultOn: boolean } | undefined;
-  let compatFails: boolean;
   let tempDir: string;
 
   beforeEach(() => {
@@ -44,16 +39,15 @@ describe('dcd upload encryption', () => {
     delete process.env.DCD_ENCRYPT_BINARIES;
     clearCompatibilityCache();
     resetCliConfigCache();
-    compatEncryption = undefined;
-    compatFails = false;
 
     // A throwaway KEK so encryption can run against an API that publishes none.
     const { publicKey } = generateKeyPairSync('x25519');
     const raw = publicKey.export({ format: 'der', type: 'spki' }).subarray(12);
     process.env.DCD_BINARY_KEK_PUBLIC = `1:${raw.toString('base64')}`;
 
-    // Serve the compatibility data, and answer the dedup lookup with a hit of
-    // the matching kind, so the command finishes without uploading anything.
+    // Answer the dedup lookup with a hit of the matching kind, so the command
+    // finishes without uploading anything. `dcd upload` no longer reads the
+    // compatibility data, so any request for it fails the test.
     lookups = [];
     globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
       const json = (body: unknown, status = 200) =>
@@ -69,17 +63,7 @@ describe('dcd upload encryption', () => {
       }
 
       if (String(input).includes('/results/compatibility/data')) {
-        if (compatFails) return json({ message: 'boom' }, 500);
-        return json({
-          data: {
-            android: {},
-            androidPlay: {},
-            ios: {},
-            maestro: { defaultVersion: '2.0.0', latestVersion: '2.0.0', supportedVersions: ['2.0.0'] },
-            ...(compatEncryption ? { encryption: compatEncryption } : {}),
-          },
-          statusCode: 200,
-        });
+        throw new Error('dcd upload should not fetch the compatibility data');
       }
 
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -134,65 +118,33 @@ describe('dcd upload encryption', () => {
     return (JSON.parse(out) as { appBinaryId: string }).appBinaryId;
   }
 
-  it('encrypts when DCD_ENCRYPT=1 is exported and --encrypt is not passed', async () => {
-    process.env.DCD_ENCRYPT = '1';
-
+  it('encrypts with nothing set', async () => {
     expect(await upload()).to.equal('encrypted-binary');
     expect(lookups[0]).to.include({ encrypted: true });
     expect(lookups[0]).to.have.property('shaPlain');
   });
 
-  it('still encrypts with --encrypt alone', async () => {
+  it('encrypts with --encrypt, which is now a no-op', async () => {
     expect(await upload({ encrypt: true })).to.equal('encrypted-binary');
   });
 
-  it('uploads in plaintext when neither is set and the API sends no default', async () => {
-    expect(await upload()).to.equal('plain-binary');
-    expect(lookups[0]).to.have.property('sha');
-    expect(lookups[0]).to.not.have.property('encrypted');
+  it('ignores --no-encrypt, with a warning, and still encrypts', async () => {
+    expect(await upload({ encrypt: false })).to.equal('encrypted-binary');
+    expect(await run({ encrypt: false })).to.contain(
+      'Ignoring --no-encrypt: uploads are always encrypted.',
+    );
   });
 
-  it('uploads in plaintext when the server default is off', async () => {
-    compatEncryption = { defaultOn: false };
-    expect(await upload()).to.equal('plain-binary');
-  });
+  for (const name of ['DCD_ENCRYPT', 'DCD_ENCRYPT_BINARIES']) {
+    it(`ignores ${name}=0, with a warning, and still encrypts`, async () => {
+      process.env[name] = '0';
+      expect(await upload()).to.equal('encrypted-binary');
+      expect(await run({})).to.contain(`Ignoring ${name}: uploads are always encrypted.`);
+    });
+  }
 
-  it('encrypts when the server default is on', async () => {
-    compatEncryption = { defaultOn: true };
-    expect(await upload()).to.equal('encrypted-binary');
-  });
-
-  it('lets --no-encrypt beat the server default', async () => {
-    compatEncryption = { defaultOn: true };
-    expect(await upload({ encrypt: false })).to.equal('plain-binary');
-  });
-
-  it('lets --no-encrypt beat DCD_ENCRYPT=1', async () => {
-    process.env.DCD_ENCRYPT = '1';
-    expect(await upload({ encrypt: false })).to.equal('plain-binary');
-  });
-
-  it('lets DCD_ENCRYPT=0 beat the server default', async () => {
-    process.env.DCD_ENCRYPT = '0';
-    compatEncryption = { defaultOn: true };
-    expect(await upload()).to.equal('plain-binary');
-  });
-
-  it('treats a failed compatibility fetch as the default being off', async () => {
-    compatFails = true;
-    expect(await upload()).to.equal('plain-binary');
-  });
-
-  it('says it is encrypting, and how to opt out, when the server default encrypts', async () => {
-    compatEncryption = { defaultOn: true };
-    expect(await run({})).to.contain(DEFAULT_ON_NOTICE);
-  });
-
-  it('prints no notice when the flag or env var turned encryption on', async () => {
-    compatEncryption = { defaultOn: true };
-    expect(await run({ encrypt: true })).to.not.contain(DEFAULT_ON_NOTICE);
-    process.env.DCD_ENCRYPT = '1';
-    expect(await run({})).to.not.contain(DEFAULT_ON_NOTICE);
+  it('prints no notice in the normal case', async () => {
+    expect(await run({})).to.not.contain('Ignoring');
   });
 
   describe('against an API that publishes no KEK', () => {
@@ -200,46 +152,23 @@ describe('dcd upload encryption', () => {
       delete process.env.DCD_BINARY_KEK_PUBLIC;
     });
 
-    it('skips the server default, with a notice, and uploads in plaintext', async () => {
-      compatEncryption = { defaultOn: true };
+    it('uploads in plaintext, with a notice', async () => {
       expect(await upload({ 'api-url': UNKNOWN_API })).to.equal('plain-binary');
+      expect(lookups[0]).to.have.property('sha');
+      expect(lookups[0]).to.not.have.property('encrypted');
       const out = await run({ 'api-url': UNKNOWN_API });
       expect(out).to.contain(`Not encrypting uploads: ${UNKNOWN_API}`);
-      expect(out).to.not.contain(DEFAULT_ON_NOTICE);
     });
 
-    it('skips DCD_ENCRYPT=1 the same way', async () => {
-      process.env.DCD_ENCRYPT = '1';
-      expect(await upload({ 'api-url': UNKNOWN_API })).to.equal('plain-binary');
+    it('treats --encrypt the same way, since it is a no-op', async () => {
+      expect(await upload({ 'api-url': UNKNOWN_API, encrypt: true })).to.equal('plain-binary');
     });
 
-    it('refuses --encrypt before uploading anything', async () => {
-      let stderr = '';
-      const original = process.stderr.write.bind(process.stderr);
-      process.stderr.write = ((chunk: string) => {
-        stderr += chunk;
-        return true;
-      }) as typeof process.stderr.write;
-      try {
-        await run({ 'api-url': UNKNOWN_API, encrypt: true });
-        expect.fail('dcd upload --encrypt should have failed');
-      } catch (error) {
-        expect((error as Error).message).to.equal('process.exit(1)');
-      } finally {
-        process.stderr.write = original;
-      }
-
-      expect(stderr).to.contain('--encrypt needs the KEK public key');
-      expect(lookups).to.have.lengthOf(0);
-    });
-
-    it('encrypts with --encrypt once DCD_BINARY_KEK_PUBLIC names a key', async () => {
+    it('encrypts once DCD_BINARY_KEK_PUBLIC names a key', async () => {
       const { publicKey } = generateKeyPairSync('x25519');
       const raw = publicKey.export({ format: 'der', type: 'spki' }).subarray(12);
       process.env.DCD_BINARY_KEK_PUBLIC = `1:${raw.toString('base64')}`;
-      expect(await upload({ 'api-url': UNKNOWN_API, encrypt: true })).to.equal(
-        'encrypted-binary',
-      );
+      expect(await upload({ 'api-url': UNKNOWN_API })).to.equal('encrypted-binary');
     });
   });
 });
