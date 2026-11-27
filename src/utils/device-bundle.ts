@@ -15,7 +15,6 @@ import {
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type { DeviceFlowBundle } from '../types/domain/device-session.types.js';
 import { CliError } from './cli.js';
-import { fetchCompatibilityData } from './compatibility.js';
 import {
   checkKekForEncryption,
   encryptFlowBuffer,
@@ -244,8 +243,7 @@ export interface UploadFlowBundleOptions {
  * Zip the files a directory's flows need (bundleFiles) and upload them as a
  * flow bundle: ask the API for
  * upload URLs, PUT the zip to both copies, then register it with its
- * SHA-256. Encrypted like `dcd cloud`'s flow zips when the org's default
- * (or DCD_ENCRYPT) says so. Entries are relative to `dir`, so a run's
+ * SHA-256. Encrypted like `dcd cloud`'s flow zips. Entries are relative to `dir`, so a run's
  * `flow` is a path inside it, e.g. `login.yaml`.
  */
 export async function uploadFlowBundle(
@@ -259,15 +257,7 @@ export async function uploadFlowBundle(
 
   const zip = await compressFilesFromRelativePath(dir, files, '');
 
-  let serverDefault: boolean | undefined;
-  try {
-    const compatibility = await fetchCompatibilityData(apiUrl, auth);
-    serverDefault = compatibility.encryption?.defaultOn;
-  } catch {
-    serverDefault = undefined;
-  }
-
-  const encryption = await checkKekForEncryption(resolveEncryption({ serverDefault }), apiUrl);
+  const encryption = await checkKekForEncryption(resolveEncryption(), apiUrl);
   if (encryption.notice) log(encryption.notice);
   const kek = encryption.enabled ? await resolveKekPublicKey(apiUrl) : null;
   const sealed = kek ? encryptFlowBuffer(zip, kek) : null;

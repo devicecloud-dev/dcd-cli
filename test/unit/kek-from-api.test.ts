@@ -128,11 +128,9 @@ describe('KEK public key from /cli-config', () => {
 
     it('passes a decision through when the API publishes a key', async () => {
       stubFetch(() => json({ binary_kek_public_key: { version: 1, key: rawPublicKey() } }));
-      for (const source of ['flag', 'env', 'server'] as const) {
-        expect(
-          await checkKekForEncryption({ enabled: true, source }, 'https://api.dev.devicecloud.dev'),
-        ).to.deep.equal({ enabled: true, source });
-      }
+      expect(
+        await checkKekForEncryption({ enabled: true, source: 'always' }, 'https://api.dev.devicecloud.dev'),
+      ).to.deep.equal({ enabled: true, source: 'always' });
     });
 
     it('passes a decision to stay off through without asking the API', async () => {
@@ -144,50 +142,36 @@ describe('KEK public key from /cli-config', () => {
       expect(requested).to.deep.equal([]);
     });
 
-    for (const source of ['env', 'server'] as const) {
-      it(`skips ${source} encryption when the API publishes no key, with a notice`, async () => {
-        stubFetch(() => json({ supabase_publishable_key: 'sb_publishable_x' }));
-        const decision = await checkKekForEncryption({ enabled: true, source }, NO_KEK);
-        expect(decision).to.include({ enabled: false, source });
-        expect(decision.notice).to.contain(NO_KEK);
-        expect(decision.notice).to.contain('DCD_BINARY_KEK_PUBLIC');
-        expect(decision.notice).to.not.contain('\n');
-      });
-    }
-
-    it('refuses an explicit --encrypt when the API publishes no key', async () => {
+    it('skips encryption when the API publishes no key, with a notice', async () => {
       stubFetch(() => json({ supabase_publishable_key: 'sb_publishable_x' }));
-      let message = '';
-      try {
-        await checkKekForEncryption({ enabled: true, source: 'flag' }, NO_KEK);
-      } catch (error) {
-        message = (error as Error).message;
-      }
-      expect(message).to.match(/--encrypt needs the KEK public key.*DCD_BINARY_KEK_PUBLIC/);
+      const decision = await checkKekForEncryption(
+        { enabled: true, notice: 'Ignoring DCD_ENCRYPT: uploads are always encrypted.', source: 'always' },
+        NO_KEK,
+      );
+      expect(decision).to.include({ enabled: false, source: 'no_kek' });
+      expect(decision.notice).to.contain(NO_KEK);
+      expect(decision.notice).to.contain('DCD_BINARY_KEK_PUBLIC');
+      expect(decision.notice).to.not.contain('\n');
     });
 
     it('fails closed rather than uploading plaintext when the API cannot be asked', async () => {
       stubFetch(() => json({}, 503));
-      for (const source of ['flag', 'env', 'server'] as const) {
-        let failed = false;
-        try {
-          await checkKekForEncryption({ enabled: true, source }, NO_KEK);
-        } catch {
-          failed = true;
-        }
-        expect(failed, source).to.equal(true);
+      let failed = false;
+      try {
+        await checkKekForEncryption({ enabled: true, source: 'always' }, NO_KEK);
+      } catch {
+        failed = true;
       }
+      expect(failed).to.equal(true);
     });
 
-    it('lets DCD_BINARY_KEK_PUBLIC unlock any API, whatever the source', async () => {
+    it('lets DCD_BINARY_KEK_PUBLIC unlock any API', async () => {
       process.env.DCD_BINARY_KEK_PUBLIC = `7:${rawPublicKey()}`;
       stubFetch(() => json({}, 500));
-      for (const source of ['flag', 'env', 'server'] as const) {
-        expect(await checkKekForEncryption({ enabled: true, source }, NO_KEK)).to.deep.equal({
-          enabled: true,
-          source,
-        });
-      }
+      expect(await checkKekForEncryption({ enabled: true, source: 'always' }, NO_KEK)).to.deep.equal({
+        enabled: true,
+        source: 'always',
+      });
       expect(requested).to.deep.equal([]);
     });
   });

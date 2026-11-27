@@ -197,9 +197,8 @@ export const cloudCommand = defineCommand({
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
       // Client-side envelope encryption of every sensitive artifact: the
-      // binary (#1138), the flow zip (#1151), and env vars (#1152). Kept as
-      // given (--no-encrypt is an explicit false) and resolved once the
-      // compatibility data, which carries the server default, is in.
+      // binary (#1138), the flow zip (#1151), and env vars (#1152). Always
+      // on; read only so --no-encrypt can be reported as ignored.
       const encryptFlag = args.encrypt as boolean | undefined;
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
@@ -390,10 +389,7 @@ export const cloudCommand = defineCommand({
       }
 
       const encryption = await checkKekForEncryption(
-        resolveEncryption({
-          flag: encryptFlag,
-          serverDefault: compatibilityData.encryption?.defaultOn,
-        }),
+        resolveEncryption({ flag: encryptFlag }),
         apiUrl,
       );
       const encrypt = encryption.enabled;
@@ -809,10 +805,6 @@ export const cloudCommand = defineCommand({
         }
 
         return;
-      }
-
-      if (encrypt && encryption.source === 'server') {
-        out(ui.note('Encrypting uploads; opt out with --no-encrypt'));
       }
 
       if (!finalBinaryId) {
