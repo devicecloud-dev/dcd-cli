@@ -10,7 +10,8 @@
  * - `flushSync()` — sync via `curl`, used inside `logger.error` right before
  *   `process.exit` (no other way to send HTTP after exit is called)
  *
- * Opt out: `DCD_TELEMETRY_DISABLED=1` in the environment.
+ * Opt out: `DCD_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` in the environment
+ * (see telemetryDisabled).
  */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -82,6 +83,21 @@ interface TelemetryConfig {
 
 const DEFAULT_API_URL = 'https://api.devicecloud.dev';
 
+/** Set to something other than empty, `0` or `false` (in any case). */
+function isOn(value: string | undefined): boolean {
+  const v = value?.trim().toLowerCase();
+  return v !== undefined && v !== '' && v !== '0' && v !== 'false';
+}
+
+/**
+ * Whether the user has turned telemetry off: `DCD_TELEMETRY_DISABLED`, or
+ * `DO_NOT_TRACK`, the cross-tool convention (https://consoledonottrack.com).
+ * `0` or `false` leaves telemetry on, so `DO_NOT_TRACK=0` means what it says.
+ */
+export function telemetryDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isOn(env.DCD_TELEMETRY_DISABLED) || isOn(env.DO_NOT_TRACK);
+}
+
 class Telemetry {
   private buffer: TelemetryEvent[] = [];
   private config: TelemetryConfig | null = null;
@@ -90,7 +106,7 @@ class Telemetry {
   private submitAttempts: number | undefined;
   private sessionId: string = randomUUID();
   private startedAt: number = Date.now();
-  private readonly disabled: boolean = !!process.env.DCD_TELEMETRY_DISABLED;
+  private readonly disabled: boolean = telemetryDisabled();
   private readonly release: string = getCliVersion();
 
   /**
@@ -348,7 +364,6 @@ class Telemetry {
       nodeVersion: process.versions.node,
       platform: process.platform,
       arch: process.arch,
-      userEmail: this.config.auth.userEmail,
       orgId: this.config.auth.orgId,
     };
   }

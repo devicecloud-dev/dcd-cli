@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { telemetry } from '../../src/services/telemetry.service.js';
+import { telemetry, telemetryDisabled } from '../../src/services/telemetry.service.js';
 
 /**
  * Events go to the API the command itself talks to. A login's stored API used
@@ -14,7 +14,7 @@ describe('telemetry API URL', () => {
 
   beforeEach(function () {
     // The singleton reads this once, at import.
-    if (process.env.DCD_TELEMETRY_DISABLED) this.skip();
+    if (telemetryDisabled()) this.skip();
 
     urls = [];
     globalThis.fetch = (async (input: unknown) => {
