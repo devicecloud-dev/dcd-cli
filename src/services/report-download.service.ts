@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { ApiGateway } from '../gateways/api-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import { refreshAuth } from '../utils/auth.js';
+import { resolveArtifactsPath } from '../utils/paths.js';
 import { deviceFromResultRow } from './results-polling.service.js';
 
 export interface DownloadOptions {
@@ -137,12 +138,13 @@ export class ReportDownloadService {
       auth,
       uploadId,
       downloadType,
-      artifactsPath = './artifacts.zip',
       debug = false,
       flow,
       logger,
       warnLogger,
     } = options;
+    // A folder gets artifacts.zip inside it; the message and result name the file.
+    const artifactsPath = resolveArtifactsPath(options.artifactsPath ?? './artifacts.zip');
 
     try {
       if (debug && logger) {

@@ -1,4 +1,3 @@
-/* eslint-disable complexity */
 import { defineCommand } from 'citty';
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
@@ -80,7 +79,6 @@ process.on('warning', (warning) => {
   ) {
     return;
   }
-  // eslint-disable-next-line no-console
   console.warn(warning.stack ?? `${warning.name}: ${warning.message}`);
 });
 
@@ -122,7 +120,6 @@ export const cloudCommand = defineCommand({
       description: 'The flow file to run against the app, e.g. test.yaml',
     },
   },
-  // eslint-disable-next-line complexity
   async run({ args, rawArgs }) {
     const cliVersion = getCliVersion();
     const deviceValidationService = new DeviceValidationService();
@@ -200,9 +197,8 @@ export const cloudCommand = defineCommand({
       const googlePlay = Boolean(args['google-play']);
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
       // Client-side envelope encryption of every sensitive artifact: the
-      // binary (#1138), the flow zip (#1151), and env vars (#1152). Kept as
-      // given (--no-encrypt is an explicit false) and resolved once the
-      // compatibility data, which carries the server default, is in.
+      // binary (#1138), the flow zip (#1151), and env vars (#1152). Always
+      // on; read only so --no-encrypt can be reported as ignored.
       const encryptFlag = args.encrypt as boolean | undefined;
       const includeTags = coerceArray(
         collectRepeatedFlag(rawArgs, ['--include-tags']),
@@ -393,10 +389,7 @@ export const cloudCommand = defineCommand({
       }
 
       const encryption = await checkKekForEncryption(
-        resolveEncryption({
-          flag: encryptFlag,
-          serverDefault: compatibilityData.encryption?.defaultOn,
-        }),
+        resolveEncryption({ flag: encryptFlag }),
         apiUrl,
       );
       const encrypt = encryption.enabled;
@@ -534,7 +527,7 @@ export const cloudCommand = defineCommand({
       }));
 
       // Validated after the notices, so a notice aimed at a removed device or
-      // OS version (e.g. removed-ios-17-2026-11-02) is shown before the
+      // OS version (e.g. removed-ios-17-2026-11-24) is shown before the
       // rejection it explains.
       deviceValidationService.validateiOSDevice(iOSVersion, iOSDevice, compatibilityData, {
         debug,
@@ -814,10 +807,6 @@ export const cloudCommand = defineCommand({
         return;
       }
 
-      if (encrypt && encryption.source === 'server') {
-        out(ui.note('Encrypting uploads; opt out with --no-encrypt'));
-      }
-
       if (!finalBinaryId) {
         if (!finalAppFile) {
           throw new CliError(
@@ -1015,7 +1004,7 @@ export const cloudCommand = defineCommand({
       if (!results?.length) {
         throw new CliError('No tests created: ' + message);
       }
-      out(`${ui.success('Submitted')} ${colors.dim(message)}`);
+      out(message ? `${ui.success('Submitted')} ${colors.dim(message)}` : ui.success('Submitted'));
 
       const testNames = results
         .map((r) => r.test_file_name)

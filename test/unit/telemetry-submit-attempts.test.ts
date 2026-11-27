@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 
-import { telemetry } from '../../src/services/telemetry.service.js';
+import { telemetry, telemetryDisabled } from '../../src/services/telemetry.service.js';
 
 /**
  * How many attempts the flow submit took (dcd#1617 follow-up) rides on the
@@ -19,7 +19,7 @@ describe('submit attempts telemetry', () => {
 
   beforeEach(function () {
     // The singleton reads this once, at import.
-    if (process.env.DCD_TELEMETRY_DISABLED) this.skip();
+    if (telemetryDisabled()) this.skip();
 
     events = [];
     globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {

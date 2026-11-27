@@ -11,7 +11,7 @@ import { stripVTControlCharacters } from 'node:util';
 
 import { telemetry } from '../services/telemetry.service.js';
 
-import { symbols } from './styling.js';
+import { forStderr, symbols } from './styling.js';
 
 // Resolve version at runtime. The bun-compiled binary can't read package.json
 // off disk (it isn't bundled next to the embedded module), so the build stamps
@@ -70,16 +70,13 @@ export interface Logger {
 
 export const logger: Logger = {
   log(message: string): void {
-    // eslint-disable-next-line no-console
     console.log(message);
   },
   warn(message: string): void {
-    // eslint-disable-next-line no-console
-    console.warn(symbols.warning + ' ' + message);
+    console.warn(forStderr(symbols.warning + ' ' + message));
   },
   json(value: unknown): void {
     // The one stdout write under --json; everything else is gated off.
-    // eslint-disable-next-line no-console
     console.log(JSON.stringify(value, null, 2));
   },
   error(
@@ -95,8 +92,7 @@ export const logger: Logger = {
     } else {
       // The literal "Error:" prefix is important for tests and for grep-friendly
       // CI logs — it survives color stripping and matches /error/i assertions.
-      // eslint-disable-next-line no-console
-      console.error(symbols.error + ' Error: ' + text);
+      console.error(forStderr(symbols.error + ' Error: ' + text));
     }
     return logger.fail(message, opts.exit ?? 1);
   },

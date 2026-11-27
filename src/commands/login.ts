@@ -46,7 +46,7 @@ import { canPrompt } from '../utils/ci.js';
 import { CliError, logger } from '../utils/cli.js';
 import { readConfig, writeConfig } from '../utils/config-store.js';
 import { fetchOrgs, selectOrg } from '../utils/orgs.js';
-import { colors } from '../utils/styling.js';
+import { colors, forStderr } from '../utils/styling.js';
 import { ui } from '../utils/ui.js';
 
 interface ClaimedSession {
@@ -105,7 +105,7 @@ export const loginCommand = defineCommand({
     // Login is interactive, so under --json the human rows and prompts move to
     // stderr (the user still needs the URL) and stdout gets only the result.
     const say = (m: string) => {
-      if (json) process.stderr.write(`${m}\n`);
+      if (json) process.stderr.write(`${forStderr(m)}\n`);
       else logger.log(m);
     };
     const promptOutput = json ? process.stderr : undefined;

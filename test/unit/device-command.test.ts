@@ -956,6 +956,8 @@ describe('dcd device', () => {
           return { body: { id: 'b-1', upload: { path: 'p', signedUrl: 'https://sb/put' }, mirror: null } };
         }
 
+        // No KEK published, so the bundle goes up in plaintext.
+        if (call.url.endsWith('/cli-config')) return { body: { supabase_publishable_key: 'sb_publishable_test' } };
         if (call.url === 'https://sb/put') return { body: {} };
         if (call.url.endsWith('/device/bundles')) {
           return { body: { bundle: { id: 'b-1', sha: 's', bytes: 1, encrypted: false, created_at: 'now' } } };
@@ -1475,6 +1477,8 @@ describe('dcd device', () => {
           return { body: { id: 'b-1', upload: { path: 'p', signedUrl: 'https://sb/put' }, mirror: null } };
         }
 
+        // No KEK published, so the bundle goes up in plaintext.
+        if (call.url.endsWith('/cli-config')) return { body: { supabase_publishable_key: 'sb_publishable_test' } };
         if (call.url === 'https://sb/put') return { body: {} };
         if (call.url.endsWith('/device/bundles')) {
           return { body: { bundle: { id: 'b-1', sha: 's', bytes: 1, encrypted: false, created_at: 'now' } } };

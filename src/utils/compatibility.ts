@@ -13,11 +13,6 @@ export interface CompatibilityData {
   };
   /** Active CLI notices, piggybacked onto the compatibility response by the API. */
   notices?: Notice[];
-  /**
-   * The client-side encryption default (dcd#1138): on for every org unless the
-   * API's kill switch is set. An older API omits it, which means off.
-   */
-  encryption?: { defaultOn: boolean };
 }
 
 let cachedCompatibilityData: CompatibilityData | null = null;

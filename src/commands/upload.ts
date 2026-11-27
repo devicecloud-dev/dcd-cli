@@ -8,7 +8,6 @@ import { uploadBinary, verifyAppZip } from '../methods.js';
 import { telemetry } from '../services/telemetry.service.js';
 import { resolveAuth } from '../utils/auth.js';
 import { CliError, logger } from '../utils/cli.js';
-import { fetchCompatibilityData } from '../utils/compatibility.js';
 import { resolveApiUrl } from '../utils/config-store.js';
 import { checkKekForEncryption, resolveEncryption } from '../utils/envelope.js';
 import { downloadExpoUrl, extractTarGz, findAppBundle, isUrl } from '../utils/expo.js';
@@ -46,31 +45,16 @@ export const uploadCommand = defineCommand({
       const apiUrl = resolveApiUrl(args['api-url'] as string | undefined);
       const appUrl = args['app-url'] as string | undefined;
       const ignoreShaCheck = Boolean(args['ignore-sha-check']);
-      // Kept as given, so --no-encrypt is an explicit false and a missing flag
-      // leaves DCD_ENCRYPT and then the server default to decide.
+      // Uploads are always encrypted. Read only so --no-encrypt can be
+      // reported as ignored.
       const encryptFlag = args.encrypt as boolean | undefined;
       const debug = Boolean(args.debug);
       const positional = args.appFile as string | undefined;
 
       const auth = await resolveAuth({ apiKeyFlag });
 
-      // Same order as `dcd cloud`, whose compatibility fetch carries the org's
-      // encryption default. `dcd upload` never needed that data before, so a
-      // failed fetch leaves the default off rather than failing the upload.
-      let serverDefault: boolean | undefined;
-      try {
-        const compatibilityData = await fetchCompatibilityData(apiUrl, auth);
-        serverDefault = compatibilityData.encryption?.defaultOn;
-      } catch (error) {
-        if (debug) {
-          out(
-            `[DEBUG] Failed to fetch compatibility data, so the org's encryption default is off: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
-
       const encryption = await checkKekForEncryption(
-        resolveEncryption({ flag: encryptFlag, serverDefault }),
+        resolveEncryption({ flag: encryptFlag }),
         apiUrl,
       );
       if (encryption.notice) out(ui.note(encryption.notice));
@@ -112,12 +96,7 @@ export const uploadCommand = defineCommand({
 
       out(ui.section('Uploading app binary'));
       out(
-        ui.branch([
-          ...ui.fields([['file', colors.highlight(resolvedFile)]]),
-          ...(encryption.enabled && encryption.source === 'server'
-            ? [ui.note('Encrypting uploads; opt out with --no-encrypt')]
-            : []),
-        ]),
+        ui.branch(ui.fields([['file', colors.highlight(resolvedFile)]])),
       );
 
       const appBinaryId = await uploadBinary({

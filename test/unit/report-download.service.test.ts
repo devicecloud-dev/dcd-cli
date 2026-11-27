@@ -48,7 +48,6 @@ before(async () => {
 
 /** `zip` cut off before its central directory, as a dropped stream leaves it. */
 const truncated = (zip: Buffer) => zip.subarray(0, Math.floor(zip.length / 2));
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const originalFetch = (global as any).fetch;
 
 /**
@@ -63,7 +62,6 @@ function mockFetch(status: number, responseBody?: Buffer | string) {
   const encoder = new TextEncoder();
   // Default: a complete ZIP, the body a successful artifacts download has.
   const body = responseBody ?? INLINE_ZIP;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (global as any).fetch = async (
     input: URL | string,
     init?: RequestInit,
@@ -91,7 +89,6 @@ function mockFetch(status: number, responseBody?: Buffer | string) {
 }
 
 function restoreFetch() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (global as any).fetch = originalFetch;
   captured = null;
 }
@@ -618,6 +615,155 @@ describe('ReportDownloadService', () => {
         calls.some((c) => c.method === 'POST' && c.url.endsWith('/download')),
       ).to.be.true;
       expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
+    });
+
+    // The inline route gives these answers too, so asking it again only cost
+    // a second request for the same error.
+    describe('a manifest answer the inline route would repeat', () => {
+      const cases = [
+        {
+          expected: 'Invalid request: resultId must be a positive whole number',
+          message: 'resultId must be a positive whole number',
+          status: 400,
+        },
+        {
+          expected: 'Access denied. This upload belongs to another team',
+          message: 'This upload belongs to another team',
+          status: 403,
+        },
+        {
+          expected: 'Resource not found. No results found for uploadId=run-42',
+          message: 'No results found for uploadId=run-42',
+          status: 404,
+        },
+      ];
+
+      for (const { expected, message, status } of cases) {
+        it(`shows an artifacts ${status} without asking the inline route`, async () => {
+          mockBundleFetch({
+            manifestBody: { message, statusCode: status },
+            manifestStatus: status,
+          });
+          const warnings: string[] = [];
+
+          const result = await service.downloadArtifacts({
+            ...BASE,
+            artifactsPath: path.join(tempDir, `final-${status}.zip`),
+            downloadType: 'ALL',
+            warnLogger: (msg) => warnings.push(msg),
+          });
+
+          expect(result.ok).to.be.false;
+          expect(warnings[0]).to.equal(`Failed to download artifacts: ${expected}`);
+          expect(calls).to.have.length(1);
+          expect(calls.some((c) => c.url.endsWith('/download'))).to.be.false;
+          expect(fallbacks).to.deep.equal([]);
+        });
+
+        it(`shows an html report ${status} without asking the inline route`, async () => {
+          mockBundleFetch({
+            manifestBody: { message, statusCode: status },
+            manifestStatus: status,
+          });
+          const warnings: string[] = [];
+
+          await service.downloadReports({
+            ...BASE,
+            htmlPath: path.join(tempDir, `final-report-${status}.zip`),
+            reportType: 'html',
+            warnLogger: (msg) => warnings.push(msg),
+          });
+
+          // The same text the inline route's answer gave.
+          expect(warnings[0]).to.equal(
+            status === 404
+              ? "Failed to download HTML report: Upload ID 'run-42' not found or no HTML report available for this upload"
+              : `Failed to download HTML report: Failed to download HTML report: ${status} ${JSON.stringify({ message, statusCode: status })}`,
+          );
+          expect(calls).to.have.length(1);
+          expect(calls.some((c) => c.url.endsWith('/html-report'))).to.be.false;
+          expect(fallbacks).to.deep.equal([]);
+        });
+      }
+
+      for (const status of [413, 500]) {
+        it(`still falls back on a manifest ${status}`, async () => {
+          mockBundleFetch({
+            manifestBody: { message: 'no' },
+            manifestStatus: status,
+          });
+          const outPath = path.join(tempDir, `fallback-${status}.zip`);
+
+          const result = await service.downloadArtifacts({
+            ...BASE,
+            artifactsPath: outPath,
+            downloadType: 'ALL',
+          });
+
+          expect(result.ok).to.be.true;
+          expect(fallbacks[0]).to.include({
+            reason: 'manifest_http_error',
+            status,
+          });
+          expect(
+            calls.some((c) => c.method === 'POST' && c.url.endsWith('/download')),
+          ).to.be.true;
+          expect(fs.readFileSync(outPath).equals(INLINE_ZIP)).to.be.true;
+        });
+      }
+    });
+
+    // A folder as the artifacts path failed with EISDIR, which the
+    // CLI took for a broken stream, so it fell back to the inline download
+    // (the API building the whole ZIP) and then failed the same way.
+    describe('folder and local file paths', () => {
+      it('saves artifacts.zip inside an existing folder', async () => {
+        mockBundleFetch();
+        const dir = fs.mkdtempSync(path.join(tempDir, 'shard-'));
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: dir,
+          downloadType: 'ALL',
+        });
+
+        const file = path.join(dir, 'artifacts.zip');
+        expect(result).to.include({ ok: true, path: file });
+        expect(fs.readFileSync(file).equals(BUNDLE_ZIP)).to.be.true;
+        expect(fallbacks).to.deep.equal([]);
+      });
+
+      it('creates a folder given with a trailing separator', async () => {
+        mockBundleFetch();
+        const dir = path.join(tempDir, 'not-yet', 'here') + path.sep;
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: dir,
+          downloadType: 'ALL',
+        });
+
+        const file = path.join(dir, 'artifacts.zip');
+        expect(result).to.include({ ok: true, path: file });
+        expect(fs.readFileSync(file).equals(BUNDLE_ZIP)).to.be.true;
+      });
+
+      it('reports a destination it cannot write, without falling back', async () => {
+        mockBundleFetch();
+        // A file where a parent folder should be: mkdir fails (ENOTDIR/EEXIST).
+        const blocker = path.join(tempDir, 'blocker.txt');
+        fs.writeFileSync(blocker, 'x');
+
+        const result = await service.downloadArtifacts({
+          ...BASE,
+          artifactsPath: path.join(blocker, 'artifacts.zip'),
+          downloadType: 'ALL',
+        });
+
+        expect(result.ok).to.be.false;
+        expect(fallbacks).to.deep.equal([]);
+        expect(calls.some((c) => c.url.endsWith('/download'))).to.be.false;
+      });
     });
 
     describe('records why it fell back', () => {

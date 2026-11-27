@@ -430,6 +430,8 @@ describe('dcd mcp bridge', () => {
           return new Response(JSON.stringify({ id: 'b-1', upload: { path: 'p', signedUrl: 'https://sb.example/put' }, mirror: null }));
         }
 
+        // No KEK published, so the bundle goes up in plaintext.
+        if (url.endsWith('/cli-config')) return new Response(JSON.stringify({ supabase_publishable_key: 'sb_publishable_test' }));
         if (url === 'https://sb.example/put') return new Response(null, { status: 200 });
         if (url.endsWith('/device/bundles')) {
           return new Response(JSON.stringify({ bundle: { id: 'b-1', sha: 's', bytes: 1, encrypted: false, created_at: 'now' } }));

@@ -1,10 +1,10 @@
 import { createReadStream } from 'node:fs';
 
-import { createClient } from '@supabase/supabase-js';
 import * as tus from 'tus-js-client';
 
 import { ENVIRONMENTS, type DcdEnvName } from '../config/environments.js';
 import { getSupabaseKey, supabaseKeyHeaders } from '../config/supabase-key.js';
+import { tusHttpStackOptions } from './fetch-http-stack.js';
 
 /** Disk-backed upload descriptor — see UploadSource in src/methods.ts. */
 export interface ResumableUploadSource {
@@ -14,32 +14,137 @@ export interface ResumableUploadSource {
   size: number;
 }
 
+/**
+ * A signed upload for one storage path, from the API's upload-URL response.
+ * The token is sent as `x-signature` on every TUS request; it writes only
+ * `path` and never overwrites an existing object.
+ */
+export interface SignedUpload {
+  expiresInSeconds: number;
+  path: string;
+  token: string;
+}
+
+/** Refresh this long before the token says it expires. */
+const REFRESH_MARGIN_MS = 10 * 60 * 1000;
+/** Fresh tokens one upload may ask for before it gives up. */
+const MAX_TOKEN_REFRESHES = 5;
+const RETRY_DELAYS = [0, 3000, 5000, 10_000, 20_000];
+
+/**
+ * Whether a TUS error response says the upload token was refused, which a
+ * fresh token for the same path fixes. Storage answers with a 400 whose body
+ * is the verifier's message, and those name no single word. Seen or expected:
+ * - "Invalid signature" (wrong path, or a tampered token)
+ * - "Invalid Compact JWS" (a token that is not a JWT at all)
+ * - `"exp" claim timestamp check failed` (an expired token: the JWT library
+ *   checks expiry before Storage's own "The provided token has expired.")
+ */
+const SIGNATURE_ERROR = /jwt|jws|signature|expired|"exp" claim/i;
+
+export function isSignatureError(status: number, body: string): boolean {
+  return [400, 401, 403].includes(status) && SIGNATURE_ERROR.test(body);
+}
+
+/** tus's own rule: retry anything but a 4xx, except 409 and 423. */
+function defaultShouldRetry(status: number): boolean {
+  return !(status >= 400 && status < 500) || status === 409 || status === 423;
+}
+
 export class SupabaseGateway {
   /**
-   * Upload to Supabase using resumable uploads (TUS protocol)
-   * Uploads to staging location (uploads/{id}/) using the publishable key
-   * File is later moved to final location by API after finalization
-   * @param env - Environment (dev or prod)
-   * @param path - Staging storage path (uploads/{id}/file.ext)
-   * @param source - Upload source descriptor; the file is streamed from disk
-   * @param debug - Enable debug logging
-   * @param onProgress - Optional callback for upload progress (bytesUploaded, bytesTotal)
-   * @returns Promise that resolves when upload completes
+   * Upload straight to the final storage path with a signed token, through
+   * `/storage/v1/upload/resumable/sign`. No storage key of the client's own
+   * is needed: the token is the permission.
+   *
+   * The token lasts a couple of hours and storage checks it on every
+   * request, so a long or resumed upload can outlive it. Before each request
+   * the token is refreshed when it is close to expiry, and a request refused
+   * for its signature is retried with a fresh one. Either way it is the same
+   * path, so the same TUS upload carries on.
+   *
+   * @param refreshToken - Asks the API for a fresh token for `signed.path`
+   * @param options.storageUrl - Test seam; defaults to the environment's URL
    */
-  static async uploadResumable(
+  static async uploadResumableSigned(
     env: DcdEnvName,
-    path: string,
+    signed: SignedUpload,
     source: ResumableUploadSource,
+    refreshToken: (path: string) => Promise<SignedUpload>,
     debug = false,
-    onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
+    options: { retryDelays?: number[]; storageUrl?: string } = {},
   ): Promise<void> {
-    const { projectRef } = ENVIRONMENTS[env].supabase;
+    const storageUrl = options.storageUrl ?? ENVIRONMENTS[env].supabase.url;
     const supabaseKey = await getSupabaseKey(env);
-    const storageUrl = `https://${projectRef}.storage.supabase.co`;
+
+    let { token } = signed;
+    let expiresAt = Date.now() + signed.expiresInSeconds * 1000;
+    let stale = false;
+    let refreshes = 0;
+    let pending: Promise<void> | undefined;
+
+    const margin = Math.min(REFRESH_MARGIN_MS, (signed.expiresInSeconds * 1000) / 2);
+    const refresh = (): Promise<void> => {
+      pending ??= (async () => {
+        refreshes += 1;
+        if (debug) console.log(`[DEBUG] Refreshing the upload token for ${signed.path}`);
+        const fresh = await refreshToken(signed.path);
+        token = fresh.token;
+        expiresAt = Date.now() + fresh.expiresInSeconds * 1000;
+        stale = false;
+      })().finally(() => {
+        pending = undefined;
+      });
+      return pending;
+    };
+
+    await this.runTusUpload({
+      debug,
+      endpoint: `${storageUrl}/storage/v1/upload/resumable/sign`,
+      // The gateway in front of Storage routes on the key; the token is the
+      // permission, and the upload is checked against it, not the key.
+      headers: supabaseKeyHeaders(supabaseKey),
+      async onBeforeRequest(req) {
+        if (stale || Date.now() >= expiresAt - margin) {
+          await refresh();
+        }
+
+        req.setHeader('x-signature', token);
+      },
+      onShouldRetry(err) {
+        const status = err.originalResponse?.getStatus() ?? 0;
+        const body = err.originalResponse?.getBody() ?? '';
+        if (isSignatureError(status, body)) {
+          if (refreshes >= MAX_TOKEN_REFRESHES) return false;
+          stale = true;
+          return true;
+        }
+
+        return defaultShouldRetry(status);
+      },
+      path: signed.path,
+      retryDelays: options.retryDelays ?? RETRY_DELAYS,
+      source,
+    });
+  }
+
+  /** One TUS upload of `source` to `path` in the organizations bucket. */
+  private static runTusUpload(config: {
+    debug: boolean;
+    endpoint: string;
+    headers: Record<string, string>;
+    onBeforeRequest?: (req: tus.HttpRequest) => Promise<void> | void;
+    onProgress?: (bytesUploaded: number, bytesTotal: number) => void;
+    onShouldRetry?: (err: tus.DetailedError) => boolean;
+    path: string;
+    retryDelays: number[];
+    source: ResumableUploadSource;
+  }): Promise<void> {
+    const { debug, endpoint, headers, onBeforeRequest, onProgress, onShouldRetry, path, retryDelays, source } = config;
 
     if (debug) {
       console.log(`[DEBUG] Resumable upload starting...`);
-      console.log(`[DEBUG] Storage URL: ${storageUrl}`);
+      console.log(`[DEBUG] Endpoint: ${endpoint}`);
       console.log(`[DEBUG] Upload path: ${path}`);
       console.log(`[DEBUG] File name: ${source.name}`);
       console.log(`[DEBUG] File size: ${(source.size / 1024 / 1024).toFixed(2)} MB`);
@@ -52,18 +157,14 @@ export class SupabaseGateway {
       const upload = new tus.Upload(createReadStream(source.diskPath), {
         uploadSize: source.size,
 
-        // TUS endpoint for Supabase Storage
-        endpoint: `${storageUrl}/storage/v1/upload/resumable`,
+        // Bun's node:http can't send tus's create request; see FetchHttpStack.
+        ...tusHttpStackOptions(),
 
-        // Retry configuration - will retry 5 times with increasing delays
-        retryDelays: [0, 3000, 5000, 10_000, 20_000],
-
-        // Authentication and headers
-        // Publishable key for staging uploads to uploads/* folder
-        headers: {
-          ...supabaseKeyHeaders(supabaseKey),
-          'x-upsert': 'true', // Allow overwriting existing files
-        },
+        endpoint,
+        retryDelays,
+        headers,
+        ...(onBeforeRequest ? { onBeforeRequest } : {}),
+        ...(onShouldRetry ? { onShouldRetry } : {}),
 
         // Upload metadata
         metadata: {
@@ -131,137 +232,41 @@ export class SupabaseGateway {
     });
   }
 
-  static async uploadToSignedUrl(
+  /**
+   * Upload to Supabase using resumable uploads (TUS protocol)
+   * Uploads to staging location (uploads/{id}/) using the publishable key
+   * File is later moved to final location by API after finalization
+   * @param env - Environment (dev or prod)
+   * @param path - Staging storage path (uploads/{id}/file.ext)
+   * @param source - Upload source descriptor; the file is streamed from disk
+   * @param debug - Enable debug logging
+   * @param onProgress - Optional callback for upload progress (bytesUploaded, bytesTotal)
+   * @returns Promise that resolves when upload completes
+   */
+  static async uploadResumable(
     env: DcdEnvName,
     path: string,
-    token: string,
-    file: File,
+    source: ResumableUploadSource,
     debug = false,
-  ) {
-    const { url: SUPABASE_URL } = ENVIRONMENTS[env].supabase;
+    onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
+  ): Promise<void> {
+    // Prod's Supabase URL is our own custom domain, so customers' networks
+    // only need to reach devicecloud.dev, not supabase.co.
+    const storageUrl = ENVIRONMENTS[env].supabase.url;
+    const supabaseKey = await getSupabaseKey(env);
 
-    if (debug) {
-      console.log(`[DEBUG] Supabase upload starting...`);
-      console.log(`[DEBUG] Supabase URL: ${SUPABASE_URL}`);
-      console.log(`[DEBUG] Upload path: ${path}`);
-      console.log(`[DEBUG] File name: ${file.name}`);
-      console.log(`[DEBUG] File type: ${file.type}`);
-    }
-
-    try {
-      const supabase = createClient(SUPABASE_URL, await getSupabaseKey(env));
-      const uploadToUrl = await supabase.storage
-        .from('organizations')
-        .uploadToSignedUrl(path, token, file);
-
-      if (uploadToUrl.error) {
-        const error = uploadToUrl.error as
-          | { message?: string; statusCode?: number | string }
-          | string;
-        const errorMessage =
-          typeof error === 'string' ? error : error?.message || 'Upload failed';
-
-        if (debug) {
-          console.error(`[DEBUG] Supabase upload error:`, error);
-          if (typeof error === 'object' && 'statusCode' in error) {
-            console.error(`[DEBUG] HTTP Status Code: ${error.statusCode}`);
-          }
-        }
-
-        throw new Error(errorMessage);
-      }
-
-      if (debug) {
-        console.log(`[DEBUG] Supabase upload successful`);
-        console.log(
-          `[DEBUG] Upload result path: ${uploadToUrl.data?.path || 'N/A'}`,
-        );
-      }
-    } catch (error) {
-      if (debug) {
-        this.logUploadException(error, env, SUPABASE_URL, path, file);
-      }
-
-      // Re-throw with additional context
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      throw new Error(`Supabase upload error: ${errorMsg}`, { cause: error });
-    }
-  }
-
-  /**
-   * Logs network error details for debugging
-   * @param error - Error object to analyze for network-related issues
-   * @returns void
-   */
-  private static logNetworkError(error: Error): void {
-    const errorMsg = error.message.toLowerCase();
-    if (errorMsg.includes('econnrefused') || errorMsg.includes('connection refused')) {
-      console.error(
-        `[DEBUG] Network error: Connection refused - check internet connectivity`,
-      );
-    } else if (errorMsg.includes('etimedout') || errorMsg.includes('timeout')) {
-      console.error(
-        `[DEBUG] Network error: Connection timeout - check internet connectivity or try again`,
-      );
-    } else if (errorMsg.includes('enotfound') || errorMsg.includes('not found')) {
-      console.error(
-        `[DEBUG] Network error: DNS lookup failed - check internet connectivity`,
-      );
-    } else if (errorMsg.includes('econnreset') || errorMsg.includes('connection reset') || errorMsg.includes('connection lost')) {
-      console.error(
-        `[DEBUG] Network error: Connection reset/lost - network unstable or interrupted`,
-      );
-    } else if (errorMsg.includes('network')) {
-      console.error(
-        `[DEBUG] Network-related error detected - check internet connectivity`,
-      );
-    }
-  }
-
-  /**
-   * Logs upload exception details for debugging
-   * @param error - Exception that occurred during upload
-   * @param env - Environment (dev or prod)
-   * @param supabaseUrl - Supabase URL being used
-   * @param path - Upload path
-   * @param file - File being uploaded
-   * @returns void
-   */
-  private static logUploadException(
-    error: unknown,
-    env: string,
-    supabaseUrl: string,
-    path: string,
-    file: File,
-  ): void {
-    console.error(`[DEBUG] === SUPABASE UPLOAD EXCEPTION ===`);
-    console.error(`[DEBUG] Exception caught:`, error);
-    console.error(
-      `[DEBUG] Error type: ${
-        error instanceof Error ? error.name : typeof error
-      }`,
-    );
-    console.error(
-      `[DEBUG] Error message: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-
-    if (error instanceof Error && error.stack) {
-      console.error(`[DEBUG] Error stack:\n${error.stack}`);
-    }
-
-    // Log additional context
-    console.error(`[DEBUG] Upload context:`);
-    console.error(`[DEBUG] - Environment: ${env}`);
-    console.error(`[DEBUG] - Supabase URL: ${supabaseUrl}`);
-    console.error(`[DEBUG] - Upload path: ${path}`);
-    console.error(`[DEBUG] - File name: ${file.name}`);
-    console.error(`[DEBUG] - File size: ${file.size} bytes`);
-
-    // Check for common network errors
-    if (error instanceof Error) {
-      this.logNetworkError(error);
-    }
+    return this.runTusUpload({
+      debug,
+      endpoint: `${storageUrl}/storage/v1/upload/resumable`,
+      // Publishable key for staging uploads to uploads/* folder
+      headers: {
+        ...supabaseKeyHeaders(supabaseKey),
+        'x-upsert': 'true', // Allow overwriting existing files
+      },
+      onProgress,
+      path,
+      retryDelays: RETRY_DELAYS,
+      source,
+    });
   }
 }

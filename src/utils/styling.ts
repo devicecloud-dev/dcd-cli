@@ -1,10 +1,15 @@
-import chalk from 'chalk';
+import { inspect } from 'node:util';
 
 import { findEnvByApiUrl } from '../config/environments.js';
 
 /**
  * Centralized styling utilities for CLI output
  * Provides consistent, developer-friendly visual formatting
+ *
+ * Text is styled only when stdout takes colour (see {@link takesColour}); text
+ * bound for stderr goes through {@link forStderr}. The escape codes come from
+ * `util.inspect.colors`, the table Node's `styleText` reads, and are applied
+ * by {@link style}.
  */
 
 /** Strip ANSI color escape sequences for visible-width calculations. */
@@ -12,34 +17,100 @@ import { findEnvByApiUrl } from '../config/environments.js';
 export const stripAnsi = (s: string): string => s.replace(/\u001B\[[0-9;]*m/g, '');
 
 /**
+ * Whether `stream` takes colour, by the rule Node's `styleText` applies:
+ * `FORCE_COLOR` decides when set; otherwise the stream must be a terminal
+ * whose colour depth (which folds in `NO_COLOR`, `NODE_DISABLE_COLORS` and
+ * `TERM=dumb`) is above monochrome.
+ */
+function takesColour(stream: NodeJS.WriteStream): boolean {
+  const force = process.env.FORCE_COLOR;
+  if (force !== undefined) return ['', '1', '2', '3', 'true'].includes(force);
+  return (
+    stream.isTTY === true &&
+    (typeof stream.getColorDepth !== 'function' || stream.getColorDepth() > 2)
+  );
+}
+
+/** The formats the palette uses. Combined styles nest single-format calls. */
+type StyleFormat = 'blue' | 'bold' | 'cyan' | 'gray' | 'green' | 'red' | 'underline' | 'yellow';
+
+/**
+ * Apply `format` to `text` when stdout takes colour.
+ *
+ * This is not left to `util.styleText`, because its output differs across the
+ * runtimes the CLI ships on: bun 1.3 (which compiles the standalone binaries)
+ * and Node before 22.20 drop the outer colour after a nested span, and bun 1.3
+ * and Node before 22.8 colour even when the stream can't show it. The rules
+ * here are the ones chalk applied, so output is the same everywhere:
+ * - an inner span that ends this style's colour re-opens it, so text after
+ *   the span keeps the outer colour;
+ * - each line is closed and re-opened, so a line read on its own (a CI log, a
+ *   pager) still carries its colour;
+ * - an empty string stays empty.
+ *
+ * Anything but a string is printed as `String(value)`, never fatal: the types
+ * may call a value a string that an API sent as null or a number.
+ */
+function style(format: StyleFormat, text: string): string {
+  const s = String(text);
+  const codes = inspect.colors[format];
+  if (s === '' || !codes || !takesColour(process.stdout)) return s;
+  const open = `\u001B[${codes[0]}m`;
+  const close = `\u001B[${codes[1]}m`;
+  const body = s
+    .replaceAll(close, close + open)
+    .replaceAll(/\r?\n/g, (lineBreak) => close + lineBreak + open);
+  return open + body + close;
+}
+
+const paint =
+  (format: StyleFormat) =>
+  (text: string): string =>
+    style(format, text);
+
+const cyan = paint('cyan');
+const underline = paint('underline');
+
+/**
  * Status symbols with associated colors
  */
 export const symbols = {
-  cancelled: chalk.gray('⊘'),
-  deprecation: chalk.red('⚠'),
-  error: chalk.red('✗'),
-  info: chalk.blue('ℹ'),
-  pending: chalk.yellow('⏸'),
-  queued: chalk.gray('⏳'),
-  running: chalk.blue('▶'),
-  success: chalk.green('✓'),
-  unknown: chalk.gray('?'),
-  warning: chalk.yellow('⚠'),
+  cancelled: style('gray', '⊘'),
+  deprecation: style('red', '⚠'),
+  error: style('red', '✗'),
+  info: style('blue', 'ℹ'),
+  pending: style('yellow', '⏸'),
+  queued: style('gray', '⏳'),
+  running: style('blue', '▶'),
+  success: style('green', '✓'),
+  unknown: style('gray', '?'),
+  warning: style('yellow', '⚠'),
 } as const;
 
 /**
  * Color utility functions for semantic styling
  */
 export const colors = {
-  bold: chalk.bold,
-  dim: chalk.gray,
-  error: chalk.red,
-  highlight: chalk.cyan,
-  info: chalk.blue,
-  success: chalk.green,
-  url: chalk.cyan.underline,
-  warning: chalk.yellow,
+  bold: paint('bold'),
+  dim: paint('gray'),
+  error: paint('red'),
+  highlight: cyan,
+  info: paint('blue'),
+  success: paint('green'),
+  url: (text: string): string => cyan(underline(text)),
+  warning: paint('yellow'),
 } as const;
+
+/**
+ * Prepare styled text for stderr. The palette above follows stdout, so when
+ * stdout is a terminal but stderr is not (`dcd cloud 2> err.log`), the colour
+ * codes are stripped here to keep the file plain.
+ * @param text - Text that may carry colour codes from {@link colors} or {@link symbols}
+ * @returns The text, without colour codes unless stderr takes colour
+ */
+export function forStderr(text: string): string {
+  return takesColour(process.stderr) ? text : stripAnsi(text);
+}
 
 /**
  * Structural glyphs that give the CLI its tree-shaped layout. `section` marks a
@@ -148,7 +219,7 @@ export function formatTestSummary(summary: {
   total: number;
 }): string {
   const parts = [
-    chalk.bold(`${summary.completed}/${summary.total}`),
+    colors.bold(`${summary.completed}/${summary.total}`),
     colors.success(`✓ ${summary.passed}`),
     colors.error(`✗ ${summary.failed}`),
     colors.info(`▶ ${summary.running}`),
@@ -170,7 +241,6 @@ export function table<T>(
   options: { printLine?: (line: string) => void } = {},
 ): void {
   const printLine = options.printLine ?? ((line: string) => {
-    // eslint-disable-next-line no-console
     console.log(line);
   });
 
@@ -190,8 +260,8 @@ export function table<T>(
     return s + ' '.repeat(Math.max(0, width - visibleLen));
   };
 
-  printLine(headers.map((h, i) => pad(chalk.bold(h), widths[i])).join('  '));
-  printLine(widths.map((w) => chalk.gray('─'.repeat(w))).join('  '));
+  printLine(headers.map((h, i) => pad(colors.bold(h), widths[i])).join('  '));
+  printLine(widths.map((w) => colors.dim('─'.repeat(w))).join('  '));
   for (const row of cells) {
     printLine(row.map((c, i) => pad(c, widths[i])).join('  '));
   }

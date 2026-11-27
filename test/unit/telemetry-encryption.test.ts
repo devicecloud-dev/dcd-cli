@@ -4,6 +4,7 @@ import { jsonResult, runTool } from '../../src/mcp/helpers.js';
 import {
   type EncryptionTelemetry,
   telemetry,
+  telemetryDisabled,
 } from '../../src/services/telemetry.service.js';
 
 /**
@@ -22,7 +23,7 @@ describe('encryption telemetry (#1138)', () => {
 
   beforeEach(function () {
     // The singleton reads this once, at import.
-    if (process.env.DCD_TELEMETRY_DISABLED) this.skip();
+    if (telemetryDisabled()) this.skip();
 
     events = [];
     globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
@@ -43,7 +44,7 @@ describe('encryption telemetry (#1138)', () => {
     events.filter((e) => e.message === message).pop();
 
   it('puts what the command encrypted on `command completed`, merged as it happens', async () => {
-    telemetry.recordEncryption({ binary: false, env: false, flow: false, source: 'server' });
+    telemetry.recordEncryption({ binary: false, env: false, flow: false, source: 'always' });
     telemetry.recordEncryption({ binary: true });
     telemetry.recordEncryption({ env: true, flow: true });
     telemetry.recordCommandSuccess();
@@ -53,12 +54,12 @@ describe('encryption telemetry (#1138)', () => {
       binary: true,
       env: true,
       flow: true,
-      source: 'server',
+      source: 'always',
     });
   });
 
   it('puts it on `command failed` too', async () => {
-    telemetry.recordEncryption({ binary: false, env: false, flow: false, source: 'flag' });
+    telemetry.recordEncryption({ binary: false, env: false, flow: false, source: 'no_kek' });
     telemetry.recordCommandFailure({ error: new Error('boom'), exitCode: 1 });
     await telemetry.flush();
 
@@ -66,7 +67,7 @@ describe('encryption telemetry (#1138)', () => {
       binary: false,
       env: false,
       flow: false,
-      source: 'flag',
+      source: 'no_kek',
     });
   });
 
@@ -75,7 +76,7 @@ describe('encryption telemetry (#1138)', () => {
       binary: true,
       env: false,
       flow: true,
-      source: 'env',
+      source: 'always',
     };
 
     it('sends the fields a tool adds on its `mcp tool completed` event', async () => {

@@ -27,6 +27,6 @@ export const binaryFlags = {
   encrypt: {
     type: 'boolean',
     description:
-      'Encrypt the app binary, flow zip, and env vars before upload (client-side envelope encryption; each gets its own key). On by default; --no-encrypt or DCD_ENCRYPT=0 turns it off. The binary is still deduplicated across runs, so an unchanged app is not re-uploaded.',
+      'No longer needed: the app binary, flow zip and env vars are always encrypted before upload (client-side envelope encryption; each gets its own key). Kept so existing scripts still run. --no-encrypt and DCD_ENCRYPT=0 are ignored with a warning.',
   },
 } as const satisfies ArgsDef;

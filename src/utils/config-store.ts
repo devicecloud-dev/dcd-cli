@@ -64,7 +64,6 @@ export function readConfig(): StoredConfig | null {
     const raw = readFileSync(p, 'utf8');
     const parsed = JSON.parse(raw) as StoredConfig;
     if (parsed.version !== CONFIG_SCHEMA_VERSION) {
-      // eslint-disable-next-line no-console
       console.warn(
         `Warning: config at ${p} was written by an incompatible CLI version (config version ${parsed.version}); ignoring it. Run \`dcd login\` to recreate it.`,
       );
@@ -74,7 +73,6 @@ export function readConfig(): StoredConfig | null {
   } catch {
     // Surface the corruption instead of silently behaving as logged-out, so
     // downstream "Not authenticated" errors aren't mystifying.
-    // eslint-disable-next-line no-console
     console.warn(
       `Warning: could not parse config at ${p}; treating as logged out. Run \`dcd login\` to recreate it.`,
     );

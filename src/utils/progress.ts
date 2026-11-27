@@ -100,7 +100,6 @@ class Action {
     this.current = null;
     this._status = '';
     if (line) {
-      // eslint-disable-next-line no-console
       console.log(line);
     }
   }
@@ -110,7 +109,6 @@ class Action {
   private print(line: string): void {
     if (line === this._lastPrinted) return;
     this._lastPrinted = line;
-    // eslint-disable-next-line no-console
     console.log(line);
   }
 }
@@ -118,7 +116,6 @@ class Action {
 export const ux = {
   action: new Action(),
   info(message: string): void {
-    // eslint-disable-next-line no-console
     console.log(message);
   },
 };

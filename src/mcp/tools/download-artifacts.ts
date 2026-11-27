@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { ReportDownloadService } from '../../services/report-download.service.js';
 import { getContext, logStderr } from '../context.js';
 import { jsonResult, runTool } from '../helpers.js';
+import { resolveArtifactsPath } from '../../utils/paths.js';
 import { localOutput, markWritten } from '../local-files.js';
 
 /**
@@ -38,7 +39,9 @@ export function registerDownloadArtifacts(server: McpServer): void {
         artifactsPath: z
           .string()
           .optional()
-          .describe('Where to write the artifacts zip, inside the working directory (default ./artifacts.zip)'),
+          .describe(
+            'Where to write the artifacts zip, inside the working directory: a file path, or a folder to put artifacts.zip in (default ./artifacts.zip)',
+          ),
         resultId: z
           .number()
           .int()
@@ -85,7 +88,9 @@ export function registerDownloadArtifacts(server: McpServer): void {
         };
 
         // Both checked before anything is downloaded.
-        const artifactsPath = localOutput(args.artifactsPath ?? './artifacts.zip');
+        // A folder becomes artifacts.zip inside it before the checks, so they
+        // run on the file that gets written.
+        const artifactsPath = localOutput(resolveArtifactsPath(args.artifactsPath ?? './artifacts.zip'));
         const defaultReportPath = args.report
           ? { allure: 'report.html', html: 'report.zip', junit: 'report.xml' }[args.report]
           : undefined;

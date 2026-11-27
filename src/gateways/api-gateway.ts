@@ -1,6 +1,5 @@
 import { createWriteStream, mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -20,12 +19,9 @@ import type {
 } from '../types/domain/live.types.js';
 import type { TeamSettings } from '../types/domain/team-settings.types.js';
 import { components, paths } from '../types/generated/schema.types.js';
+import type { SignedUpload } from './supabase-gateway.js';
+import { expandHome } from '../utils/paths.js';
 import { assertCompleteZip, IncompleteZipError } from '../utils/zip-integrity.js';
-
-/** Expand a leading `~` to the home directory, as the download paths allow. */
-function expandHome(p: string): string {
-  return p.replace(/^~(?=$|\/|\\)/, homedir());
-}
 
 /** Extra checks a bundle download makes before it trusts the manifest. */
 interface BundleDownloadOptions {
@@ -35,8 +31,23 @@ interface BundleDownloadOptions {
    * tells an API that applied the filter from an older one that ignored it.
    */
   requiredFilenamePrefix?: string;
+  /**
+   * Throws the error the inline route gives for the same answer. Called for a
+   * manifest status in {@link FINAL_MANIFEST_STATUSES} instead of falling
+   * back, so the caller's message is the one the user saw before.
+   */
+  throwFinalError?: (res: Response) => Promise<never>;
   unsupportedMessage?: string;
 }
+
+/**
+ * Manifest answers the inline route would only repeat: a bad request, a key
+ * that can't reach the run, a run that isn't there. Falling back on them cost
+ * a second request for the same error. 413 (too many files for the bundle)
+ * and 501 (no bundle delivery here) still fall back, since the inline route
+ * can serve those.
+ */
+const FINAL_MANIFEST_STATUSES: ReadonlySet<number> = new Set([400, 403, 404]);
 
 /** What went wrong in a bundle attempt, minus the route/timing added later. */
 type BundleFailure = Omit<
@@ -57,6 +68,16 @@ function errorDetail(error: unknown): Pick<
     error_message: err.message.slice(0, 300),
     error_name: err.name,
   };
+}
+
+/**
+ * A Node file-system error (EACCES, ENOSPC, EISDIR…) on the local side of a
+ * download. These name a `syscall` and a `path`; network errors from fetch
+ * carry neither.
+ */
+function isLocalFileError(error: unknown): boolean {
+  const e = error as { path?: unknown; syscall?: unknown } | null;
+  return typeof e?.syscall === 'string' && typeof e?.path === 'string';
 }
 
 function failure(
@@ -124,6 +145,15 @@ export interface ResultsPollCache {
   body?: ResultsResponse;
   etag?: string;
 }
+
+/**
+ * An upload-URL response. `signedUpload` comes only from an API that supports
+ * direct uploads, and only when the request asked for it; without it the
+ * client uploads to `tempPath`.
+ */
+type UploadUrlResponse = components['schemas']['IGetBinaryUploadUrlResponse'] & {
+  signedUpload?: SignedUpload;
+};
 
 export const ApiGateway = {
   /**
@@ -295,8 +325,8 @@ export const ApiGateway = {
    * the bundle path is unavailable or anything about it doesn't pan out — a
    * `501` (deployment doesn't offer it), a non-OK manifest response, a body
    * that isn't a manifest, or a delivery-service error — so the caller can fall
-   * back to the inline download endpoint. Definitive errors (e.g. not found)
-   * surface through that inline path instead.
+   * back to the inline download endpoint. A manifest 400, 403 or 404 throws
+   * `throwFinalError`'s error instead, without a fallback.
    */
   async tryBundleDownload(
     baseUrl: string,
@@ -352,9 +382,16 @@ export const ApiGateway = {
       return failure('manifest_request_failed', errorDetail(error));
     }
 
-    // 501 => this deployment has no bundle delivery; any other non-OK => let
-    // the inline path re-request and surface the real error.
+    // 400/403/404 => the inline route would answer the same, so throw its
+    // error now. 501 => this deployment has no bundle delivery; any other
+    // non-OK (413, 5xx) => the inline path may still deliver.
     if (!manifestRes.ok) {
+      if (
+        options.throwFinalError &&
+        FINAL_MANIFEST_STATUSES.has(manifestRes.status)
+      ) {
+        await options.throwFinalError(manifestRes);
+      }
       return failure(
         manifestRes.status === 501 ? 'manifest_unavailable' : 'manifest_http_error',
         { status: manifestRes.status },
@@ -422,6 +459,10 @@ export const ApiGateway = {
         operation,
       );
     } catch (error) {
+      // The destination can't be written (a permission, a full disk): the
+      // inline path would hit the same wall, after making the API build the
+      // whole ZIP. Report it as it is instead of falling back.
+      if (isLocalFileError(error)) throw error;
       return failure('bundle_stream_failed', {
         ...errorDetail(error),
         bytes_received: bytesReceived,
@@ -549,14 +590,18 @@ export const ApiGateway = {
           (filtered ? `&resultId=${resultId}` : ''),
         artifactsPath,
         'Failed to download artifacts',
-        filtered
-          ? {
-              // What the API names a bundle it narrowed to one result.
-              requiredFilenamePrefix: 'artifacts-result-',
-              unsupportedMessage:
-                'Failed to download artifacts: this API does not support downloading one result yet. Download without --result-id or --flow.',
-            }
-          : {},
+        {
+          throwFinalError: (res) =>
+            this.handleApiError(res, 'Failed to download artifacts'),
+          ...(filtered
+            ? {
+                // What the API names a bundle it narrowed to one result.
+                requiredFilenamePrefix: 'artifacts-result-',
+                unsupportedMessage:
+                  'Failed to download artifacts: this API does not support downloading one result yet. Download without --result-id or --flow.',
+              }
+            : {}),
+        },
       )
     ) {
       return;
@@ -607,8 +652,13 @@ export const ApiGateway = {
      */
     shaPlain?: string;
     supabaseSuccess: boolean;
+    /**
+     * True when `path` is the final path a signed token uploaded to. The API
+     * then checks the object is there and skips its copy.
+     */
+    useTus?: boolean;
   }) {
-    const { baseUrl, auth, id, metadata, path, sha, shaPlain, supabaseSuccess, backblazeSuccess, bytes } = config;
+    const { baseUrl, auth, id, metadata, path, sha, shaPlain, supabaseSuccess, backblazeSuccess, bytes, useTus } = config;
     try {
       const res = await fetch(`${baseUrl}/uploads/finaliseUpload`, {
         body: JSON.stringify({
@@ -616,10 +666,11 @@ export const ApiGateway = {
           bytes,
           id,
           metadata,
-          path, // This is tempPath for TUS uploads
+          path, // tempPath, or the signed final path when useTus is set
           ...(sha ? { sha } : {}),
           ...(shaPlain ? { shaPlain } : {}),
           supabaseSuccess,
+          ...(useTus ? { useTus } : {}),
         }),
         headers: {
           'content-type': 'application/json',
@@ -651,7 +702,9 @@ export const ApiGateway = {
   ) {
     try {
       const res = await fetch(`${baseUrl}/uploads/getBinaryUploadUrl`, {
-        body: JSON.stringify({ platform, fileSize }),
+        // signedUpload: ask for a token to upload straight to the final
+        // path. An API without direct uploads ignores the field.
+        body: JSON.stringify({ platform, fileSize, signedUpload: true }),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
@@ -662,9 +715,7 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to get upload URL');
       }
 
-      return await parseJsonResponse<
-        paths['/uploads/getBinaryUploadUrl']['post']['responses']['201']['content']['application/json']
-      >(res, 'Failed to get upload URL');
+      return await parseJsonResponse<UploadUrlResponse>(res, 'Failed to get upload URL');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/getBinaryUploadUrl`);
@@ -972,7 +1023,7 @@ export const ApiGateway = {
   ) {
     try {
       const res = await fetch(`${baseUrl}/uploads/getFlowUploadUrl`, {
-        body: JSON.stringify({ fileSize, useTus: true }),
+        body: JSON.stringify({ fileSize, signedUpload: true, useTus: true }),
         headers: {
           'content-type': 'application/json',
           ...auth.headers,
@@ -983,13 +1034,44 @@ export const ApiGateway = {
         await this.handleApiError(res, 'Failed to get flow upload URL');
       }
 
-      // Same response shape as getBinaryUploadUrl: { id, tempPath, finalPath, path, b2?, token? }.
-      return await parseJsonResponse<
-        components['schemas']['IGetBinaryUploadUrlResponse']
-      >(res, 'Failed to get flow upload URL');
+      // Same response shape as getBinaryUploadUrl.
+      return await parseJsonResponse<UploadUrlResponse>(res, 'Failed to get flow upload URL');
     } catch (error) {
       if (error instanceof TypeError && error.message === 'fetch failed') {
         throw this.enhanceFetchError(error, `${baseUrl}/uploads/getFlowUploadUrl`);
+      }
+
+      throw error;
+    }
+  },
+
+  /**
+   * A fresh signed upload token for a path an upload-URL response gave us,
+   * so an upload whose token expired can carry on. The API refuses a path
+   * outside the caller's org and an upload that is already finalised.
+   */
+  async refreshUploadToken(baseUrl: string, auth: AuthContext, path: string): Promise<SignedUpload> {
+    try {
+      const res = await fetch(`${baseUrl}/uploads/refreshUploadToken`, {
+        body: JSON.stringify({ path }),
+        headers: {
+          'content-type': 'application/json',
+          ...auth.headers,
+        },
+        method: 'POST',
+      });
+      if (!res.ok) {
+        await this.handleApiError(res, 'Failed to refresh upload token');
+      }
+
+      const { signedUpload } = await parseJsonResponse<{ signedUpload: SignedUpload }>(
+        res,
+        'Failed to refresh upload token',
+      );
+      return signedUpload;
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'fetch failed') {
+        throw this.enhanceFetchError(error, `${baseUrl}/uploads/refreshUploadToken`);
       }
 
       throw error;
@@ -1144,6 +1226,17 @@ export const ApiGateway = {
     const finalReportPath = reportPath || path.resolve(process.cwd(), defaultFilename);
     const url = `${baseUrl}${endpoint}`;
 
+    // The error for a non-OK answer, from the inline route or, for the html
+    // report, a final answer from its bundle route.
+    const throwHttpError = async (res: Response): Promise<never> => {
+      const errorText = await res.text();
+      if (res.status === 404) {
+        throw new Error(notFoundMessage);
+      }
+
+      throw new Error(`${errorPrefix}: ${res.status} ${errorText}`);
+    };
+
     // The HTML report is a ZIP bundle; prefer bundle delivery when available.
     // (junit is a single small file and allure has its own endpoint — both stay
     // on the inline path.)
@@ -1155,6 +1248,7 @@ export const ApiGateway = {
         `/results/${uploadId}/report-bundle`,
         finalReportPath,
         errorPrefix,
+        { throwFinalError: throwHttpError },
       ))
     ) {
       return;
@@ -1170,12 +1264,7 @@ export const ApiGateway = {
       });
 
       if (!res.ok) {
-        const errorText = await res.text();
-        if (res.status === 404) {
-          throw new Error(notFoundMessage);
-        }
-
-        throw new Error(`${errorPrefix}: ${res.status} ${errorText}`);
+        await throwHttpError(res);
       }
 
       await this.streamResponseToFile(res, finalReportPath, errorPrefix);

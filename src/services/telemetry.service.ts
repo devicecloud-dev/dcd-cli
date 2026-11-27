@@ -10,7 +10,8 @@
  * - `flushSync()` — sync via `curl`, used inside `logger.error` right before
  *   `process.exit` (no other way to send HTTP after exit is called)
  *
- * Opt out: `DCD_TELEMETRY_DISABLED=1` in the environment.
+ * Opt out: `DCD_TELEMETRY_DISABLED=1` or `DO_NOT_TRACK=1` in the environment
+ * (see telemetryDisabled).
  */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -82,6 +83,21 @@ interface TelemetryConfig {
 
 const DEFAULT_API_URL = 'https://api.devicecloud.dev';
 
+/** Set to something other than empty, `0` or `false` (in any case). */
+function isOn(value: string | undefined): boolean {
+  const v = value?.trim().toLowerCase();
+  return v !== undefined && v !== '' && v !== '0' && v !== 'false';
+}
+
+/**
+ * Whether the user has turned telemetry off: `DCD_TELEMETRY_DISABLED`, or
+ * `DO_NOT_TRACK`, the cross-tool convention (https://consoledonottrack.com).
+ * `0` or `false` leaves telemetry on, so `DO_NOT_TRACK=0` means what it says.
+ */
+export function telemetryDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isOn(env.DCD_TELEMETRY_DISABLED) || isOn(env.DO_NOT_TRACK);
+}
+
 class Telemetry {
   private buffer: TelemetryEvent[] = [];
   private config: TelemetryConfig | null = null;
@@ -90,7 +106,7 @@ class Telemetry {
   private submitAttempts: number | undefined;
   private sessionId: string = randomUUID();
   private startedAt: number = Date.now();
-  private readonly disabled: boolean = !!process.env.DCD_TELEMETRY_DISABLED;
+  private readonly disabled: boolean = telemetryDisabled();
   private readonly release: string = getCliVersion();
 
   /**
@@ -99,11 +115,16 @@ class Telemetry {
    * be sent. Commands that never reach `resolveAuth` (`--help`, `--version`,
    * `dcd login` before sign-in completes) will skip telemetry entirely — by
    * design, since those flows have no identity to attach.
+   *
+   * Events go where the command's requests go: the `--api-url` flag first,
+   * then `opts.apiUrl` (a login's stored API). Taking the login's API first
+   * sent events from a command aimed at another API (a local one, or dev) to
+   * that login's API instead.
    */
   configure(opts: { auth: AuthContext; apiUrl?: string }) {
     if (this.disabled) return;
     this.config = {
-      apiUrl: opts.apiUrl ?? inferApiUrlFromArgv(),
+      apiUrl: argvApiUrl() ?? opts.apiUrl ?? DEFAULT_API_URL,
       auth: opts.auth,
       command: this.command,
     };
@@ -343,7 +364,6 @@ class Telemetry {
       nodeVersion: process.versions.node,
       platform: process.platform,
       arch: process.arch,
-      userEmail: this.config.auth.userEmail,
       orgId: this.config.auth.orgId,
     };
   }
@@ -448,11 +468,12 @@ function inferCommandFromArgv(): string {
 
 const API_URL_FLAGS = ['--api-url', '--apiURL', '--apiUrl'];
 
-function inferApiUrlFromArgv(): string {
+/** The `--api-url` this command was given, if it is one the command would use. */
+function argvApiUrl(): string | undefined {
   const args = process.argv.slice(2);
   // Only a URL the command itself would send credentials to: these events
   // carry them too, and may be sent before the command checks its flag.
-  const usable = (url: string) => (checkApiUrl(url.trim()).ok ? url.trim() : DEFAULT_API_URL);
+  const usable = (url: string) => (checkApiUrl(url.trim()).ok ? url.trim() : undefined);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     for (const flag of API_URL_FLAGS) {
@@ -460,7 +481,7 @@ function inferApiUrlFromArgv(): string {
       if (arg.startsWith(`${flag}=`)) return usable(arg.slice(flag.length + 1));
     }
   }
-  return DEFAULT_API_URL;
+  return undefined;
 }
 
 export const telemetry = new Telemetry();

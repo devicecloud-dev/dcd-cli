@@ -254,7 +254,6 @@ export class ResultsPollingService {
 
     try {
       // Poll in a loop until all tests complete
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         try {
           nextPollAt = null;
@@ -463,7 +462,6 @@ export class ResultsPollingService {
           },
         },
         ...(hasFailedTests && {
-          // eslint-disable-next-line camelcase
           fail_reason: {
             get(row) {
               return row.status === 'FAILED' && row.fail_reason

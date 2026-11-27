@@ -51,72 +51,59 @@ export interface EnvEnvelope extends BinaryEnvelope {
   ciphertext: string;
 }
 
-/** What decided whether a run encrypts (dcd#1138); recorded in telemetry. */
-export type EncryptionSource = 'env' | 'flag' | 'off' | 'server';
+/**
+ * Whether a run's uploads were encrypted (dcd#1138); recorded in telemetry.
+ * `always` is the normal case. `no_kek` means the API publishes no KEK public
+ * key, so there was nothing to encrypt against. `off` means the command never
+ * reached an upload.
+ */
+export type EncryptionSource = 'always' | 'no_kek' | 'off';
 
 export interface EncryptionDecision {
   enabled: boolean;
-  /** Kept when encryption is skipped, so telemetry shows what asked for it. */
   source: EncryptionSource;
-  /** One line for the user when encryption was wanted but is skipped. */
+  /** One line for the user: an ignored opt-out, or why encryption is skipped. */
   notice?: string;
 }
 
-/** `1`/`true` is on and `0`/`false` is off, in any case; anything else is unset. */
-function parseEncryptEnv(value: string | undefined): boolean | undefined {
-  switch (value?.trim().toLowerCase()) {
-    case '1':
-    case 'true': {
-      return true;
-    }
-
-    case '0':
-    case 'false': {
-      return false;
-    }
-
-    default: {
-      return undefined;
-    }
-  }
+/** `0`/`false` in any case: a value that used to turn encryption off. */
+function isOptOutValue(value: string | undefined): boolean {
+  const v = value?.trim().toLowerCase();
+  return v === '0' || v === 'false';
 }
 
 /**
- * Whether client-side envelope encryption is on, and what decided it. The
- * first of these that is set wins:
- *   1. `flag`: `--encrypt` / `--no-encrypt`, or the MCP tool's `encrypt` input.
- *   2. `DCD_ENCRYPT`, then its legacy alias `DCD_ENCRYPT_BINARIES`.
- *   3. `serverDefault`: `encryption.defaultOn` from the compatibility data,
- *      which the API turns on for every org unless its kill switch is set.
- *   4. Off. An API too old to send `encryption` ends up here.
- * When on, the binary, the flow zip, and the env map are each encrypted with
- * their **own** per-upload DEK (all wrapped under the same per-env KEK).
+ * Uploads are always encrypted: the app binary, the flow zip and the env map
+ * each get their own per-upload DEK, all wrapped under the same per-env KEK.
+ *
+ * There is no opt-out any more. `--no-encrypt` (seen here as `flag: false`)
+ * and `DCD_ENCRYPT=0` / `DCD_ENCRYPT_BINARIES=0` are ignored with a warning,
+ * so scripts that still pass them keep working. `--encrypt` is a no-op.
  */
 export function resolveEncryption(opts: {
   env?: NodeJS.ProcessEnv;
   flag?: boolean;
-  serverDefault?: boolean;
-}): EncryptionDecision {
-  const { env = process.env, flag, serverDefault } = opts;
-  if (flag !== undefined) return { enabled: flag, source: 'flag' };
+} = {}): EncryptionDecision {
+  const { env = process.env, flag } = opts;
+  const ignored: string[] = [];
+  if (flag === false) ignored.push('--no-encrypt');
+  if (isOptOutValue(env.DCD_ENCRYPT)) ignored.push('DCD_ENCRYPT');
+  if (isOptOutValue(env.DCD_ENCRYPT_BINARIES)) ignored.push('DCD_ENCRYPT_BINARIES');
 
-  const fromEnv =
-    parseEncryptEnv(env.DCD_ENCRYPT) ?? parseEncryptEnv(env.DCD_ENCRYPT_BINARIES);
-  if (fromEnv !== undefined) return { enabled: fromEnv, source: 'env' };
-
-  if (serverDefault === true) return { enabled: true, source: 'server' };
-  return { enabled: false, source: 'off' };
+  const decision: EncryptionDecision = { enabled: true, source: 'always' };
+  if (ignored.length > 0) {
+    decision.notice = `Ignoring ${ignored.join(' and ')}: uploads are always encrypted.`;
+  }
+  return decision;
 }
 
 /**
  * Check that `apiUrl` has a KEK before a run encrypts against it: either
  * `DCD_BINARY_KEK_PUBLIC` is set or the API publishes one on `GET /cli-config`
- * (see resolveKekPublicKey). Without one, an explicit `--encrypt` is an error,
- * while encryption from DCD_ENCRYPT or the server default is skipped with a
- * notice, so a run against an API that publishes no KEK uploads in plaintext
- * as before. An API that cannot be asked at all is an error whatever decided
- * encryption: silently falling back to plaintext would be the one outcome the
- * org asked not to have.
+ * (see resolveKekPublicKey). An API that publishes no KEK gets plaintext
+ * uploads with a notice: that is the server's own switch, and the only way to
+ * turn encryption off. An API that cannot be asked at all is an error, since
+ * silently falling back to plaintext would hide the failure.
  */
 export async function checkKekForEncryption(
   decision: EncryptionDecision,
@@ -124,17 +111,10 @@ export async function checkKekForEncryption(
 ): Promise<EncryptionDecision> {
   if (!decision.enabled || (await resolveKekPublicKey(apiUrl))) return decision;
 
-  if (decision.source === 'flag') {
-    throw new Error(
-      `--encrypt needs the KEK public key of the API it uploads to, and ${apiUrl} does not publish one. ` +
-        'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64> to encrypt against it, or drop --encrypt.',
-    );
-  }
-
   return {
     enabled: false,
     notice: `Not encrypting uploads: ${apiUrl} does not publish a KEK public key. Set DCD_BINARY_KEK_PUBLIC to encrypt against it.`,
-    source: decision.source,
+    source: 'no_kek',
   };
 }
 

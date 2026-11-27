@@ -146,7 +146,6 @@ export class MoropoService {
   }
 
   private async extractZipFile(zipPath: string, extractPath: string): Promise<void> {
-    // eslint-disable-next-line new-cap
     const zip = new StreamZip.async({ file: zipPath });
     await zip.extract(null, extractPath);
     await zip.close();

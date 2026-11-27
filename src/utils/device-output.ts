@@ -4,7 +4,7 @@ import { DeviceApiError, DeviceGateway } from '../gateways/device-gateway.js';
 import type { AuthContext } from '../types/domain/auth.types.js';
 import type { DeviceHumanStatus, DeviceSession, DeviceSessionStarter } from '../types/domain/device-session.types.js';
 import { CliError, logger } from './cli.js';
-import { colors, formatUrl } from './styling.js';
+import { colors, formatUrl, forStderr } from './styling.js';
 import { type Field, ui } from './ui.js';
 
 /**
@@ -135,7 +135,7 @@ export async function runDeviceCommand<T>(
  */
 export function deviceProgress(json: boolean): (message: string) => void {
   return (message) => {
-    if (!json) process.stderr.write(`${message}\n`);
+    if (!json) process.stderr.write(`${forStderr(message)}\n`);
   };
 }
 

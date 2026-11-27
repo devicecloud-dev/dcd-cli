@@ -241,8 +241,8 @@ export class TestSubmissionService {
       const kek = await resolveKekPublicKey(apiUrl);
       if (!kek) {
         throw new Error(
-          'Encryption is on (from --encrypt, DCD_ENCRYPT or the default) but no KEK public key is configured for this API. ' +
-            'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64>, or pass --no-encrypt to upload without encryption.',
+          'Encryption is on but no KEK public key is configured for this API. ' +
+            'Set DCD_BINARY_KEK_PUBLIC=<version>:<base64>.',
         );
       }
       const flow = encryptFlowBuffer(plaintextZip, kek);
@@ -448,7 +448,6 @@ export class TestSubmissionService {
   }
 
   private parseKeyValuePairs(pairs: string[]): Record<string, string> {
-    // eslint-disable-next-line unicorn/no-array-reduce
     return pairs.reduce((acc, cur) => {
       const [key, ...value] = cur.split('=');
       // handle case where value includes an equals sign

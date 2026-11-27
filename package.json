@@ -7,9 +7,7 @@
   "dependencies": {
     "@clack/prompts": "^1.6.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
-    "@supabase/supabase-js": "^2.108.2",
-    "bplist-parser": "^0.5.0",
-    "chalk": "^6.0.0",
+    "bplist-parser": "^0.6.0",
     "citty": "^0.2.2",
     "js-yaml": "^5.2.2",
     "node-stream-zip": "^1.15.0",
@@ -29,7 +27,6 @@
     "chai": "^6.2.2",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-unicorn": "^79.0.0",
     "husky": "^9.1.7",
     "mocha": "^12.0.0",
     "prettier": "^3.8.4",
@@ -38,7 +35,7 @@
     "typescript-eslint": "^8.73.0"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.8.0"
   },
   "files": [
     "/dist"
@@ -66,7 +63,7 @@
     "test:unit": "node scripts/test-runner.mjs --unit",
     "typecheck": "tsc --noEmit -p tsconfig.test.json"
   },
-  "version": "5.15.0",
+  "version": "5.16.0",
   "bugs": {
     "url": "https://discord.gg/gm3mJwcNw8"
   },
@@ -79,18 +76,20 @@
     "testing"
   ],
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./e2e": {
+      "types": "./dist/e2e/index.d.ts",
+      "default": "./dist/e2e/index.js"
+    },
+    "./package.json": "./package.json",
+    "./dist/*": "./dist/*"
+  },
   "packageManager": "pnpm@10.17.1",
   "pnpm": {
     "overrides": {
       "minimatch@>=10.0.0 <11.0.1": "11.0.1",
       "glob@>=9.0.0 <14.0.2": "14.0.2"
-    },
-    "auditConfig": {
-      "ignoreGhsas": [
-        "GHSA-frvp-7c67-39w9",
-        "GHSA-vfj7-8cjw-p6xm",
-        "GHSA-fc5q-39xc-vjpf"
-      ]
     }
   }
 }

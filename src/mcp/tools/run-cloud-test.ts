@@ -128,12 +128,6 @@ export function registerRunCloudTest(server: McpServer): void {
           .optional()
           .describe('Force re-upload of the binary even if an identical one exists'),
         dryRun: z.boolean().optional().describe('Preview flows that would run without submitting'),
-        encrypt: z
-          .boolean()
-          .optional()
-          .describe(
-            'true encrypts the binary, flow zip and env vars client-side before upload; false never does. Omit to follow DCD_ENCRYPT, then the default, which is on.',
-          ),
         wait: z
           .boolean()
           .optional()
@@ -232,15 +226,9 @@ export function registerRunCloudTest(server: McpServer): void {
           });
         }
 
-        // Client-side envelope encryption (binary/flow/env), in the same order
-        // as `dcd cloud`: the encrypt input, DCD_ENCRYPT, then the server default.
-        const encryption = await checkKekForEncryption(
-          resolveEncryption({
-            flag: args.encrypt,
-            serverDefault: compatibilityData.encryption?.defaultOn,
-          }),
-          apiUrl,
-        );
+        // Client-side envelope encryption (binary/flow/env), always on, as
+        // in `dcd cloud`.
+        const encryption = await checkKekForEncryption(resolveEncryption(), apiUrl);
         const encrypt = encryption.enabled;
         if (encryption.notice) logStderr(encryption.notice);
         // Filled in as each part is encrypted; sent on this call's telemetry.
@@ -251,9 +239,6 @@ export function registerRunCloudTest(server: McpServer): void {
           source: encryption.source,
         };
         telemetryExtra.encrypt = encryptTelemetry;
-        if (encrypt && encryption.source === 'server') {
-          logStderr('Encrypting uploads; opt out with encrypt: false');
-        }
 
         // Resolve the binary: existing id, or upload the local file.
         let appBinaryId = args.appBinaryId;
