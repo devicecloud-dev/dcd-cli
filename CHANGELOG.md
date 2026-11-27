@@ -1,5 +1,38 @@
 # Changelog
 
+## [5.16.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.15.0...v5.16.0) (2026-11-27)
+
+
+### Features
+
+* **e2e:** link each test's video to its part of the session recording ([#362](https://github.com/devicecloud-dev/dcd-cli/issues/362)) ([924181e](https://github.com/devicecloud-dev/dcd-cli/commit/924181effca63f04bb7e16542988f862916560d6))
+* **e2e:** run e2e tests on DeviceCloud devices with @devicecloud.dev/dcd/e2e ([#346](https://github.com/devicecloud-dev/dcd-cli/issues/346)) ([d772c53](https://github.com/devicecloud-dev/dcd-cli/commit/d772c533bf56165292e30420a0598f21469af86a))
+* **e2e:** set the device's locale from the e2e provider ([#355](https://github.com/devicecloud-dev/dcd-cli/issues/355)) ([ba43df4](https://github.com/devicecloud-dev/dcd-cli/commit/ba43df49e655d54f3e78fab9d6ce853213c7d0e7))
+* **encryption:** always encrypt uploads; ignore --no-encrypt and DCD_ENCRYPT=0 ([#363](https://github.com/devicecloud-dev/dcd-cli/issues/363)) ([a2c4f76](https://github.com/devicecloud-dev/dcd-cli/commit/a2c4f76c19f471f363636bd2e8a3fbdf85e7016a))
+* **telemetry:** honour DO_NOT_TRACK, and document what telemetry sends ([#364](https://github.com/devicecloud-dev/dcd-cli/issues/364)) ([422012a](https://github.com/devicecloud-dev/dcd-cli/commit/422012a7c8ad73dbf1ffa1e7305e58e90c86668d))
+* **upload:** upload straight to the final storage path with a signed token ([#360](https://github.com/devicecloud-dev/dcd-cli/issues/360)) ([00b2807](https://github.com/devicecloud-dev/dcd-cli/commit/00b2807f59138737fb00a112d088d4c96a884fe2))
+
+
+### Bug Fixes
+
+* keep chalk's colour output in nested and multi-line text ([#353](https://github.com/devicecloud-dev/dcd-cli/issues/353)) ([bb273f0](https://github.com/devicecloud-dev/dcd-cli/commit/bb273f0f88d5cc7bc9d123f5e7eda50103df1993))
+* **artifacts:** save into a folder given as the artifacts path, and d… ([#354](https://github.com/devicecloud-dev/dcd-cli/issues/354)) ([9d9adc2](https://github.com/devicecloud-dev/dcd-cli/commit/9d9adc2065c9787399422651e5cfb57740b186b9))
+* **device:** drop iOS 17 from the help text ([#356](https://github.com/devicecloud-dev/dcd-cli/issues/356)) ([c3e0fdf](https://github.com/devicecloud-dev/dcd-cli/commit/c3e0fdfc49ffb73a9ee49e041ef6d929968d1f86))
+* **download:** show a manifest 400/403/404 instead of re-requesting the inline route ([#357](https://github.com/devicecloud-dev/dcd-cli/issues/357)) ([03c01df](https://github.com/devicecloud-dev/dcd-cli/commit/03c01dfc256081aede92d8250f1f2f398465250a))
+* **upload:** refresh the upload token when Storage reports it expired ([#361](https://github.com/devicecloud-dev/dcd-cli/issues/361)) ([161c428](https://github.com/devicecloud-dev/dcd-cli/commit/161c4284af227d119439ffe92420c387f11b2e1d))
+* **upload:** send resumable uploads to the configured Supabase URL ([#358](https://github.com/devicecloud-dev/dcd-cli/issues/358)) ([edf10a7](https://github.com/devicecloud-dev/dcd-cli/commit/edf10a7e9d46dcd50660188da8c4c02f00a8bfcf))
+* **upload:** send Storage uploads with fetch in the standalone binary ([#359](https://github.com/devicecloud-dev/dcd-cli/issues/359)) ([e03a78e](https://github.com/devicecloud-dev/dcd-cli/commit/e03a78ed4cdf25eeeb074d667b3b418646715019))
+
+
+### Dependencies
+
+* bump the minor-and-patch group with 3 updates ([#348](https://github.com/devicecloud-dev/dcd-cli/issues/348)) ([64f0942](https://github.com/devicecloud-dev/dcd-cli/commit/64f0942ab1244656aabec30785ca3ef30d04969e))
+
+
+### Code Refactoring
+
+* replace chalk with node:util styleText ([#352](https://github.com/devicecloud-dev/dcd-cli/issues/352)) ([2e2377b](https://github.com/devicecloud-dev/dcd-cli/commit/2e2377bfd357bdebfd7a69beb7122d65e8af4818))
+
 ## [5.15.0](https://github.com/devicecloud-dev/dcd-cli/compare/v5.14.1...v5.15.0) (2026-11-19)
 
 
